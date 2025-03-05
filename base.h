@@ -488,6 +488,4 @@ typedef struct {
 	allocator_vtable* ArenaVTable;
 } base;
 
-#include "data_parser.h"
-
 #endif

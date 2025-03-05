@@ -1,7 +1,7 @@
-#include <base/base.h>
+#include "../../base.h"
 #include "win32_base.h"
 
-#include <base/base.c>
+#include "../../base.c"
 
 global win32_base* G_Win32;
 

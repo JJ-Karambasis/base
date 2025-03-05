@@ -2702,5 +2702,3 @@ function inline b32 Compare_String(void* A, void* B) {
 	string* StringB = (string*)B;
 	return String_Equals(*StringA, *StringB);
 }
-
-#include "data_parser.c"
