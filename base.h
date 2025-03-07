@@ -488,4 +488,6 @@ typedef struct {
 	allocator_vtable* ArenaVTable;
 } base;
 
+#include "akon.h"
+
 #endif

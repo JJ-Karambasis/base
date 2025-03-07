@@ -1948,6 +1948,32 @@ function string String_From_WString(allocator* Allocator, wstring WString) {
 	return Result;
 }
 
+function b32 Try_Parse_Bool(string String, b32* OutBool) {
+	b32 EqualsTrue = String_Equals(String, String_Lit("true"));
+	if (EqualsTrue) {
+		if (OutBool) *OutBool = true;
+		return true;
+	}
+
+	b32 EqualsFalse = String_Equals(String, String_Lit("false"));
+	if (EqualsFalse) {
+		if (OutBool) *OutBool = false;
+		return true;
+	}
+
+	return false;
+}
+
+function b32 Try_Parse_Number(string String, f64* OutNumber) {
+	char* OutPtr;
+	f64 Numeric = strtod(String.Ptr, &OutPtr);
+	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+		if (OutNumber) *OutNumber = Numeric;
+		return true;
+	}
+	return false;
+}
+
 function size_t WString_Length(const wchar_t* Ptr) {
 	return wcslen(Ptr);
 }
@@ -2702,3 +2728,5 @@ function inline b32 Compare_String(void* A, void* B) {
 	string* StringB = (string*)B;
 	return String_Equals(*StringA, *StringB);
 }
+
+#include "akon.c"
