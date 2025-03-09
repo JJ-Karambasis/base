@@ -33,6 +33,8 @@
 #define Abs(v) (((v) < 0) ? -(v) : (v))
 #define Sq(v) ((v)*(v))
 
+#define Offset_Of(type, variable) offsetof(type, variable)
+
 #define Sign_Of(v) ((v) < 0 ? -1 : 1)
 
 #define Max(a, b) (((a) > (b)) ? (a) : (b))

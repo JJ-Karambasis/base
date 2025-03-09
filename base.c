@@ -1380,6 +1380,85 @@ function void Scratch_Release() {
 	Arena_Set_Marker(ThreadContext->ScratchArenas[ScratchIndex], ThreadContext->ScratchMarkers[ScratchIndex]);
 }
 
+
+#define Array_Implement(type, name) \
+function type##_array name##_Array_Init(type* Ptr, size_t Count) { \
+	type##_array Result = { \
+	.Count = Count, \
+	.Ptr = Ptr \
+}; \
+	return Result; \
+} \
+	function type##_array name##_Array_Alloc(allocator* Allocator, size_t Count) { \
+		type* Ptr = Allocator_Allocate_Array(Allocator, Count, type); \
+			return name##_Array_Init(Ptr, Count); \
+} \
+	function type##_array name##_Array_Copy(allocator* Allocator, type* Ptr, size_t Count) { \
+		type##_array Result = name##_Array_Alloc(Allocator, Count); \
+			Memory_Copy(Result.Ptr, Ptr, Count * sizeof(type)); \
+				return Result; \
+} \
+	function type##_array name##_Array_Sub(type##_array Array, size_t StartIndex, size_t EndIndex) { \
+		Assert(StartIndex <= EndIndex); \
+		Assert(EndIndex <= Array.Count); \
+		type##_array Result = name##_Array_Init(Array.Ptr + StartIndex, EndIndex-StartIndex); \
+		return Result; \
+}
+
+Array_Implement(char, Char);
+Array_Implement(u32, U32);
+Array_Implement(v3, V3);
+Array_Implement(string, String);
+
+#define Dynamic_Array_Implement(container_name, type, name) \
+function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* Array, size_t NewCapacity) { \
+	allocator* Allocator = Array->Allocator; \
+		type* NewPtr = Allocator_Allocate_Array(Allocator, NewCapacity, type); \
+			\
+			if (Array->Ptr) { \
+				size_t MinCapacity = Min(Array->Capacity, NewCapacity); \
+					Memory_Copy(NewPtr, Array->Ptr, MinCapacity * sizeof(type)); \
+						Allocator_Free_Memory(Allocator, Array->Ptr); \
+			} \
+				\
+				if (Array->Count > NewCapacity) { \
+					Array->Count = NewCapacity; \
+				} \
+					\
+					Array->Capacity = NewCapacity; \
+						Array->Ptr = NewPtr; \
+} \
+	function dynamic_##container_name##_array Dynamic_##name##_Array_Init_With_Size(allocator* Allocator, size_t InitialCapacity) { \
+		dynamic_##container_name##_array Result = { \
+		.Allocator = Allocator \
+}; \
+	\
+	Dynamic_##name##_Array_Reserve(&Result, InitialCapacity); \
+		return Result; \
+} \
+	function dynamic_##container_name##_array Dynamic_##name##_Array_Init(allocator* Allocator) { \
+		return Dynamic_##name##_Array_Init_With_Size(Allocator, 32); \
+} \
+	function void Dynamic_##name##_Array_Add(dynamic_##container_name##_array* Array, type Entry) { \
+		if (Array->Count == Array->Capacity) { \
+			Dynamic_##name##_Array_Reserve(Array, Array->Capacity*2); \
+		} \
+			Array->Ptr[Array->Count++] = Entry; \
+} \
+	function void Dynamic_##name##_Array_Add_Range(dynamic_##container_name##_array* Array, type* Ptr, size_t Count) { \
+		if (Array->Count+Count >= Array->Capacity) { \
+			Dynamic_##name##_Array_Reserve(Array, Max(Array->Capacity*2, Array->Count+Count)); \
+		} \
+			Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type)); \
+				Array->Count += Count; \
+}
+
+#define Dynamic_Array_Implement_Type(type, name) Dynamic_Array_Implement(type, type, name)
+#define Dynamic_Array_Implement_Ptr(type, name) Dynamic_Array_Implement(type, type*, name)
+
+Dynamic_Array_Implement_Type(char, Char);
+Dynamic_Array_Implement_Type(string, String);
+
 global const u8 G_ClassUTF8[32] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,2,2,2,2,3,3,4,5,
 };
@@ -1590,6 +1669,43 @@ function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex) {
 	return Make_String(At, LastIndex - FirstIndex);
 }
 
+function string_array String_Split(allocator* Allocator, string String, string Substr) {
+	Assert(String.Size && Substr.Size);
+	dynamic_string_array Result = Dynamic_String_Array_Init(Allocator);
+	if (Substr.Size > String.Size) {
+		Dynamic_String_Array_Add(&Result, String);
+		return String_Array_Init(Result.Ptr, Result.Count);
+	}
+
+	size_t StartIndex = 0;
+	size_t StringIndex = 0;
+	while (StringIndex < String.Size) {
+		size_t SubstringIndex = 0;
+		size_t TotalStringIndex = StringIndex+SubstringIndex;
+		while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
+			if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
+				SubstringIndex++;
+				TotalStringIndex++;
+			} else {
+				break;
+			}
+		}
+
+		if (SubstringIndex == Substr.Size) {
+			Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
+			StartIndex = StringIndex+Substr.Size;
+		}
+
+		StringIndex++;
+	}
+
+	if (StartIndex < StringIndex) {
+		Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
+	}
+
+	return String_Array_Init(Result.Ptr, Result.Count);
+}
+
 function b32 String_Is_Empty(string String) {
 	return !String.Ptr || !String.Size;
 }
@@ -1696,6 +1812,11 @@ function string String_Directory_Concat(allocator* Allocator, string StringA, st
 
 	string String = String_Combine(Allocator, Strings, StringCount);
 	return String;
+}
+
+function inline b32 String_Starts_With_Char(string String, char Character) {
+	if (!String.Size) return false;
+	return String.Ptr[0] == Character;
 }
 
 function inline b32 String_Ends_With_Char(string String, char Character) {
@@ -2042,11 +2163,15 @@ function inline b32 SStream_Reader_Is_Valid(sstream_reader* Reader) {
 	return Reader->At < Reader->End;
 }
 
+function inline size_t SStream_Reader_Get_Index(sstream_reader* Reader) {
+	return ((intptr_t)Reader->At - (intptr_t)Reader->Start);
+}
+
 function sstream_char SStream_Reader_Peek_Char(sstream_reader* Reader) {
 	Assert(Reader->At < Reader->End);
 	sstream_char Result = {
 		.Char = *Reader->At,
-		.Index = (size_t)((intptr_t)Reader->At - (intptr_t)Reader->Start),
+		.Index = SStream_Reader_Get_Index(Reader),
 		.LineIndex = Reader->LineIndex,
 		.ColumnIndex = Reader->ColumnIndex
 	};
@@ -2424,78 +2549,6 @@ function inline b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Valu
 	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
 	return true;
 }
-
-#define Array_Implement(type, name) \
-function type##_array name##_Array_Init(type* Ptr, size_t Count) { \
-	type##_array Result = { \
-		.Count = Count, \
-		.Ptr = Ptr \
-	}; \
-	return Result; \
-} \
-function type##_array name##_Array_Alloc(allocator* Allocator, size_t Count) { \
-	type* Ptr = Allocator_Allocate_Array(Allocator, Count, type); \
-	return name##_Array_Init(Ptr, Count); \
-} \
-function type##_array name##_Array_Copy(allocator* Allocator, type* Ptr, size_t Count) { \
-	type##_array Result = name##_Array_Alloc(Allocator, Count); \
-	Memory_Copy(Result.Ptr, Ptr, Count * sizeof(type)); \
-	return Result; \
-}
-
-Array_Implement(char, Char);
-Array_Implement(u32, U32);
-Array_Implement(v3, V3);
-Array_Implement(string, String);
-
-#define Dynamic_Array_Implement(container_name, type, name) \
-function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* Array, size_t NewCapacity) { \
-	allocator* Allocator = Array->Allocator; \
-	type* NewPtr = Allocator_Allocate_Array(Allocator, NewCapacity, type); \
-	\
-	if (Array->Ptr) { \
-		size_t MinCapacity = Min(Array->Capacity, NewCapacity); \
-		Memory_Copy(NewPtr, Array->Ptr, MinCapacity * sizeof(type)); \
-		Allocator_Free_Memory(Allocator, Array->Ptr); \
-	} \
-	\
-	if (Array->Count > NewCapacity) { \
-		Array->Count = NewCapacity; \
-	} \
-	\
-	Array->Capacity = NewCapacity; \
-	Array->Ptr = NewPtr; \
-} \
-function dynamic_##container_name##_array Dynamic_##name##_Array_Init_With_Size(allocator* Allocator, size_t InitialCapacity) { \
-dynamic_##container_name##_array Result = { \
-		.Allocator = Allocator \
-	}; \
-	\
-	Dynamic_##name##_Array_Reserve(&Result, InitialCapacity); \
-	return Result; \
-} \
-function dynamic_##container_name##_array Dynamic_##name##_Array_Init(allocator* Allocator) { \
-	return Dynamic_##name##_Array_Init_With_Size(Allocator, 32); \
-} \
-function void Dynamic_##name##_Array_Add(dynamic_##container_name##_array* Array, type Entry) { \
-	if (Array->Count == Array->Capacity) { \
-		Dynamic_##name##_Array_Reserve(Array, Array->Capacity*2); \
-	} \
-	Array->Ptr[Array->Count++] = Entry; \
-} \
-function void Dynamic_##name##_Array_Add_Range(dynamic_##container_name##_array* Array, type* Ptr, size_t Count) { \
-	if (Array->Count+Count >= Array->Capacity) { \
-	Dynamic_##name##_Array_Reserve(Array, Max(Array->Capacity*2, Array->Count+Count)); \
-	} \
-	Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type)); \
-	Array->Count += Count; \
-}
-
-#define Dynamic_Array_Implement_Type(type, name) Dynamic_Array_Implement(type, type, name)
-#define Dynamic_Array_Implement_Ptr(type, name) Dynamic_Array_Implement(type, type*, name)
-
-Dynamic_Array_Implement_Type(char, Char);
-Dynamic_Array_Implement_Type(string, String);
 
 function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
 	slot_map Result = { 0 };
