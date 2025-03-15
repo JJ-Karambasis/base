@@ -167,7 +167,7 @@ function akon_token* AKON_Parse_Array(akon_parser* Parser, akon_token* Token, ak
 		}
 	}
 
-	if (!Token || !Token->Type == ']') {
+	if (!Token || Token->Type != ']') {
 		//todo: Diagnostic and error logging
 		return NULL;
 	}

@@ -3,11 +3,12 @@
 #import <Foundation/Foundation.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <dlfcn.h>
 
-#include <base/base.h>
+#include "../../base.h"
 #include "osx_base.h"
 
-#include <base/base.c>
+#include "../../base.c"
 
 global osx_base* G_OSX;
 function osx_base* OSX_Get() {
@@ -233,6 +234,182 @@ function OS_TLS_SET_DEFINE(OSX_TLS_Set) {
     pthread_setspecific(TLS->Key, Data);
 }
 
+function OS_MUTEX_CREATE_DEFINE(OSX_Mutex_Create) {
+
+    osx_base* OSX = OSX_Get();
+
+    pthread_mutex_lock(&OSX->ResourceLock);
+    os_mutex* Mutex = OSX->FreeMutex;
+    if(Mutex) SLL_Pop_Front(OSX->FreeMutex);
+    else Mutex = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_mutex);
+    pthread_mutex_unlock(&OSX->ResourceLock);
+    
+    Memory_Clear(Mutex, sizeof(os_mutex));
+
+    pthread_mutex_init(&Mutex->Lock, NULL);
+
+    return Mutex;
+}
+
+function OS_MUTEX_DELETE_DEFINE(OSX_Mutex_Delete) {
+    if(Mutex) {
+        osx_base* OSX = OSX_Get();
+
+        pthread_mutex_destroy(&Mutex->Lock);
+
+        pthread_mutex_lock(&OSX->ResourceLock);
+        SLL_Push_Front(OSX->FreeMutex, Mutex);
+        pthread_mutex_unlock(&OSX->ResourceLock);
+    }
+}
+
+function OS_MUTEX_LOCK_DEFINE(OSX_Mutex_Lock) {
+    if(Mutex) {
+        pthread_mutex_lock(&Mutex->Lock);
+    }
+}
+
+function OS_MUTEX_LOCK_DEFINE(OSX_Mutex_Unlock) {
+    if(Mutex) {
+        pthread_mutex_unlock(&Mutex->Lock);
+    }
+}
+
+function OS_RW_MUTEX_CREATE_DEFINE(OSX_RW_Mutex_Create) {
+    osx_base* OSX = OSX_Get();
+
+    pthread_mutex_lock(&OSX->ResourceLock);
+    os_rw_mutex* Mutex = OSX->FreeRWMutex;
+    if(Mutex) SLL_Pop_Front(OSX->FreeRWMutex);
+    else Mutex = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_rw_mutex);
+    pthread_mutex_unlock(&OSX->ResourceLock);
+
+    Memory_Clear(Mutex, sizeof(os_rw_mutex));
+    pthread_rwlock_init(&Mutex->Lock, NULL);
+
+    return Mutex;
+}
+
+function OS_RW_MUTEX_DELETE_DEFINE(OSX_RW_Mutex_Delete) {
+    if(Mutex) {
+        osx_base* OSX = OSX_Get();
+
+        pthread_rwlock_destroy(&Mutex->Lock);
+
+        pthread_mutex_lock(&OSX->ResourceLock);
+        SLL_Push_Front(OSX->FreeRWMutex, Mutex);
+        pthread_mutex_unlock(&OSX->ResourceLock);
+    }
+}
+
+function OS_RW_MUTEX_LOCK_DEFINE(OSX_RW_Mutex_Read_Lock) {
+    if(Mutex) {
+        pthread_rwlock_rdlock(&Mutex->Lock);
+    }
+}
+
+function OS_RW_MUTEX_LOCK_DEFINE(OSX_RW_Mutex_Read_Unlock) {
+    if(Mutex) {
+        pthread_rwlock_unlock(&Mutex->Lock);
+    }
+}
+
+function OS_RW_MUTEX_LOCK_DEFINE(OSX_RW_Mutex_Write_Lock) {
+    if(Mutex) {
+        pthread_rwlock_wrlock(&Mutex->Lock);
+    }
+}
+
+function OS_RW_MUTEX_LOCK_DEFINE(OSX_RW_Mutex_Write_Unlock) {
+    if(Mutex) {
+        pthread_rwlock_unlock(&Mutex->Lock);
+    }
+}
+
+function OS_HOT_RELOAD_CREATE_DEFINE(OSX_Hot_Reload_Create) {
+    FilePath = String_Copy(Default_Allocator_Get(), FilePath);
+
+    struct stat Stats;
+    int StatResult = stat(FilePath.Ptr, &Stats);    
+    if(StatResult != 0) {
+        Allocator_Free_Memory(Default_Allocator_Get(), (void*)FilePath.Ptr);
+        return false;
+    }
+
+    osx_base* OSX = OSX_Get();
+    pthread_mutex_lock(&OSX->ResourceLock);
+    os_hot_reload* HotReload = OSX->FreeHotReload;
+    if(HotReload) SLL_Pop_Front(OSX->FreeHotReload);
+    else HotReload = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_hot_reload);
+    pthread_mutex_unlock(&OSX->ResourceLock);
+
+    Memory_Clear(HotReload, sizeof(os_hot_reload));
+
+    HotReload->FilePath = FilePath;
+    HotReload->LastWriteTime = Stats.st_mtime;
+    
+	return HotReload;
+}
+
+function OS_HOT_RELOAD_DELETE_DEFINE(OSX_Hot_Reload_Delete) {
+	if (HotReload) {
+		Allocator_Free_Memory(Default_Allocator_Get(), (void*)HotReload->FilePath.Ptr);
+		osx_base* OSX = OSX_Get();
+		pthread_mutex_lock(&OSX->ResourceLock);
+		SLL_Push_Front(OSX->FreeHotReload, HotReload);
+		pthread_mutex_unlock(&OSX->ResourceLock);
+	}
+}
+
+function OS_HOT_RELOAD_HAS_RELOADED_DEFINE(OSX_Hot_Reload_Has_Reloaded) {
+
+    struct stat Stats;
+    stat(HotReload->FilePath.Ptr, &Stats);    
+
+	if (difftime(Stats.st_mtime, HotReload->LastWriteTime) > 0) {
+		HotReload->LastWriteTime = Stats.st_mtime;
+		return true;
+	}
+
+	return false;
+}
+
+function OS_LIBRARY_CREATE_DEFINE(OSX_Library_Create) {
+    void* Library = dlopen(LibraryPath.Ptr, RTLD_NOW);
+    if(!Library) {
+        return NULL;
+    }
+
+    osx_base* OSX = OSX_Get();
+
+    pthread_mutex_lock(&OSX->ResourceLock);
+    os_library* Result = OSX->FreeLibrary;
+    if(Result) SLL_Pop_Front(OSX->FreeLibrary);
+    else Result = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_library);
+    pthread_mutex_unlock(&OSX->ResourceLock);
+
+    Memory_Clear(Result, sizeof(os_library));
+    Result->Library = Library;
+
+    return Result;
+}
+
+function OS_LIBRARY_DELETE_DEFINE(OSX_Library_Delete) {
+    if(Library) {
+        dlclose(Library->Library);
+
+        osx_base* OSX = OSX_Get();
+        pthread_mutex_lock(&OSX->ResourceLock);
+        SLL_Push_Front(OSX->FreeLibrary, Library);
+        pthread_mutex_unlock(&OSX->ResourceLock);
+    }
+}
+
+function OS_LIBRARY_GET_FUNCTION_DEFINE(OSX_Library_Get_Function) {
+    if(!Library) return NULL;
+    return dlsym(Library->Library, FunctionName);
+}
+
 global os_base_vtable OSX_Base_VTable = {
 	.ReserveMemoryFunc = OSX_Reserve_Memory,
 	.CommitMemoryFunc = OSX_Commit_Memory,
@@ -257,7 +434,22 @@ global os_base_vtable OSX_Base_VTable = {
 	.MutexCreateFunc = OSX_Mutex_Create,
 	.MutexDeleteFunc = OSX_Mutex_Delete,
 	.MutexLockFunc = OSX_Mutex_Lock,
-	.MutexUnlockFunc = OSX_Mutex_Unlock
+	.MutexUnlockFunc = OSX_Mutex_Unlock,
+
+    .RWMutexCreateFunc = OSX_RW_Mutex_Create,
+	.RWMutexDeleteFunc = OSX_RW_Mutex_Delete,
+	.RWMutexReadLockFunc = OSX_RW_Mutex_Read_Lock,
+	.RWMutexReadUnlockFunc = OSX_RW_Mutex_Read_Unlock,
+	.RWMutexWriteLockFunc = OSX_RW_Mutex_Write_Lock,
+	.RWMutexWriteUnlockFunc = OSX_RW_Mutex_Write_Unlock,
+
+	.HotReloadCreateFunc = OSX_Hot_Reload_Create,
+	.HotReloadDeleteFunc = OSX_Hot_Reload_Delete,
+	.HotReloadHasReloadedFunc = OSX_Hot_Reload_Has_Reloaded,
+	
+	.LibraryCreateFunc = OSX_Library_Create,
+	.LibraryDeleteFunc = OSX_Library_Delete,
+	.LibraryGetFunctionFunc = OSX_Library_Get_Function
 };
 
 function string OSX_Get_Executable_Path(allocator* Allocator) {

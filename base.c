@@ -2764,11 +2764,13 @@ function inline u64 U64_Hash_Bytes(void* Data, size_t Size) {
 }
 
 function inline u32 U32_Hash_Ptr(void* Ptr) {
-	return U32_Hash_Bytes(&(size_t)Ptr, sizeof(size_t));
+	size_t Value = (size_t)Ptr;
+	return U32_Hash_Bytes(&Value, sizeof(size_t));
 }
 
 function inline u32 U32_Hash_Ptr_With_Seed(void* Ptr, u32 Seed) {
-	return U32_Hash_Bytes_With_Seed(&(size_t)Ptr, sizeof(size_t), Seed);
+	size_t Value = (size_t)Ptr;
+	return U32_Hash_Bytes_With_Seed(&Value, sizeof(size_t), Seed);
 }
 
 function inline u32 Hash_String(void* A) {
