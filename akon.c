@@ -44,8 +44,8 @@ function void AKON_Tokenizer_Begin_Identifier(akon_tokenizer* Tokenizer) {
 
 function void AKON_Tokenizer_End_Identifier(akon_tokenizer* Tokenizer) {
 	if (Tokenizer->BeginIdentifier) {
-		sstream_char Char = SStream_Reader_Peek_Char(&Tokenizer->Stream);
-		AKON_Add_Token(Tokenizer, AKON_TOKEN_TYPE_IDENTIFIER, Tokenizer->StartIdentifierChar.Index, Char.Index);
+		size_t Index = SStream_Reader_Get_Index(&Tokenizer->Stream);
+		AKON_Add_Token(Tokenizer, AKON_TOKEN_TYPE_IDENTIFIER, Tokenizer->StartIdentifierChar.Index, Index);
 		Tokenizer->BeginIdentifier = false;
 	}
 }
@@ -77,6 +77,8 @@ function b32 AKON_Tokenize(akon_tokenizer* Tokenizer) {
 		}
 	}
 
+	AKON_Tokenizer_End_Identifier(Tokenizer);
+
 	return true;
 }
 
@@ -90,12 +92,38 @@ function akon_node* AKON_Create_Node(akon_context* Context, string NodeName, ako
 	Node->Type = Type;
 
 	Node->Parent = Parent;
+	u64 Seed = 0;
 	if (Node->Parent) {
+		Seed = Node->Parent->Hash;
 		DLL_Push_Back_NP(Parent->FirstChild, Parent->LastChild, Node, NextSibling, PrevSibling);
 		Parent->ChildCount++;
-	}
+	}	
+
+	Node->Hash = U64_Hash_String_With_Seed(Node->Name, Seed);
+	u64 SlotMask = AKON_NODE_MAX_SLOT_COUNT - 1;
+	u64 SlotIndex = Node->Hash & SlotMask;
+
+	akon_node_slot* Slot = Context->Slots + SlotIndex;
+	DLL_Push_Back_NP(Slot->First, Slot->Last, Node, NextInHash, PrevInHash);
 
 	return Node;
+}
+
+function akon_node* AKON_Get_Node(akon_context* Context, akon_node* ParentNode, string Name) {
+	u64 Hash = 0;
+	if (ParentNode) Hash = ParentNode->Hash;
+	Hash = U64_Hash_String_With_Seed(Name, Hash);
+	u64 SlotMask = AKON_NODE_MAX_SLOT_COUNT - 1;
+	u64 SlotIndex = Hash & SlotMask;
+	
+	akon_node_slot* Slot = Context->Slots + SlotIndex;
+	for (akon_node* Node = Slot->First; Node; Node = Node->NextInHash) {
+		if (Node->Hash == Hash) {
+			return Node;
+		}
+	}
+
+	return NULL;
 }
 
 function akon_token* AKON_Parse_Value(akon_parser* Parser, akon_token* Token, akon_node* ValueNode) {

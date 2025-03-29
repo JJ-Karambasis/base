@@ -7,6 +7,8 @@
 #define XXH_PRIVATE_API
 #include <third_party/xxHash/xxhash.h>
 
+#include "atomic/atomic.c"
+
 global base* G_Base;
 
 void OS_Base_Init(base* Base);
@@ -535,6 +537,22 @@ function inline quat Quat_Identity() {
 function inline quat Quat_From_V3_S(v3 v, f32 s) {
 	quat Result = { v.x, v.y, v.z, s };
 	return Result;
+}
+
+function quat Quat_From_Euler(v3 Euler) {
+	f32 cx = Cos_F32(Euler.x * 0.5f);
+    f32 sx = Sin_F32(Euler.x * 0.5f);
+    f32 cy = Cos_F32(Euler.y * 0.5f);
+    f32 sy = Sin_F32(Euler.y * 0.5f);
+    f32 cz = Cos_F32(Euler.z * 0.5f);
+    f32 sz = Sin_F32(Euler.z * 0.5f);
+
+	quat q;
+    q.w = cx * cy * cz + sx * sy * sz;
+    q.x = sx * cy * cz - cx * sy * sz;
+    q.y = cx * sy * cz + sx * cy * sz;
+    q.z = cx * cy * sz - sx * sy * cz;
+	return q;
 }
 
 function quat Quat_Axis_Angle(v3 Axis, f32 Angle) {
@@ -2550,19 +2568,26 @@ function inline b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Valu
 	return true;
 }
 
+function inline slot_id Slot_Null() {
+	slot_id Result = { .ID = 0 };
+	return Result;
+}
+
+function void Slot_Map_Clear(slot_map* SlotMap) {
+	SlotMap->FreeCount = SlotMap->Capacity;
+	SlotMap->Count = 0;
+	for (size_t i = 0; i < SlotMap->Capacity; i++) {
+		SlotMap->Slots[i] = 1;
+		SlotMap->FreeIndices[i] = (u32)i;
+	}
+}
+
 function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
 	slot_map Result = { 0 };
 	Result.Slots = Allocator_Allocate_Array(Allocator, 2 * Capacity, u32);
 	Result.FreeIndices = Result.Slots + Capacity;
-	Result.FreeCount = Capacity;
-	Result.Count = 0;
 	Result.Capacity = Capacity;
-
-	for (size_t i = 0; i < Capacity; i++) {
-		Result.Slots[i] = 1;
-		Result.FreeIndices[i] = (u32)i;
-	}
-
+	Slot_Map_Clear(&Result);
 	return Result;
 }
 
@@ -2611,6 +2636,12 @@ function inline b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index)
 	Assert(Index < SlotMap->Capacity);
 	u32 Slot = SlotMap->Slots[Index];
 	return Read_Bit(Slot, 31) != 0;
+}
+
+function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
+	Assert(Index < SlotMap->Capacity);
+	slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
+	return Result;
 }
 
 

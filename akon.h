@@ -37,8 +37,12 @@ struct akon_node {
 	akon_node* NextSibling;
 	akon_node* PrevSibling;
 	size_t 	   ChildCount;
+	
+	akon_node* NextInHash;
+	akon_node* PrevInHash;
 
 	string 		   Name;
+	u64 		   Hash;
 	akon_node_type Type;
 
 	akon_value_type ValueType;
@@ -50,8 +54,15 @@ struct akon_node {
 };
 
 typedef struct {
+	akon_node* First;
+	akon_node* Last;
+} akon_node_slot;
+
+#define AKON_NODE_MAX_SLOT_COUNT 4096
+typedef struct {
 	arena* 	   Arena;
 	akon_node* FirstFreeNode;
+	akon_node_slot Slots[AKON_NODE_MAX_SLOT_COUNT];
 } akon_context;
 
 typedef struct {

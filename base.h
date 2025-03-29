@@ -1,7 +1,6 @@
 #ifndef BASE_H
 #define BASE_H
 
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
@@ -171,14 +170,7 @@ typedef s64 	 b64;
 typedef float    f32;
 typedef double   f64;
 
-typedef atomic_int_least32_t atomic_s32;
-typedef atomic_uint_least32_t atomic_u32;
-typedef atomic_uint_least64_t atomic_u64;
-typedef atomic_s32 atomic_b32;
-
-Static_Assert(sizeof(atomic_b32) == 4);
-Static_Assert(sizeof(atomic_u32) == 4);
-Static_Assert(sizeof(atomic_u64) == 8);
+#include "atomic/atomic.h"
 
 typedef struct {
 	union {
