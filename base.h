@@ -356,6 +356,17 @@ typedef struct {
 	size_t Size;
 } string;
 
+typedef struct string_entry string_entry;
+struct string_entry {
+	string String;
+	string_entry* Next;
+};
+
+typedef struct {
+	string_entry* First;
+	string_entry* Last;
+} string_list;
+
 typedef struct {
 	const wchar_t* Ptr;
 	size_t Size;

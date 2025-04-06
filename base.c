@@ -2758,10 +2758,11 @@ function void Debug_Log(const char* Format, ...) {
 #ifdef OS_WIN32
 	wstring WString = WString_From_String((allocator *)Scratch, String);
 	OutputDebugStringW(WString.Ptr);
-	OutputDebugStringA("\n");
+
+	if(WString.Size) OutputDebugStringA("\n");
 #endif
 
-	printf("%.*s\n", (int)String.Size, String.Ptr);
+	if(String.Size) printf("%.*s\n", (int)String.Size, String.Ptr);
 
 	Scratch_Release();
 }
