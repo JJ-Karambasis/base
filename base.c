@@ -2322,6 +2322,18 @@ function inline sstream_writer Begin_Stream_Writer(allocator* Allocator) {
 	return Writer;
 }
 
+function void SStream_Writer_Add_Front(sstream_writer* Writer, string Entry) {
+	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
+	Node->Entry = Entry;
+	SLL_Push_Front(Writer->First, Node);
+	if (!Writer->Last) {
+		Writer->Last = Writer->First;
+	}
+
+	Writer->NodeCount++;
+	Writer->TotalCharCount += Entry.Size;
+}
+
 function void SStream_Writer_Add(sstream_writer* Writer, string Entry) {
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
 	Node->Entry = Entry;
@@ -2564,6 +2576,13 @@ function inline b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
 
 function inline b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
 	if (Index >= Hashmap->ItemCount) return false;
+	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
+	return true;
+}
+
+function inline b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* Key, void* Value) {
+	if (Index >= Hashmap->ItemCount) return false;
+	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
 	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
 	return true;
 }
