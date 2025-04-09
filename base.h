@@ -216,6 +216,8 @@ typedef struct {
 
 typedef struct {
 	union {
+		f32 Data[4];
+		v4  V;
 		struct { f32 x, y, z, w; };
 		struct { v3 v; f32 s; };
 	};
@@ -365,6 +367,7 @@ struct string_entry {
 typedef struct {
 	string_entry* First;
 	string_entry* Last;
+	size_t Count;
 } string_list;
 
 typedef struct {

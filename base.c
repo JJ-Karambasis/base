@@ -2113,6 +2113,16 @@ function b32 Try_Parse_Number(string String, f64* OutNumber) {
 	return false;
 }
 
+function b32 Try_Parse_Integer(string String, s64* OutNumber) {
+	char* OutPtr;
+	s64 Numeric = strtol(String.Ptr, &OutPtr, 10);
+	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+		if (OutNumber) *OutNumber = Numeric;
+		return true;
+	}
+	return false;
+}
+
 function size_t WString_Length(const wchar_t* Ptr) {
 	return wcslen(Ptr);
 }
@@ -2315,6 +2325,15 @@ function string SStream_Reader_Consume_Line(sstream_reader* Reader) {
 	size_t Size = (size_t)(Reader->At - Ptr);
 	Ptr = Size == 0 ? NULL : Ptr;
 	return Make_String(Ptr, Size);
+}
+
+function void SStream_Reader_Skip_Line(sstream_reader* Reader) {
+	while (SStream_Reader_Is_Valid(Reader)) {
+		sstream_char Result = SStream_Reader_Consume_Char(Reader);
+		if (Result.Char == '\n') {
+			break;
+		}
+	}
 }
 
 function inline sstream_writer Begin_Stream_Writer(allocator* Allocator) {
