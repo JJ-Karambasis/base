@@ -1477,6 +1477,8 @@ function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* A
 Dynamic_Array_Implement_Type(char, Char);
 Dynamic_Array_Implement_Type(string, String);
 
+Dynamic_Array_Implement(char_ptr, char*, Char_Ptr);
+
 global const u8 G_ClassUTF8[32] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,2,2,2,2,3,3,4,5,
 };
@@ -2596,6 +2598,12 @@ function inline b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
 function inline b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
 	if (Index >= Hashmap->ItemCount) return false;
 	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
+	return true;
+}
+
+function inline b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key) {
+	if (Index >= Hashmap->ItemCount) return false;
+	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
 	return true;
 }
 

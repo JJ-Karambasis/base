@@ -458,6 +458,8 @@ size_t Capacity; \
 Dynamic_Array_Define_Type(char);
 Dynamic_Array_Define_Type(string);
 
+Dynamic_Array_Define(char*, char_ptr);
+
 typedef struct {
 	union {
 		u64 ID;
