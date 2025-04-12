@@ -117,16 +117,19 @@ function void OSX_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_a
         struct dirent* DirEntry;
         while((DirEntry = readdir(Dir)) != NULL) {
             string FileOrDirectoryName = String_Null_Term(DirEntry->d_name);
-            if(DirEntry->d_type == DT_DIR) {
-                if(Recursive) {
-                    string DirectoryName = FileOrDirectoryName;
-					string Strings[] = { Directory, DirectoryName, String_Lit("/") };
-					string DirectoryPath = String_Combine((allocator*)Scratch, Strings, Array_Count(Strings));
-					OSX_Get_All_Files_Recursive(Allocator, Array, DirectoryPath, true);
+            if (!String_Equals(FileOrDirectoryName, String_Lit(".")) && !String_Equals(FileOrDirectoryName, String_Lit(".."))) {
+                if(DirEntry->d_type == DT_DIR) {
+                    if(Recursive) {
+                        string DirectoryName = FileOrDirectoryName;
+                        string Strings[] = { Directory, DirectoryName, String_Lit("/") };
+                        string DirectoryPath = String_Combine((allocator*)Scratch, Strings, Array_Count(Strings));
+                        OSX_Get_All_Files_Recursive(Allocator, Array, DirectoryPath, true);
+                    }
+                } else {
+                    string FileName = FileOrDirectoryName;
+                    string FilePath = String_Concat(Allocator, Directory, FileName);
+                    Dynamic_String_Array_Add(Array, FilePath);
                 }
-            } else {
-                string FileName = FileOrDirectoryName;
-				string FilePath = String_Concat(Allocator, Directory, FileName);
             }
         }
 
@@ -138,7 +141,7 @@ function void OSX_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_a
 
 function OS_GET_ALL_FILES_DEFINE(OSX_Get_All_Files) {
 	arena* Scratch = Scratch_Get();
-    if(String_Is_Null_Term(Path)) {
+    if(!String_Is_Null_Term(Path)) {
         Path = String_Copy((allocator*)Scratch, Path);
     }
     dynamic_string_array Array = Dynamic_String_Array_Init(Allocator);
@@ -471,7 +474,7 @@ function string OSX_Get_Executable_Path(allocator* Allocator) {
             Base = [[Bundle resourcePath] fileSystemRepresentation];
         }
 
-        return String_Copy(Allocator, String_Null_Term(Base));
+        return String_Concat(Allocator, String_Null_Term(Base), String_Lit("/"));
     }
 }
 
