@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <semaphore.h>
 
 #include "../../base.h"
 #include "osx_base.h"
@@ -237,6 +238,53 @@ function OS_TLS_SET_DEFINE(OSX_TLS_Set) {
     pthread_setspecific(TLS->Key, Data);
 }
 
+function void* OSX_Thread_Callback(void* Parameter) {
+	os_thread* Thread = (os_thread*)Parameter;
+	Thread->Callback(Thread, Thread->UserData);
+	return 0;
+}
+
+function OS_THREAD_CREATE_DEFINE(OSX_Thread_Create) {
+    osx_base* OSX = OSX_Get();
+
+	pthread_mutex_lock(&OSX->ResourceLock);
+	os_thread* Thread = OSX->FreeThreads;
+	if (Thread) SLL_Pop_Front(OSX->FreeThreads);
+	else Thread = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_thread);
+	pthread_mutex_unlock(&OSX->ResourceLock);
+
+	Memory_Clear(Thread, sizeof(os_thread));
+	Thread->Callback = Callback;
+	Thread->UserData = UserData;
+    if(pthread_create(&Thread->Thread, NULL, OSX_Thread_Callback, Thread) != 0) {
+        pthread_mutex_lock(&OSX->ResourceLock);
+		SLL_Push_Front(OSX->FreeThreads, Thread);
+		pthread_mutex_unlock(&OSX->ResourceLock);
+		Thread = NULL;
+    }
+
+	return Thread;
+}
+
+function OS_THREAD_JOIN_DEFINE(OSX_Thread_Join) {
+	if (Thread) {
+		osx_base* OSX = OSX_Get();
+        pthread_join(Thread->Thread, NULL);
+
+		pthread_mutex_lock(&OSX->ResourceLock);
+		SLL_Push_Front(OSX->FreeThreads, Thread);
+		pthread_mutex_unlock(&OSX->ResourceLock);
+	}
+}
+
+function OS_THREAD_GET_ID_DEFINE(OSX_Thread_Get_ID) {
+	return Thread ? (u64)Thread->Thread : 0;
+}
+
+function OS_GET_CURRENT_THREAD_ID_DEFINE(OSX_Get_Current_Thread_ID) {
+    return (u64)pthread_self();
+}
+
 function OS_MUTEX_CREATE_DEFINE(OSX_Mutex_Create) {
 
     osx_base* OSX = OSX_Get();
@@ -327,6 +375,56 @@ function OS_RW_MUTEX_LOCK_DEFINE(OSX_RW_Mutex_Write_Unlock) {
     if(Mutex) {
         pthread_rwlock_unlock(&Mutex->Lock);
     }
+}
+
+function OS_SEMAPHORE_CREATE_DEFINE(OSX_Semaphore_Create) {
+    semaphore_t Handle;
+    if(semaphore_create(mach_task_self(), &Handle, SYNC_POLICY_FIFO, 0) != KERN_SUCCESS) {
+        return NULL;
+    }
+
+	osx_base* OSX = OSX_Get();
+	pthread_mutex_lock(&OSX->ResourceLock);
+	os_semaphore* Semaphore = OSX->FreeSemaphores;
+	if (Semaphore) SLL_Pop_Front(OSX->FreeSemaphores);
+	else Semaphore = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_semaphore);
+	pthread_mutex_unlock(&OSX->ResourceLock);
+
+	Memory_Clear(Semaphore, sizeof(os_semaphore));
+	Semaphore->Handle = Handle;
+
+	return Semaphore;
+}
+
+function OS_SEMAPHORE_DELETE_DEFINE(OSX_Semaphore_Delete) {
+	if (Semaphore) {
+        semaphore_destroy(mach_task_self(), Semaphore->Handle);
+	
+	    osx_base* OSX = OSX_Get();
+		pthread_mutex_lock(&OSX->ResourceLock);
+		SLL_Push_Front(OSX->FreeSemaphores, Semaphore);
+		pthread_mutex_unlock(&OSX->ResourceLock);
+	}
+}
+
+function OS_SEMAPHORE_INCREMENT_DEFINE(OSX_Semaphore_Increment) {
+	if (Semaphore) {
+		semaphore_signal(Semaphore->Handle);
+	}
+}
+
+function OS_SEMAPHORE_DECREMENT_DEFINE(OSX_Semaphore_Decrement) {
+	if (Semaphore) {
+		semaphore_wait(Semaphore->Handle);
+	}
+}
+
+function OS_SEMAPHORE_ADD_DEFINE(OSX_Semaphore_Add) {
+	if (Semaphore) {
+        for(s32 i = 0; i < Count; i++) {
+		    semaphore_signal(Semaphore->Handle);
+        }
+	}
 }
 
 function OS_HOT_RELOAD_CREATE_DEFINE(OSX_Hot_Reload_Create) {
@@ -434,6 +532,11 @@ global os_base_vtable OSX_Base_VTable = {
 	.TLSGetFunc = OSX_TLS_Get,
 	.TLSSetFunc = OSX_TLS_Set,
 
+    .ThreadCreateFunc = OSX_Thread_Create,
+    .ThreadJoinFunc = OSX_Thread_Join,
+    .ThreadGetIdFunc = OSX_Thread_Get_ID,
+    .GetCurrentThreadIdFunc = OSX_Get_Current_Thread_ID,
+
 	.MutexCreateFunc = OSX_Mutex_Create,
 	.MutexDeleteFunc = OSX_Mutex_Delete,
 	.MutexLockFunc = OSX_Mutex_Lock,
@@ -445,6 +548,12 @@ global os_base_vtable OSX_Base_VTable = {
 	.RWMutexReadUnlockFunc = OSX_RW_Mutex_Read_Unlock,
 	.RWMutexWriteLockFunc = OSX_RW_Mutex_Write_Lock,
 	.RWMutexWriteUnlockFunc = OSX_RW_Mutex_Write_Unlock,
+
+    .SemaphoreCreateFunc = OSX_Semaphore_Create,
+    .SemaphoreDeleteFunc = OSX_Semaphore_Delete,
+    .SemaphoreIncrementFunc = OSX_Semaphore_Increment,
+    .SemaphoreDecrementFunc = OSX_Semaphore_Decrement,
+    .SemaphoreAddFunc = OSX_Semaphore_Add,
 
 	.HotReloadCreateFunc = OSX_Hot_Reload_Create,
 	.HotReloadDeleteFunc = OSX_Hot_Reload_Delete,
@@ -485,6 +594,7 @@ void OS_Base_Init(base* Base) {
 
     OSX.Base.VTable = &OSX_Base_VTable;
     OSX.Base.PageSize = (size_t)sysconf(_SC_PAGESIZE);
+    OSX.Base.ProcessorThreadCount = (size_t)sysconf(_SC_NPROCESSORS_ONLN);
     G_OSX = &OSX;
 
     Base->OSBase = (os_base*)&OSX;
