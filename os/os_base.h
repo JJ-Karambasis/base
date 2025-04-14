@@ -37,6 +37,20 @@ typedef OS_TLS_DELETE_DEFINE(os_tls_delete_func);
 typedef OS_TLS_GET_DEFINE(os_tls_get_func);
 typedef OS_TLS_SET_DEFINE(os_tls_set_func);
 
+typedef struct os_thread os_thread;
+#define OS_THREAD_CALLBACK_DEFINE(name) void name(os_thread* Thread, void* UserData)
+typedef OS_THREAD_CALLBACK_DEFINE(os_thread_callback_func);
+
+#define OS_THREAD_CREATE_DEFINE(name) os_thread* name(os_thread_callback_func* Callback, void* UserData)
+#define OS_THREAD_JOIN_DEFINE(name) void name(os_thread* Thread)
+#define OS_THREAD_GET_ID_DEFINE(name) u64 name(os_thread* Thread)
+#define OS_GET_CURRENT_THREAD_ID_DEFINE(name) u64 name()
+
+typedef OS_THREAD_CREATE_DEFINE(os_thread_create_func);
+typedef OS_THREAD_JOIN_DEFINE(os_thread_join_func);
+typedef OS_THREAD_GET_ID_DEFINE(os_thread_get_id_func);
+typedef OS_GET_CURRENT_THREAD_ID_DEFINE(os_get_current_thread_id_func);
+
 typedef struct os_mutex os_mutex;
 #define OS_MUTEX_CREATE_DEFINE(name) os_mutex* name()
 #define OS_MUTEX_DELETE_DEFINE(name) void name(os_mutex* Mutex)
@@ -54,6 +68,19 @@ typedef struct os_rw_mutex os_rw_mutex;
 typedef OS_RW_MUTEX_CREATE_DEFINE(os_rw_mutex_create_func);
 typedef OS_RW_MUTEX_DELETE_DEFINE(os_rw_mutex_delete_func);
 typedef OS_RW_MUTEX_LOCK_DEFINE(os_rw_mutex_lock_func);
+
+typedef struct os_semaphore os_semaphore;
+#define OS_SEMAPHORE_CREATE_DEFINE(name) os_semaphore* name(u32 InitialCount)
+#define OS_SEMAPHORE_DELETE_DEFINE(name) void name(os_semaphore* Semaphore)
+#define OS_SEMAPHORE_INCREMENT_DEFINE(name) void name(os_semaphore* Semaphore)
+#define OS_SEMAPHORE_DECREMENT_DEFINE(name) void name(os_semaphore* Semaphore)
+#define OS_SEMAPHORE_ADD_DEFINE(name) void name(os_semaphore* Semaphore, s32 Count)
+
+typedef OS_SEMAPHORE_CREATE_DEFINE(os_semaphore_create_func);
+typedef OS_SEMAPHORE_DELETE_DEFINE(os_semaphore_delete_func);
+typedef OS_SEMAPHORE_INCREMENT_DEFINE(os_semaphore_increment_func);
+typedef OS_SEMAPHORE_DECREMENT_DEFINE(os_semaphore_decrement_func);
+typedef OS_SEMAPHORE_ADD_DEFINE(os_semaphore_add_func);
 
 typedef struct os_hot_reload os_hot_reload;
 #define OS_HOT_RELOAD_CREATE_DEFINE(name) os_hot_reload* name(string FilePath)
@@ -94,6 +121,11 @@ typedef struct {
 	os_tls_get_func*    TLSGetFunc;
 	os_tls_set_func*    TLSSetFunc;
 
+	os_thread_create_func* ThreadCreateFunc;
+	os_thread_join_func* ThreadJoinFunc;
+	os_thread_get_id_func* ThreadGetIdFunc;
+	os_get_current_thread_id_func* GetCurrentThreadIdFunc;
+
 	os_mutex_create_func* MutexCreateFunc;
 	os_mutex_delete_func* MutexDeleteFunc;
 	os_mutex_lock_func* MutexLockFunc;
@@ -105,6 +137,12 @@ typedef struct {
 	os_rw_mutex_lock_func* RWMutexReadUnlockFunc;
 	os_rw_mutex_lock_func* RWMutexWriteLockFunc;
 	os_rw_mutex_lock_func* RWMutexWriteUnlockFunc;
+
+	os_semaphore_create_func* SemaphoreCreateFunc;
+	os_semaphore_delete_func* SemaphoreDeleteFunc;
+	os_semaphore_increment_func* SemaphoreIncrementFunc;
+	os_semaphore_decrement_func* SemaphoreDecrementFunc;
+	os_semaphore_add_func* SemaphoreAddFunc;
 
 	os_hot_reload_create_func* 		 HotReloadCreateFunc;
 	os_hot_reload_delete_func* 		 HotReloadDeleteFunc;
@@ -118,10 +156,12 @@ typedef struct {
 typedef struct {
 	os_base_vtable* VTable;
 	size_t PageSize;
+	size_t ProcessorThreadCount;
 	string ProgramPath;
 } os_base;
 
 #define OS_Program_Path() (Base_Get()->OSBase->ProgramPath)
+#define OS_Processor_Thread_Count() (Base_Get()->OSBase->ProcessorThreadCount)
 
 #define OS_Page_Size() (Base_Get()->OSBase->PageSize)
 #define OS_Reserve_Memory(reserve_size) Base_Get()->OSBase->VTable->ReserveMemoryFunc(reserve_size)
@@ -144,6 +184,11 @@ typedef struct {
 #define OS_TLS_Get(tls) Base_Get()->OSBase->VTable->TLSGetFunc(tls)
 #define OS_TLS_Set(tls, data) Base_Get()->OSBase->VTable->TLSSetFunc(tls, data)
 
+#define OS_Thread_Create(callback, user_data) Base_Get()->OSBase->VTable->ThreadCreateFunc(callback, user_data)
+#define OS_Thread_Join(thread) Base_Get()->OSBase->VTable->ThreadJoinFunc(thread)
+#define OS_Thread_Get_ID(thread) Base_Get()->OSBase->VTable->ThreadGetIdFunc(thread)
+#define OS_Get_Current_Thread_ID() Base_Get()->OSBase->VTable->GetCurrentThreadIdFunc()
+
 #define OS_Mutex_Create() Base_Get()->OSBase->VTable->MutexCreateFunc()
 #define OS_Mutex_Delete(mutex) Base_Get()->OSBase->VTable->MutexDeleteFunc(mutex)
 #define OS_Mutex_Lock(mutex) Base_Get()->OSBase->VTable->MutexLockFunc(mutex)
@@ -155,6 +200,12 @@ typedef struct {
 #define OS_RW_Mutex_Read_Unlock(mutex) Base_Get()->OSBase->VTable->RWMutexReadUnlockFunc(mutex)
 #define OS_RW_Mutex_Write_Lock(mutex) Base_Get()->OSBase->VTable->RWMutexWriteLockFunc(mutex)
 #define OS_RW_Mutex_Write_Unlock(mutex) Base_Get()->OSBase->VTable->RWMutexWriteUnlockFunc(mutex)
+
+#define OS_Semaphore_Create(initial_count) Base_Get()->OSBase->VTable->SemaphoreCreateFunc(initial_count)
+#define OS_Semaphore_Delete(semaphore) Base_Get()->OSBase->VTable->SemaphoreDeleteFunc(semaphore)
+#define OS_Semaphore_Increment(semaphore) Base_Get()->OSBase->VTable->SemaphoreIncrementFunc(semaphore)
+#define OS_Semaphore_Decrement(semaphore) Base_Get()->OSBase->VTable->SemaphoreDecrementFunc(semaphore)
+#define OS_Semaphore_Add(semaphore, count) Base_Get()->OSBase->VTable->SemaphoreAddFunc(semaphore, count)
 
 #define OS_Hot_Reload_Create(path) Base_Get()->OSBase->VTable->HotReloadCreateFunc(path)
 #define OS_Hot_Reload_Delete(reload) Base_Get()->OSBase->VTable->HotReloadDeleteFunc(reload)

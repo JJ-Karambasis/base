@@ -182,6 +182,55 @@ function OS_TLS_SET_DEFINE(Win32_TLS_Set) {
 	TlsSetValue(TLS->Index, Data);
 }
 
+function DWORD Win32_Thread_Callback(LPVOID Parameter) {
+	os_thread* Thread = (os_thread*)Parameter;
+	Thread->Callback(Thread, Thread->UserData);
+	return 0;
+}
+
+function OS_THREAD_CREATE_DEFINE(Win32_Thread_Create) {
+	win32_base* Win32 = Win32_Get();
+
+	EnterCriticalSection(&Win32->ResourceLock);
+	os_thread* Thread = Win32->FreeThreads;
+	if (Thread) SLL_Pop_Front(Win32->FreeThreads);
+	else Thread = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_thread);
+	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Memory_Clear(Thread, sizeof(os_thread));
+	Thread->Callback = Callback;
+	Thread->UserData = UserData;
+	Thread->Handle = CreateThread(NULL, 0, Win32_Thread_Callback, Thread, 0, &Thread->ThreadID);
+	if (Thread->Handle == NULL) {
+		EnterCriticalSection(&Win32->ResourceLock);
+		SLL_Push_Front(Win32->FreeThreads, Thread);
+		LeaveCriticalSection(&Win32->ResourceLock);
+		Thread = NULL;
+	}
+
+	return Thread;
+}
+
+function OS_THREAD_JOIN_DEFINE(Win32_Thread_Join) {
+	if (Thread) {
+		win32_base* Win32 = Win32_Get();
+		WaitForSingleObject(Thread->Handle, INFINITE);
+		CloseHandle(Thread->Handle);
+
+		EnterCriticalSection(&Win32->ResourceLock);
+		SLL_Push_Front(Win32->FreeThreads, Thread);
+		LeaveCriticalSection(&Win32->ResourceLock);
+	}
+}
+
+function OS_THREAD_GET_ID_DEFINE(Win32_Thread_Get_ID) {
+	return Thread ? (u64)Thread->ThreadID : 0;
+}
+
+function OS_GET_CURRENT_THREAD_ID_DEFINE(Win32_Get_Current_Thread_ID) {
+	return (u64)GetCurrentThreadId();
+}
+
 function OS_MUTEX_CREATE_DEFINE(Win32_Mutex_Create) {
 	win32_base* Win32 = Win32_Get();
 
@@ -251,6 +300,52 @@ function OS_RW_MUTEX_LOCK_DEFINE(Win32_RW_Mutex_Write_Lock) {
 
 function OS_RW_MUTEX_LOCK_DEFINE(Win32_RW_Mutex_Write_Unlock) {
 	ReleaseSRWLockExclusive(&Mutex->SRWLock);
+}
+
+function OS_SEMAPHORE_CREATE_DEFINE(Win32_Semaphore_Create) {
+	HANDLE Handle = CreateSemaphoreA(NULL, (LONG)InitialCount, LONG_MAX, NULL);
+	if (Handle == NULL) return NULL;
+
+	win32_base* Win32 = Win32_Get();
+	EnterCriticalSection(&Win32->ResourceLock);
+	os_semaphore* Semaphore = Win32->FreeSemaphores;
+	if (Semaphore) SLL_Pop_Front(Win32->FreeSemaphores);
+	else Semaphore = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_semaphore);
+	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Memory_Clear(Semaphore, sizeof(os_semaphore));
+	Semaphore->Handle = Handle;
+
+	return Semaphore;
+}
+
+function OS_SEMAPHORE_DELETE_DEFINE(Win32_Semaphore_Delete) {
+	if (Semaphore && Semaphore->Handle) {
+		CloseHandle(Semaphore->Handle);
+
+		win32_base* Win32 = Win32_Get();
+		EnterCriticalSection(&Win32->ResourceLock);
+		SLL_Push_Front(Win32->FreeSemaphores, Semaphore);
+		LeaveCriticalSection(&Win32->ResourceLock);
+	}
+}
+
+function OS_SEMAPHORE_INCREMENT_DEFINE(Win32_Semaphore_Increment) {
+	if (Semaphore && Semaphore->Handle) {
+		ReleaseSemaphore(Semaphore->Handle, 1, NULL);
+	}
+}
+
+function OS_SEMAPHORE_DECREMENT_DEFINE(Win32_Semaphore_Decrement) {
+	if (Semaphore && Semaphore->Handle) {
+		WaitForSingleObject(Semaphore->Handle, INFINITE);
+	}
+}
+
+function OS_SEMAPHORE_ADD_DEFINE(Win32_Semaphore_Add) {
+	if (Semaphore && Semaphore->Handle) {
+		ReleaseSemaphore(Semaphore->Handle, Count, NULL);
+	}
 }
 
 function OS_HOT_RELOAD_CREATE_DEFINE(Win32_Hot_Reload_Create) {
@@ -358,6 +453,11 @@ global os_base_vtable Win32_Base_VTable = {
 	.TLSGetFunc = Win32_TLS_Get,
 	.TLSSetFunc = Win32_TLS_Set,
 
+	.ThreadCreateFunc = Win32_Thread_Create,
+	.ThreadJoinFunc = Win32_Thread_Join,
+	.ThreadGetIdFunc = Win32_Thread_Get_ID,
+	.GetCurrentThreadIdFunc = Win32_Get_Current_Thread_ID,
+
 	.MutexCreateFunc = Win32_Mutex_Create,
 	.MutexDeleteFunc = Win32_Mutex_Delete,
 	.MutexLockFunc = Win32_Mutex_Lock,
@@ -369,6 +469,12 @@ global os_base_vtable Win32_Base_VTable = {
 	.RWMutexReadUnlockFunc = Win32_RW_Mutex_Read_Unlock,
 	.RWMutexWriteLockFunc = Win32_RW_Mutex_Write_Lock,
 	.RWMutexWriteUnlockFunc = Win32_RW_Mutex_Write_Unlock,
+
+	.SemaphoreCreateFunc = Win32_Semaphore_Create,
+	.SemaphoreDeleteFunc = Win32_Semaphore_Delete,
+	.SemaphoreIncrementFunc = Win32_Semaphore_Increment,
+	.SemaphoreDecrementFunc = Win32_Semaphore_Decrement,
+	.SemaphoreAddFunc = Win32_Semaphore_Add,
 
 	.HotReloadCreateFunc = Win32_Hot_Reload_Create,
 	.HotReloadDeleteFunc = Win32_Hot_Reload_Delete,
@@ -408,6 +514,7 @@ void OS_Base_Init(base* Base) {
 
 	Win32.Base.VTable = &Win32_Base_VTable;
 	Win32.Base.PageSize = SystemInfo.dwAllocationGranularity;
+	Win32.Base.ProcessorThreadCount = SystemInfo.dwNumberOfProcessors;
 	G_Win32 = &Win32;
 
 	Base->OSBase = (os_base*)&Win32;

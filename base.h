@@ -23,6 +23,8 @@
 #define local static
 #define Array_Count(array) (sizeof(array)/sizeof((array)[0]))
 
+#define PTR_SIZE sizeof(size_t)
+
 #define Memory_Copy(dst, src, size) memcpy(dst, src, size)
 #define Memory_Clear(dst, size) memset(dst, 0, size)
 #define Zero_Struct(dst) Memory_Clear(&(dst), sizeof(dst))
@@ -489,6 +491,27 @@ typedef struct {
 	u8*    Ptr;
 } binary_heap;
 
+#define ASYNC_STACK_INDEX32_INVALID ((uint32_t)-1) 
+
+typedef union {
+    u64 ID;
+    struct {
+        u32 Index;
+        u32 Key;
+    };
+} async_stack_index32_key;
+
+typedef struct {
+    u32*  	   NextIndices;
+    atomic_u64 Head;
+    u32   	   Capacity;
+} async_stack_index32;
+
+function void Async_Stack_Index32_Init_Raw(async_stack_index32* StackIndex, u32* IndicesPtr, u32 Capacity);
+function void Async_Stack_Index32_Push_Sync(async_stack_index32* StackIndex, u32 Index);
+function void Async_Stack_Index32_Push(async_stack_index32* StackIndex, u32 Index);
+function u32  Async_Stack_Index32_Pop(async_stack_index32* StackIndex);
+
 #include "os/os_base.h"
 
 typedef struct {
@@ -499,5 +522,6 @@ typedef struct {
 } base;
 
 #include "akon.h"
+#include "job.h"
 
 #endif
