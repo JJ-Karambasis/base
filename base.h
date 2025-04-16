@@ -348,11 +348,16 @@ typedef struct {
 	size_t Used;
 } arena_marker;
 
+typedef struct {
+	u32 State;
+} random32_xor_shift;
+
 #define MAX_SCRATCH_COUNT 64
 typedef struct {
-	size_t 		 ScratchIndex;
-	arena* 		 ScratchArenas[MAX_SCRATCH_COUNT];
-	arena_marker ScratchMarkers[MAX_SCRATCH_COUNT];
+	random32_xor_shift Random32;
+	size_t 		 	   ScratchIndex;
+	arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
+	arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];
 } thread_context;
 
 typedef struct {

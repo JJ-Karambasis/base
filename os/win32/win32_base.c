@@ -432,6 +432,10 @@ function OS_LIBRARY_GET_FUNCTION_DEFINE(Win32_Library_Get_Function) {
 	return (void*)GetProcAddress(Library->Library, FunctionName);
 }
 
+function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
+	BCryptGenRandom(NULL, Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+}
+
 global os_base_vtable Win32_Base_VTable = {
 	.ReserveMemoryFunc = Win32_Reserve_Memory,
 	.CommitMemoryFunc = Win32_Commit_Memory,
@@ -482,7 +486,9 @@ global os_base_vtable Win32_Base_VTable = {
 	
 	.LibraryCreateFunc = Win32_Library_Create,
 	.LibraryDeleteFunc = Win32_Library_Delete,
-	.LibraryGetFunctionFunc = Win32_Library_Get_Function
+	.LibraryGetFunctionFunc = Win32_Library_Get_Function,
+
+	.GetEntropyFunc = Win32_Get_Entropy
 };
 
 function string Win32_Get_Executable_Path(allocator* Allocator) {
@@ -529,3 +535,5 @@ void OS_Base_Init(base* Base) {
 	Win32.Base.ProgramPath = String_Copy((allocator*)Win32.ResourceArena, String_Get_Directory_Path(ExecutablePath));
 	Scratch_Release();
 }
+
+#pragma comment(lib, "bcrypt.lib")

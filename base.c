@@ -74,6 +74,10 @@ function inline b32 Equal_Zero_Eps_Sq_F32(f32 SqValue) {
     return Equal_Zero_Approx_F32(SqValue, Sq(FLT_EPSILON));
 }
 
+function inline f32 Safe_Ratio(s32 x, s32 y) {
+	Assert(y != 0);
+	return (f32)x / (f32)y;
+}
 
 function inline f32 Sqrt_F32(f32 Value) {
 	return sqrtf(Value);
@@ -366,6 +370,11 @@ function inline v2i V2i_Zero() {
 
 function inline v2i V2i_Sub_V2i(v2i a, v2i b) {
 	v2i Result = { a.x - b.x, a.y - b.y };
+	return Result;
+}
+
+function inline v2i V2i_Div_S32(v2i a, s32 b) {
+	v2i Result = { a.x / b, a.y / b };
 	return Result;
 }
 
@@ -820,6 +829,11 @@ function m4 M4_Transform_Scale(v3 x, v3 y, v3 z, v3 t, v3 s) {
 	y = V3_Mul_S(y, s.y);
 	z = V3_Mul_S(z, s.z);
 	return M4_Transform(x, y, z, t);
+}
+
+function inline m4 M4_Transform_Scale_Quat(v3 t, v3 s, quat Q) {
+	m3 Orientation = M3_From_Quat(Q);
+	return M4_Transform_Scale(Orientation.x, Orientation.y, Orientation.z, s, t);
 }
 
 function m4 M4_From_M3(const m3* M) {
@@ -1369,11 +1383,13 @@ function ALLOCATOR_FREE_MEMORY_DEFINE(Arena_Free_Memory) {
 	//Noop
 }
 
+function random32_xor_shift Random32_XOrShift_Init();
 function thread_context* Thread_Context_Get() {
 	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
 	if (!ThreadContext) {
 		ThreadContext = Allocator_Allocate_Struct(Default_Allocator_Get(), thread_context);
 		OS_TLS_Set(G_Base->ThreadContextTLS, ThreadContext);
+		ThreadContext->Random32 = Random32_XOrShift_Init();
 	}
 	return ThreadContext;
 }
@@ -1398,6 +1414,48 @@ function void Scratch_Release() {
 	Arena_Set_Marker(ThreadContext->ScratchArenas[ScratchIndex], ThreadContext->ScratchMarkers[ScratchIndex]);
 }
 
+function random32_xor_shift Random32_XOrShift_Init() {
+	random32_xor_shift Result = { 0 };
+	OS_Get_Entropy(&Result.State, sizeof(u32));
+	return Result;
+}
+
+function inline u32 Random32_XOrShift(random32_xor_shift* Random) {
+	u32 x = Random->State;
+
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+
+	Random->State = x;
+
+	return x;
+}
+
+function inline f32 Random32_XOrShift_UNorm(random32_xor_shift* Random) {
+	f32 Result = (f32)Random32_XOrShift(Random) / (f32)UINT32_MAX;
+	return Result;
+}
+
+function inline f32 Random32_XOrShift_SNorm(random32_xor_shift* Random) {
+	f32 Result = -1.0f + 2.0f * Random32_XOrShift_UNorm(Random);
+	return Result;
+}
+
+function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min, s32 Max) {
+	s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
+	return Result;
+}
+
+function inline u32 Random32() {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift(Random);
+}
+
+function inline s32 Random32_Range(s32 Min, s32 Max) {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift_Range(Random, Min, Max);
+}
 
 #define Array_Implement(type, name) \
 function type##_array name##_Array_Init(type* Ptr, size_t Count) { \

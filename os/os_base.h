@@ -100,6 +100,9 @@ typedef OS_LIBRARY_CREATE_DEFINE(os_library_create_func);
 typedef OS_LIBRARY_DELETE_DEFINE(os_library_delete_func);
 typedef OS_LIBRARY_GET_FUNCTION_DEFINE(os_library_get_function_func);
 
+#define OS_GET_ENTROPY_DEFINE(name) void name(void* Buffer, size_t Size)
+typedef OS_GET_ENTROPY_DEFINE(os_get_entropy_func);
+
 typedef struct {
 	os_reserve_memory_func* ReserveMemoryFunc;
 	os_commit_memory_func* CommitMemoryFunc;
@@ -151,6 +154,8 @@ typedef struct {
 	os_library_create_func* 	  LibraryCreateFunc;
 	os_library_delete_func* 	  LibraryDeleteFunc;
 	os_library_get_function_func* LibraryGetFunctionFunc;
+
+	os_get_entropy_func* GetEntropyFunc;
 } os_base_vtable;
 
 typedef struct {
@@ -214,6 +219,8 @@ typedef struct {
 #define OS_Library_Create(path) Base_Get()->OSBase->VTable->LibraryCreateFunc(path)
 #define OS_Library_Delete(library) Base_Get()->OSBase->VTable->LibraryDeleteFunc(library)
 #define OS_Library_Get_Function(library, name) Base_Get()->OSBase->VTable->LibraryGetFunctionFunc(library, name)
+
+#define OS_Get_Entropy(buffer, size) Base_Get()->OSBase->VTable->GetEntropyFunc(buffer, size)
 
 #define OS_Read_Entire_File_Str(allocator, path) String_From_Buffer(OS_Read_Entire_File(allocator, path))
 
