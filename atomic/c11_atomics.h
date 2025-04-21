@@ -3,6 +3,10 @@
 #include <stdatomic.h>
 
 typedef struct {
+	atomic_uint_least16_t Internal;
+} atomic_u16;
+
+typedef struct {
 	atomic_int_least32_t Internal;  
 } atomic_s32;
 

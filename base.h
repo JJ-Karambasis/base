@@ -218,6 +218,24 @@ typedef struct {
 
 typedef struct {
 	union {
+		s32 Data[4];
+		struct {
+			s32 x, y, z, w;
+		};
+	};
+} v4i;
+
+typedef struct {
+	union {
+		u32 Data[4];
+		struct {
+			u32 x, y, z, w;
+		};
+	};
+} v4u;
+
+typedef struct {
+	union {
 		f32 Data[4];
 		v4  V;
 		struct { f32 x, y, z, w; };
@@ -496,7 +514,28 @@ typedef struct {
 	u8*    Ptr;
 } binary_heap;
 
-#define ASYNC_STACK_INDEX32_INVALID ((uint32_t)-1) 
+#define ASYNC_STACK_INDEX16_INVALID ((u16)-1) 
+
+typedef union {
+    u32 ID;
+    struct {
+        u16 Index;
+        u16 Key;
+    };
+} async_stack_index16_key;
+
+typedef struct {
+    u16*  	   NextIndices;
+    atomic_u32 Head;
+    u16   	   Capacity;
+} async_stack_index16;
+
+function void Async_Stack_Index16_Init_Raw(async_stack_index16* StackIndex, u16* IndicesPtr, u16 Capacity);
+function void Async_Stack_Index16_Push_Sync(async_stack_index16* StackIndex, u16 Index);
+function void Async_Stack_Index16_Push(async_stack_index16* StackIndex, u16 Index);
+function u16  Async_Stack_Index16_Pop(async_stack_index16* StackIndex);
+
+#define ASYNC_STACK_INDEX32_INVALID ((u32)-1) 
 
 typedef union {
     u64 ID;

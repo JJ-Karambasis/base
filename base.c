@@ -2851,6 +2851,62 @@ function void* Binary_Heap_Pop(binary_heap* Heap) {
 	return Result;
 }
 
+function async_stack_index16_key Async_Stack_Index16_Make_Key(u16 Index, u16 Key) {
+    async_stack_index16_key Result;
+    Result.Index = Index;
+    Result.Key = Key;
+    return Result;
+}
+
+function void Async_Stack_Index16_Init_Raw(async_stack_index16* StackIndex, u16* IndicesPtr, u16 Capacity) {
+    /*Make sure atomic is properly aligned*/
+    Assert((((size_t)&StackIndex->Head) % 4) == 0);
+    StackIndex->NextIndices = IndicesPtr;
+    StackIndex->Capacity = Capacity;
+    async_stack_index16_key* HeadKey = (async_stack_index16_key*)&StackIndex->Head; 
+    HeadKey->Index = ASYNC_STACK_INDEX16_INVALID;
+    HeadKey->Key = 0;
+}
+
+function void Async_Stack_Index16_Push_Sync(async_stack_index16* StackIndex, u16 Index) {
+    async_stack_index16_key* CurrentTop = (async_stack_index16_key*)&StackIndex->Head;
+    u16 Current = CurrentTop->Index;
+    StackIndex->NextIndices[Index] = Current;
+    CurrentTop->Index = Index;
+}
+
+function void Async_Stack_Index16_Push(async_stack_index16* StackIndex, u16 Index) {
+    for(;;) {
+        async_stack_index16_key CurrentTop = { Atomic_Load_U32(&StackIndex->Head)};
+        u16 Current = CurrentTop.Index;
+        StackIndex->NextIndices[Index] = Current;
+        async_stack_index16_key NewTop = Async_Stack_Index16_Make_Key(Index, CurrentTop.Key+1); /*Increment key to avoid ABA problem*/
+        /*Add job index to the freelist atomically*/
+        if(Atomic_Compare_Exchange_U32(&StackIndex->Head, CurrentTop.ID, NewTop.ID) == CurrentTop.ID) {
+            return;
+        }
+    }
+}
+
+function u16 Async_Stack_Index16_Pop(async_stack_index16* StackIndex) {
+    for(;;) {
+        async_stack_index16_key CurrentTop = { Atomic_Load_U32(&StackIndex->Head)};
+
+        u16 Index = CurrentTop.Index;
+        if(Index == ASYNC_STACK_INDEX16_INVALID) {
+            /*No more jobs avaiable*/
+            return ASYNC_STACK_INDEX16_INVALID;
+        }
+        Assert(Index < StackIndex->Capacity); /*Overflow*/
+        u16 Next = StackIndex->NextIndices[Index];
+        async_stack_index16_key NewTop = Async_Stack_Index16_Make_Key(Next, CurrentTop.Key+1); /*Increment key to avoid ABA problem*/
+        /*Atomically update the job freelist*/
+        if(Atomic_Compare_Exchange_U32(&StackIndex->Head, CurrentTop.ID, NewTop.ID) == CurrentTop.ID) {
+            return Index;
+        }
+    }
+}
+
 function async_stack_index32_key Async_Stack_Index32_Make_Key(u32 Index, u32 Key) {
     async_stack_index32_key Result;
     Result.Index = Index;
@@ -2870,7 +2926,7 @@ function void Async_Stack_Index32_Init_Raw(async_stack_index32* StackIndex, u32*
 
 function void Async_Stack_Index32_Push_Sync(async_stack_index32* StackIndex, u32 Index) {
     async_stack_index32_key* CurrentTop = (async_stack_index32_key*)&StackIndex->Head;
-    uint32_t Current = CurrentTop->Index;
+    u32 Current = CurrentTop->Index;
     StackIndex->NextIndices[Index] = Current;
     CurrentTop->Index = Index;
 }
