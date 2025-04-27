@@ -1527,6 +1527,9 @@ function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* A
 		} \
 			Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type)); \
 				Array->Count += Count; \
+} \
+function void Dynamic_##name##_Array_Clear(dynamic_##container_name##_array* Array) { \
+Array->Count = 0; \
 }
 
 #define Dynamic_Array_Implement_Type(type, name) Dynamic_Array_Implement(type, type, name)
