@@ -833,7 +833,7 @@ function m4 M4_Transform_Scale(v3 x, v3 y, v3 z, v3 t, v3 s) {
 
 function inline m4 M4_Transform_Scale_Quat(v3 t, v3 s, quat Q) {
 	m3 Orientation = M3_From_Quat(Q);
-	return M4_Transform_Scale(Orientation.x, Orientation.y, Orientation.z, s, t);
+	return M4_Transform_Scale(Orientation.x, Orientation.y, Orientation.z, t, s);
 }
 
 function m4 M4_From_M3(const m3* M) {
@@ -2454,6 +2454,33 @@ function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator
 	Buffer[TotalStringSize] = 0;
 	return Make_String(Buffer, TotalStringSize);
 }
+
+function inline bstream_reader BStream_Reader_Begin(buffer Buffer) {
+	bstream_reader Result = {
+		.Start = Buffer.Ptr,
+		.End = Buffer.Ptr+Buffer.Size,
+		.At = Buffer.Ptr
+	};
+	return Result;
+}
+
+function inline b32 BStream_Reader_Is_Valid(bstream_reader* Reader) {
+	return Reader->At < Reader->End;
+}
+
+function inline const void* BStream_Reader_Size(bstream_reader* Reader, size_t Size) {
+	Assert(Reader->At + Size <= Reader->End);
+	const void* Result = Reader->At;
+	Reader->At += Size;
+	return Result;
+}
+
+function inline u32 BStream_Reader_U32(bstream_reader* Reader) {
+	u32 Result = *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
+	return Result;
+}
+
+#define BStream_Reader_Struct(reader, type) *(const type*)BStream_Reader_Size(reader, sizeof(type))
 
 #define HASH_INVALID_SLOT (u32)-1
 

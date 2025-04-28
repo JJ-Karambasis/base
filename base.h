@@ -431,6 +431,12 @@ typedef struct {
 } sstream_char;
 
 typedef struct {
+	const u8* Start;
+	const u8* End;
+	const u8* At;
+} bstream_reader;
+
+typedef struct {
 	u32 Hash;
 	u32 ItemIndex;
 	u32 BaseCount;
