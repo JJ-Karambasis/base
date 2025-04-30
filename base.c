@@ -508,6 +508,11 @@ global const v3 G_YAxis    = { 0.0f, 1.0f, 0.0f };
 global const v3 G_ZAxis    = { 0.0f, 0.0f, 1.0f };
 global const v3 G_UpVector = { 0.0f, 0.0f, 1.0f };
 
+function inline v3i V3i(s32 x, s32 y, s32 z) {
+	v3i Result = { x, y, z };
+	return Result;
+}
+
 function inline v4 V4(f32 x, f32 y, f32 z, f32 w) {
 	v4 Result = { x, y, z, w };
 	return Result;
@@ -1479,7 +1484,11 @@ function type##_array name##_Array_Init(type* Ptr, size_t Count) { \
 		Assert(EndIndex <= Array.Count); \
 		type##_array Result = name##_Array_Init(Array.Ptr + StartIndex, EndIndex-StartIndex); \
 		return Result; \
-}
+} \
+function type##_array name##_Array_Empty() { \
+type##_array Result = { 0 }; \
+return Result; \
+} \
 
 Array_Implement(char, Char);
 Array_Implement(u32, U32);

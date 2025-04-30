@@ -207,6 +207,10 @@ typedef struct {
 } v3;
 
 typedef struct {
+	s32 x, y, z;
+} v3i;
+
+typedef struct {
 	union {
 		f32 Data[4];
 		struct {
