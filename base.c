@@ -3071,5 +3071,33 @@ function inline b32 Compare_String(void* A, void* B) {
 	return String_Equals(*StringA, *StringB);
 }
 
+function buffer Read_Entire_File(allocator* Allocator, string Path) {
+	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_READ);
+	if (!File) return Buffer_Empty();
+
+	size_t Size = OS_Get_File_Size(File);
+	buffer Result = Buffer_Alloc(Allocator, Size);
+
+	if (!OS_Read_File(File, Result.Ptr, Result.Size)) {
+		Allocator_Free_Memory(Allocator, Result.Ptr);
+		Result = Buffer_Empty();
+	}
+
+	OS_Close_File(File);
+	return Result;
+}
+
+#define Read_Entire_File_Str(allocator, path) String_From_Buffer(Read_Entire_File(allocator, path))
+
+
+function b32 Write_Entire_File(string Path, buffer Data) {
+	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_WRITE);
+	if (!File) return false;
+
+	b32 Result = OS_Write_File(File, Data.Ptr, Data.Size);
+	OS_Close_File(File);
+	return Result;
+}
+
 #include "akon.c"
 #include "job.c"

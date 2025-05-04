@@ -217,6 +217,10 @@ typedef struct {
 			f32 x, y, z, w;
 		};
 		v3 xyz;
+		struct {
+			f32 __unused0__;
+			v3 yzw;
+		};
 	};
 } v4;
 

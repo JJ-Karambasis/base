@@ -1,6 +1,11 @@
 #ifndef WIN32_BASE_H
 #define WIN32_BASE_H
 
+struct os_file {
+	HANDLE Handle;
+	os_file* Next;
+};
+
 struct os_tls {
 	DWORD Index;
 	os_tls* Next;
@@ -45,6 +50,7 @@ typedef struct {
 
 	arena* ResourceArena;
 	CRITICAL_SECTION ResourceLock;
+	os_file* FreeFiles;
 	os_tls* FreeTLS;
 	os_thread* FreeThreads;
 	os_mutex* FreeMutex;

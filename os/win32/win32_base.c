@@ -43,40 +43,112 @@ function OS_QUERY_PERFORMANCE_DEFINE(Win32_Query_Performance_Frequency) {
 	return Result;
 }
 
-function OS_READ_ENTIRE_FILE_DEFINE(Win32_Read_Entire_File) {
-	arena* Scratch = Scratch_Get();
-	wstring PathW = WString_From_String((allocator*)Scratch, Path);
-	HANDLE FileHandle = CreateFileW(PathW.Ptr, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	Scratch_Release();
-	
-	if (FileHandle == INVALID_HANDLE_VALUE) {
-		return Buffer_Empty();
+function OS_OPEN_FILE_DEFINE(Win32_Open_File) {
+	DWORD DesiredAccess = 0;
+	DWORD CreationType = 0;
+
+	if (Attributes == (OS_FILE_ATTRIBUTE_READ|OS_FILE_ATTRIBUTE_WRITE)) {
+		DesiredAccess = GENERIC_READ | GENERIC_WRITE;
+		CreationType = OPEN_ALWAYS;
+	} else if (Attributes == OS_FILE_ATTRIBUTE_READ) {
+		DesiredAccess = GENERIC_READ;
+		CreationType = OPEN_EXISTING;
+	} else if (Attributes == OS_FILE_ATTRIBUTE_WRITE) {
+		DesiredAccess = GENERIC_WRITE;
+		CreationType = CREATE_ALWAYS;
+	} else {
+		Assert(!"Invalid file attributes!");
+		return NULL;
 	}
 
-	DWORD FileSizeHigh;
-	DWORD FileSize = GetFileSize(FileHandle, &FileSizeHigh);
+	os_file* Result = NULL;
 
-	Assert(FileSizeHigh == 0);
+	arena* Scratch = Scratch_Get();
+	wstring PathW = WString_From_String((allocator*)Scratch, Path);
+	HANDLE Handle = CreateFileW(PathW.Ptr, DesiredAccess, 0, NULL, CreationType, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	buffer Result = Buffer_Alloc(Allocator, FileSize);
-	ReadFile(FileHandle, Result.Ptr, FileSize, NULL, NULL);
-	CloseHandle(FileHandle);
+	if(Handle != INVALID_HANDLE_VALUE) {
+		
+		win32_base* Win32 = Win32_Get();
+
+		EnterCriticalSection(&Win32->ResourceLock);
+		Result = Win32->FreeFiles;
+		if (Result) SLL_Pop_Front(Win32->FreeFiles);
+		else Result = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_file);
+		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Memory_Clear(Result, sizeof(os_file));
+		Result->Handle = Handle;
+	} else {
+		//todo: Diagnostic and error logging 
+		Debug_Log("CreateFileW failed!");
+	}
+
+	Scratch_Release();
+
 	return Result;
 }
 
-function OS_WRITE_ENTIRE_FILE_DEFINE(Win32_Write_Entire_File) {
-	arena* Scratch = Scratch_Get();
-	wstring PathW = WString_From_String((allocator*)Scratch, Path);
-	HANDLE FileHandle = CreateFileW(PathW.Ptr, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	Scratch_Release();
+function OS_GET_FILE_SIZE_DEFINE(Win32_Get_File_Size) {
+	Assert(File);
+	if (!File) return 0;
 
-	if (FileHandle == INVALID_HANDLE_VALUE) {
+	LARGE_INTEGER Result;
+	GetFileSizeEx(File->Handle, &Result);
+	return Result.QuadPart;
+}
+
+function OS_READ_FILE_DEFINE(Win32_Read_File) {
+	Assert(File);
+	if (!File) return false;
+
+	u32 ReadSizeTrunc = (u32)ReadSize;
+	DWORD BytesRead;
+
+	if (!ReadFile(File->Handle, Data, ReadSizeTrunc, &BytesRead, NULL)) {
+		Debug_Log("ReadFile failed!");
 		return false;
 	}
 
-	bool Result = WriteFile(FileHandle, Data.Ptr, (DWORD)Data.Size, NULL, NULL);
-	CloseHandle(FileHandle);
-	return Result;
+	if ((u64)BytesRead != ReadSize) {
+		//todo: Diagnostic and error logging
+		return false;
+	}
+
+	return true;
+}
+
+function OS_WRITE_FILE_DEFINE(Win32_Write_File) {
+	Assert(File);
+	if (!File) return false;
+
+	u32 WriteSizeTrunc = (u32)WriteSize;
+	DWORD BytesWritten;
+
+	if (!WriteFile(File->Handle, Data, WriteSizeTrunc, &BytesWritten, NULL)) {
+		Debug_Log("WriteFile failed!");
+		return false;
+	}
+
+	if ((u64)BytesWritten != WriteSize) {
+		//todo: Diagnostic and error logging
+		return false;
+	}
+
+	return true;
+}
+
+function OS_CLOSE_FILE_DEFINE(Win32_Close_File) {
+	Assert(File);
+	if (!File) return;
+
+	win32_base* Win32 = Win32_Get();
+
+	CloseHandle(File->Handle);
+
+	EnterCriticalSection(&Win32->ResourceLock);
+	SLL_Push_Front(Win32->FreeFiles, File);
+	LeaveCriticalSection(&Win32->ResourceLock);
 }
 
 function void Win32_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_array* Array, string Directory, b32 Recursive) {
@@ -445,8 +517,12 @@ global os_base_vtable Win32_Base_VTable = {
 	.QueryPerformanceCounterFunc = Win32_Query_Performance_Counter,
 	.QueryPerformanceFrequencyFunc = Win32_Query_Performance_Frequency,
 
-	.ReadEntireFileFunc = Win32_Read_Entire_File,
-	.WriteEntireFileFunc = Win32_Write_Entire_File,
+	.OpenFileFunc = Win32_Open_File,
+	.GetFileSizeFunc = Win32_Get_File_Size,
+	.ReadFileFunc = Win32_Read_File,
+	.WriteFileFunc = Win32_Write_File,
+	.CloseFileFunc = Win32_Close_File,
+
 	.GetAllFilesFunc = Win32_Get_All_Files,
 	.IsDirectoryPathFunc = Win32_Is_Directory_Path,
 	.IsFilePathFunc = Win32_Is_File_Path,

@@ -14,14 +14,30 @@ typedef OS_RELEASE_MEMORY_DEFINE(os_release_memory_func);
 #define OS_QUERY_PERFORMANCE_DEFINE(name) u64 name()
 typedef OS_QUERY_PERFORMANCE_DEFINE(os_query_performance_func);
 
-#define OS_READ_ENTIRE_FILE_DEFINE(name) buffer name(allocator* Allocator, string Path)
-#define OS_WRITE_ENTIRE_FILE_DEFINE(name) b32 name(string Path, buffer Data)
+#define OS_OPEN_FILE_DEFINE(name) os_file* name(string Path, os_file_attribute_flags Attributes)
+#define OS_GET_FILE_SIZE_DEFINE(name) u64 name(os_file* File)
+#define OS_READ_FILE_DEFINE(name) b32 name(os_file* File, void* Data, size_t ReadSize)
+#define OS_WRITE_FILE_DEFINE(name) b32 name(os_file* File, const void* Data, size_t WriteSize)
+#define OS_CLOSE_FILE_DEFINE(name) void name(os_file* File)
+
 #define OS_GET_ALL_FILES_DEFINE(name) string_array name(allocator* Allocator, string Path, b32 Recursive)
 #define OS_IS_PATH_DEFINE(name) b32 name(string Path)
 #define OS_MAKE_DIRECTORY_DEFINE(name) b32 name(string Directory)
 
-typedef OS_READ_ENTIRE_FILE_DEFINE(os_read_entire_file_func);
-typedef OS_WRITE_ENTIRE_FILE_DEFINE(os_write_entire_file_func);
+enum {
+	OS_FILE_ATTRIBUTE_NONE,
+	OS_FILE_ATTRIBUTE_READ = (1 << 0),
+	OS_FILE_ATTRIBUTE_WRITE = (1 << 1)
+};
+typedef u32 os_file_attribute_flags;
+
+typedef struct os_file os_file;
+typedef OS_OPEN_FILE_DEFINE(os_open_file_func);
+typedef OS_GET_FILE_SIZE_DEFINE(os_get_file_size_func);
+typedef OS_READ_FILE_DEFINE(os_read_file_func);
+typedef OS_WRITE_FILE_DEFINE(os_write_file_func);
+typedef OS_CLOSE_FILE_DEFINE(os_close_file_func);
+
 typedef OS_GET_ALL_FILES_DEFINE(os_get_all_files_func);
 typedef OS_IS_PATH_DEFINE(os_is_path_func);
 typedef OS_MAKE_DIRECTORY_DEFINE(os_make_directory_func);
@@ -112,8 +128,12 @@ typedef struct {
 	os_query_performance_func* QueryPerformanceCounterFunc;
 	os_query_performance_func* QueryPerformanceFrequencyFunc;
 
-	os_read_entire_file_func*  ReadEntireFileFunc;
-	os_write_entire_file_func* WriteEntireFileFunc;
+	os_open_file_func* OpenFileFunc;
+	os_get_file_size_func* GetFileSizeFunc;
+	os_read_file_func* ReadFileFunc;
+	os_write_file_func* WriteFileFunc;
+	os_close_file_func* CloseFileFunc;
+
 	os_get_all_files_func*     GetAllFilesFunc;
 	os_is_path_func*           IsDirectoryPathFunc;
 	os_is_path_func*           IsFilePathFunc;
@@ -177,8 +197,12 @@ typedef struct {
 #define OS_Query_Performance_Counter() Base_Get()->OSBase->VTable->QueryPerformanceCounterFunc()
 #define OS_Query_Performance_Frequency() Base_Get()->OSBase->VTable->QueryPerformanceFrequencyFunc()
 
-#define OS_Read_Entire_File(allocator, path) Base_Get()->OSBase->VTable->ReadEntireFileFunc(allocator, path)
-#define OS_Write_Entire_File(path, buffer) Base_Get()->OSBase->VTable->WriteEntireFileFunc(path, buffer)
+#define OS_Open_File(path, attribs) Base_Get()->OSBase->VTable->OpenFileFunc(path, attribs)
+#define OS_Get_File_Size(file) Base_Get()->OSBase->VTable->GetFileSizeFunc(file)
+#define OS_Read_File(file, data, size) Base_Get()->OSBase->VTable->ReadFileFunc(file, data, size)
+#define OS_Write_File(file, data, size) Base_Get()->OSBase->VTable->WriteFileFunc(file, data, size)
+#define OS_Close_File(file) Base_Get()->OSBase->VTable->CloseFileFunc(file)
+
 #define OS_Get_All_Files(allocator, path, recursive) Base_Get()->OSBase->VTable->GetAllFilesFunc(allocator, path, recursive)
 #define OS_Is_Directory_Path(path) Base_Get()->OSBase->VTable->IsDirectoryPathFunc(path)
 #define OS_Is_File_Path(path) Base_Get()->OSBase->VTable->IsFilePathFunc(path)
@@ -221,7 +245,5 @@ typedef struct {
 #define OS_Library_Get_Function(library, name) Base_Get()->OSBase->VTable->LibraryGetFunctionFunc(library, name)
 
 #define OS_Get_Entropy(buffer, size) Base_Get()->OSBase->VTable->GetEntropyFunc(buffer, size)
-
-#define OS_Read_Entire_File_Str(allocator, path) String_From_Buffer(OS_Read_Entire_File(allocator, path))
 
 #endif

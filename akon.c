@@ -126,6 +126,22 @@ function akon_node* AKON_Get_Node(akon_context* Context, akon_node* ParentNode, 
 	return NULL;
 }
 
+function b32 AKON_Node_Read_F32_Array(akon_node* Node, f32* Data, size_t Count) {
+	if (Node->ChildCount != Count) return false;
+
+	akon_node* ValueNode = Node->FirstChild;
+	for (size_t i = 0; i < Count; i++) {
+		if (ValueNode->Type != AKON_NODE_TYPE_VALUE || ValueNode->ValueType != AKON_VALUE_TYPE_NUMBER) {
+			return false;
+		}
+
+		Data[i] = (f32)ValueNode->Number;
+		ValueNode = ValueNode->NextSibling;
+	}
+
+	return true;
+}
+
 function akon_token* AKON_Parse_Value(akon_parser* Parser, akon_token* Token, akon_node* ValueNode) {
 	akon_context* Context = Parser->Context;
 
