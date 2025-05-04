@@ -63,46 +63,96 @@ function OS_QUERY_PERFORMANCE_DEFINE(OSX_Query_Performance_Frequency) {
     return NS_PER_SECOND;
 }
 
-function OS_READ_ENTIRE_FILE_DEFINE(OSX_Read_Entire_File) {
-    arena* Scratch = Scratch_Get();
-    if(!String_Is_Null_Term(Path)) {
-        Path = String_Copy((allocator*)Scratch, Path);
-    }
-    Assert(String_Is_Null_Term(Path));
+function OS_OPEN_FILE_DEFINE(OSX_Open_File) {
+    int Flags = 0;
+    int Permissions = 0;
 
-    int FileHandle = open(Path.Ptr, O_RDONLY, 0);
+    if (Attributes == (OS_FILE_ATTRIBUTE_READ|OS_FILE_ATTRIBUTE_WRITE)) {
+		Flags = O_RDWR;
+        Permissions = 0666;
+	} else if (Attributes == OS_FILE_ATTRIBUTE_READ) {
+        Flags = O_RDONLY; 
+	} else if (Attributes == OS_FILE_ATTRIBUTE_WRITE) {
+        Flags = O_WRONLY|O_CREAT;
+        Permissions = 0666;
+	} else {
+		Assert(!"Invalid file attributes!");
+		return NULL;
+	}
+    
+    arena* Scratch = Scratch_Get();
+
+    //Copy path to make sure it null terminated
+    Path = String_Copy((allocator*)Scratch, Path);
+    int FileHandle = open(Path.Ptr, Flags, Permissions);
     Scratch_Release();
 
     if(FileHandle == -1) {
-        return Buffer_Empty();
+        Debug_Log("open failed!");
+        return NULL;
     }
 
-    size_t FileSize = lseek(FileHandle, 0, SEEK_END);
-    lseek(FileHandle, 0, SEEK_SET);
-    
-    Assert(FileSize <= 0xFFFFFFFF);
-    buffer Result = Buffer_Alloc(Allocator, FileSize);
-    read(FileHandle, Result.Ptr, FileSize);
-    close(FileHandle);
+    osx_base* OSX = OSX_Get();
+
+    pthread_mutex_lock(&OSX->ResourceLock);
+    os_file* Result = OSX->FreeFiles;
+    if(Result) SLL_Pop_Front(OSX->FreeFiles);
+    else Result = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_file);
+    pthread_mutex_unlock(&OSX->ResourceLock);
+
+    Memory_Clear(Result, sizeof(os_file));
+    Result->Handle = FileHandle;
+
     return Result;
 }
 
-function OS_WRITE_ENTIRE_FILE_DEFINE(OSX_Write_Entire_File) {
-	arena* Scratch = Scratch_Get();
-    if(!String_Is_Null_Term(Path)) {
-        Path = String_Copy((allocator*)Scratch, Path);
+function OS_GET_FILE_SIZE_DEFINE(OSX_Get_File_Size) {
+	Assert(File);
+	if (!File) return 0;
+
+    struct stat Stat;
+    fstat(File->Handle, &Stat);
+    
+    return (u64)Stat.st_size;
+}
+
+function OS_READ_FILE_DEFINE(OSX_Read_File) {
+    Assert(File);
+    if(!File) return false;
+
+    size_t BytesRead = read(File->Handle, Data, ReadSize);
+    if(BytesRead != ReadSize) {
+        Debug_Log("read failed!");
+        return false;
     }
-    Assert(String_Is_Null_Term(Path));
-    int FileHandle = open(Path.Ptr, O_WRONLY|O_CREAT, 0666);
-	Scratch_Release();
+    
+    return true;
+}
 
-    if (FileHandle == -1) {
-		return false;
-	}
+function OS_WRITE_FILE_DEFINE(OSX_Write_File) {
+	Assert(File);
+    if(!File) return false;
 
-	bool Result = write(FileHandle, Data.Ptr, Data.Size) == Data.Size;
-	close(FileHandle);
-	return Result;
+    size_t BytesWritten = write(File->Handle, Data, WriteSize);
+    if(BytesWritten != WriteSize) {
+        Debug_Log("write failed!");
+        return false;
+    }
+
+    return true;
+}
+
+function OS_CLOSE_FILE_DEFINE(OSX_Close_File) {
+    Assert(File);
+    if(!File) return;
+
+    osx_base* OSX = OSX_Get();
+
+    close(File->Handle);
+
+    pthread_mutex_lock(&OSX->ResourceLock);
+    SLL_Push_Front(OSX->FreeFiles, File);
+    pthread_mutex_unlock(&OSX->ResourceLock);
 }
 
 function void OSX_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_array* Array, string Directory, b32 Recursive) {
@@ -511,6 +561,10 @@ function OS_LIBRARY_GET_FUNCTION_DEFINE(OSX_Library_Get_Function) {
     return dlsym(Library->Library, FunctionName);
 }
 
+function OS_GET_ENTROPY_DEFINE(OSX_Get_Entropy) {
+    arc4random_buf(Buffer, Size);
+}
+
 global os_base_vtable OSX_Base_VTable = {
 	.ReserveMemoryFunc = OSX_Reserve_Memory,
 	.CommitMemoryFunc = OSX_Commit_Memory,
@@ -520,8 +574,12 @@ global os_base_vtable OSX_Base_VTable = {
 	.QueryPerformanceCounterFunc = OSX_Query_Performance_Counter,
 	.QueryPerformanceFrequencyFunc = OSX_Query_Performance_Frequency,
 
-	.ReadEntireFileFunc = OSX_Read_Entire_File,
-	.WriteEntireFileFunc = OSX_Write_Entire_File,
+	.OpenFileFunc = OSX_Open_File,
+	.GetFileSizeFunc = OSX_Get_File_Size,
+	.ReadFileFunc = OSX_Read_File,
+	.WriteFileFunc = OSX_Write_File,
+	.CloseFileFunc = OSX_Close_File,
+
 	.GetAllFilesFunc = OSX_Get_All_Files,
 	.IsDirectoryPathFunc = OSX_Is_Directory_Path,
 	.IsFilePathFunc = OSX_Is_File_Path,
@@ -561,7 +619,9 @@ global os_base_vtable OSX_Base_VTable = {
 	
 	.LibraryCreateFunc = OSX_Library_Create,
 	.LibraryDeleteFunc = OSX_Library_Delete,
-	.LibraryGetFunctionFunc = OSX_Library_Get_Function
+	.LibraryGetFunctionFunc = OSX_Library_Get_Function,
+
+    .GetEntropyFunc = OSX_Get_Entropy
 };
 
 function string OSX_Get_Executable_Path(allocator* Allocator) {

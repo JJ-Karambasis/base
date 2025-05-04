@@ -1,6 +1,11 @@
 #ifndef OSX_BASE_H
 #define OSX_BASE_H
 
+struct os_file {
+    int Handle;
+    os_file* Next;
+};
+
 struct os_tls {
     pthread_key_t Key;
     os_tls* Next;
@@ -44,6 +49,7 @@ typedef struct {
 
     arena* ResourceArena;
     pthread_mutex_t ResourceLock;
+    os_file* FreeFiles;
     os_tls* FreeTLS;
     os_thread* FreeThreads;
     os_mutex* FreeMutex;
