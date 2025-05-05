@@ -508,6 +508,11 @@ function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
 	BCryptGenRandom(NULL, Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 }
 
+function OS_SLEEP_DEFINE(Win32_Sleep) {
+	//todo: Higher resolution sleep with waitable timers
+	Sleep((DWORD)(Nanoseconds / 1000000));
+}
+
 global os_base_vtable Win32_Base_VTable = {
 	.ReserveMemoryFunc = Win32_Reserve_Memory,
 	.CommitMemoryFunc = Win32_Commit_Memory,
@@ -564,7 +569,8 @@ global os_base_vtable Win32_Base_VTable = {
 	.LibraryDeleteFunc = Win32_Library_Delete,
 	.LibraryGetFunctionFunc = Win32_Library_Get_Function,
 
-	.GetEntropyFunc = Win32_Get_Entropy
+	.GetEntropyFunc = Win32_Get_Entropy,
+	.SleepFunc = Win32_Sleep
 };
 
 function string Win32_Get_Executable_Path(allocator* Allocator) {

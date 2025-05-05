@@ -578,7 +578,7 @@ function void Job_System_Wait_For_Job(job_system* JobSystem, job_id JobID) {
         job_system_queue* JobQueue = Job_System_Get_Or_Create_Local_Queue(JobSystem);
 		b32 Result = Job_System_Process_Next_Job(JobSystem, JobQueue);
 		if (!Result) {
-			Sleep(1);
+			OS_Sleep(1);
 		}
     }
 }
