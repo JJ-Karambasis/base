@@ -26,7 +26,7 @@ enum {
 typedef u32 job_info_flags;
 
 typedef struct job_system job_system;
-#define JOB_CALLBACK_DEFINE(name) void name(job_system* JobSystem, job_id JobID, void* UserData)
+#define JOB_CALLBACK_DEFINE(name) void name(job_system* JobSystem, job_id CallbackJobID, void* UserData)
 typedef JOB_CALLBACK_DEFINE(job_callback_func);
 
 #define JOB_INVALID_INDEX ((u32)-1)

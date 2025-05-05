@@ -19,7 +19,7 @@ function inline u16 Atomic_Compare_Exchange_U16(atomic_u16* Atomic, u16 OldValue
 	return OldValue;
 }
 
-function inline u32 Atomic_Load_S32(atomic_s32* Atomic) {
+function inline s32 Atomic_Load_S32(atomic_s32* Atomic) {
 	return atomic_load(&Atomic->Internal);
 }
 

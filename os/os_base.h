@@ -119,6 +119,9 @@ typedef OS_LIBRARY_GET_FUNCTION_DEFINE(os_library_get_function_func);
 #define OS_GET_ENTROPY_DEFINE(name) void name(void* Buffer, size_t Size)
 typedef OS_GET_ENTROPY_DEFINE(os_get_entropy_func);
 
+#define OS_SLEEP_DEFINE(name) void name(u64 Nanoseconds)
+typedef OS_SLEEP_DEFINE(os_sleep_func);
+
 typedef struct {
 	os_reserve_memory_func* ReserveMemoryFunc;
 	os_commit_memory_func* CommitMemoryFunc;
@@ -176,6 +179,7 @@ typedef struct {
 	os_library_get_function_func* LibraryGetFunctionFunc;
 
 	os_get_entropy_func* GetEntropyFunc;
+	os_sleep_func* SleepFunc;
 } os_base_vtable;
 
 typedef struct {
@@ -186,7 +190,7 @@ typedef struct {
 } os_base;
 
 #define OS_Program_Path() (Base_Get()->OSBase->ProgramPath)
-#define OS_Processor_Thread_Count() (Base_Get()->OSBase->ProcessorThreadCount)
+#define OS_Processor_Thread_Count() ((u32)(Base_Get()->OSBase->ProcessorThreadCount))
 
 #define OS_Page_Size() (Base_Get()->OSBase->PageSize)
 #define OS_Reserve_Memory(reserve_size) Base_Get()->OSBase->VTable->ReserveMemoryFunc(reserve_size)
@@ -245,5 +249,6 @@ typedef struct {
 #define OS_Library_Get_Function(library, name) Base_Get()->OSBase->VTable->LibraryGetFunctionFunc(library, name)
 
 #define OS_Get_Entropy(buffer, size) Base_Get()->OSBase->VTable->GetEntropyFunc(buffer, size)
+#define OS_Sleep(nanoseconds) Base_Get()->OSBase->VTable->SleepFunc(nanoseconds)
 
 #endif

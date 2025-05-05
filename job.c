@@ -443,7 +443,7 @@ function job_system* Job_System_Create(u32 MaxJobCount, u32 ThreadCount, u32 Max
     size_t JobSize = Align_Pow2(MaxJobCount*sizeof(job), DEFAULT_ALIGNMENT);
     size_t ThreadSize = Align_Pow2(ThreadCount*sizeof(job_system_thread), DEFAULT_ALIGNMENT);
     size_t DependencyFreeIndicesSize = Align_Pow2(MaxDependencyCount*sizeof(u32), DEFAULT_ALIGNMENT);
-    size_t DependencySize = Align_Pow2(MaxDependencyCount*sizeof(job_dependencies), DEFAULT_ALIGNMENT);
+    size_t DependencySize = Align_Pow2(MaxDependencyCount*sizeof(job_dependency), DEFAULT_ALIGNMENT);
 
     size_t AllocationSize = JobSystemSize; /*Space for the job system*/ 
     AllocationSize += JobFreeIndicesSize; /*Space for the job free indices*/
@@ -576,7 +576,10 @@ function void Job_System_Wait_For_Job(job_system* JobSystem, job_id JobID) {
     job* Job = Job_Storage_Get(JobID);
     while(Job && Atomic_Load_B32(&Job->IsProcessing)) {
         job_system_queue* JobQueue = Job_System_Get_Or_Create_Local_Queue(JobSystem);
-        Job_System_Process_Next_Job(JobSystem, JobQueue);
+		b32 Result = Job_System_Process_Next_Job(JobSystem, JobQueue);
+		if (!Result) {
+			Sleep(1);
+		}
     }
 }
 
