@@ -510,7 +510,10 @@ function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
 
 function OS_SLEEP_DEFINE(Win32_Sleep) {
 	//todo: Higher resolution sleep with waitable timers
-	Sleep((DWORD)(Nanoseconds / 1000000));
+	if (Nanoseconds > 0) {
+		DWORD Milliseconds = Max((DWORD)(Nanoseconds / 1000000), 1);
+		Sleep(Milliseconds);
+	}
 }
 
 global os_base_vtable Win32_Base_VTable = {

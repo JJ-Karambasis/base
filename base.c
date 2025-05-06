@@ -1,3 +1,4 @@
+//todo: Remove these third party includes and put them directly in base
 #define STB_SPRINTF_STATIC
 #define STB_SPRINTF_IMPLEMENTATION
 #include <third_party/stb/stb_sprintf.h>
@@ -3101,3 +3102,4 @@ function b32 Write_Entire_File(string Path, buffer Data) {
 
 #include "akon.c"
 #include "job.c"
+#include "profiler.c"

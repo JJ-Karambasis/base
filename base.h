@@ -581,5 +581,6 @@ typedef struct {
 
 #include "akon.h"
 #include "job.h"
+#include "profiler.h"
 
 #endif
