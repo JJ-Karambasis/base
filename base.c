@@ -2717,6 +2717,10 @@ function inline slot_id Slot_Null() {
 	return Result;
 }
 
+function inline b32 Slot_Is_Null(slot_id SlotID) {
+	return SlotID.ID == 0;
+}
+
 function void Slot_Map_Clear(slot_map* SlotMap) {
 	SlotMap->FreeCount = SlotMap->Capacity;
 	SlotMap->Count = 0;
