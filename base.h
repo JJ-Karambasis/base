@@ -363,15 +363,41 @@ struct allocator {
 #define Allocator_Allocate_Struct(allocator, type) (type *)Allocator_Allocate_Memory(allocator, sizeof(type))
 #define Allocator_Allocate_Array(allocator, count, type) (type *)Allocator_Allocate_Memory(allocator, sizeof(type)*(count))
 
+typedef struct arena_block arena_block;
+struct arena_block {
+	u8*    Memory;
+	size_t Used;
+	size_t Size;
+	arena_block* Next;
+};
+
+typedef enum {
+	ARENA_TYPE_VIRTUAL,
+	ARENA_TYPE_ALLOCATOR
+} arena_type;
+
 typedef struct {
-	allocator 	   Base;
-	memory_reserve Reserve;
-	size_t    	   Used;
+	allocator  Base;
+	arena_type Type;
+	union {
+		struct {
+			memory_reserve Reserve;
+			size_t Used;
+		};
+
+		struct {
+			allocator*   Allocator;
+			arena_block* FirstBlock;
+			arena_block* LastBlock;
+			arena_block* CurrentBlock;
+		};
+	};
 } arena;
 
 typedef struct {
-	arena* Arena;
-	size_t Used;
+	arena* 		 Arena;
+	arena_block* Block;
+	size_t 		 Used;
 } arena_marker;
 
 typedef struct {

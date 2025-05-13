@@ -1299,6 +1299,7 @@ function arena* Arena_Create_With_Size(size_t ReserveSize) {
 	arena* Arena = (arena*)Commit_New_Size(&MemoryReserve, sizeof(arena));
 	
 	Arena->Base.VTable = Base->ArenaVTable;
+	Arena->Type = ARENA_TYPE_VIRTUAL;
 	Arena->Reserve 	   = MemoryReserve;
 	Arena->Used        = sizeof(arena);
 
@@ -1310,30 +1311,101 @@ function arena* Arena_Create() {
 	return Result;
 }
 
+function arena* Arena_Create_With_Allocator(allocator* Allocator) {
+	base* Base = Base_Get();
+
+	arena* Arena = Allocator_Allocate_Struct(Allocator, arena);
+	Arena->Base.VTable = Base->ArenaVTable;
+	Arena->Type = ARENA_TYPE_ALLOCATOR;
+	Arena->Allocator = Allocator;
+	return Arena;
+}
+
 function void Arena_Delete(arena* Arena) {
-	if (Arena->Reserve.BaseAddress) {
-		Delete_Memory_Reserve(&Arena->Reserve);
+	if (Arena) {
+		if (Arena->Type == ARENA_TYPE_VIRTUAL) {
+			if (Arena->Reserve.BaseAddress) {
+				Delete_Memory_Reserve(&Arena->Reserve);
+			}
+		} else {
+			allocator* Allocator = Arena->Allocator;
+			arena_block* Block = Arena->FirstBlock;
+			while (Block) {
+				arena_block* BlockToDelete = Block;
+				Block = Block->Next;
+				Allocator_Free_Memory(Allocator, BlockToDelete);
+			}
+			Arena->FirstBlock = NULL;
+			Arena->CurrentBlock = NULL;
+			Arena->LastBlock = NULL;
+			Arena->Allocator = NULL;
+		}
 	}
+}
+
+function arena_block* Arena_Get_Current_Block(arena* Arena, size_t Size, size_t Alignment) {
+	Assert(Arena->Type == ARENA_TYPE_ALLOCATOR);
+	arena_block* Block = Arena->CurrentBlock;
+	while (Block) {
+		size_t Used = Align_Pow2(Block->Used, Alignment);
+		if ((Used + Size) <= Block->Size) {
+			return Block;
+		}
+		Block = Block->Next;
+	}
+	return Block;
+}
+
+function arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
+	Assert(Arena->Type == ARENA_TYPE_ALLOCATOR);
+	allocator* Allocator = Arena->Allocator;
+	arena_block* Block = (arena_block*)Allocator_Allocate_Memory(Allocator, BlockSize + sizeof(arena_block));
+	if (!Block) return NULL;
+
+	Block->Memory = (u8*)(Block + 1);
+	Block->Used = 0;
+	Block->Size = BlockSize;
+
+	SLL_Push_Back(Arena->FirstBlock, Arena->LastBlock, Block);
+
+	return Block;
 }
 
 function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Alignment) {
 	Assert(Is_Pow2(Alignment));
 	
-	memory_reserve* Reserve = &Arena->Reserve;
-
-	size_t NewUsed = Align_Pow2(Arena->Used, Alignment);
-	if (NewUsed + Size > Reserve->CommitSize) {
-		if (!Commit_New_Size(Reserve, NewUsed + Size)) {
-			//todo: Diagnostic and error logging
-			return NULL;
+	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
+		memory_reserve* Reserve = &Arena->Reserve;
+		size_t NewUsed = Align_Pow2(Arena->Used, Alignment);
+		if (NewUsed + Size > Reserve->CommitSize) {
+			if (!Commit_New_Size(Reserve, NewUsed + Size)) {
+				//todo: Diagnostic and error logging
+				return NULL;
+			}
 		}
+
+		Arena->Used = NewUsed;
+		void* Memory = Reserve->BaseAddress + Arena->Used;
+		Arena->Used += Size;
+		return Memory;
+	} else {
+		arena_block* CurrentBlock = Arena_Get_Current_Block(Arena, Size, Alignment);
+		if (!CurrentBlock) {
+			size_t BlockSize = Align(Size+Alignment, OS_Page_Size());
+			CurrentBlock = Arena_Create_New_Block(Arena, BlockSize);
+			if (!CurrentBlock) {
+				//todo: Diagnostic and error logging
+				return NULL;
+			}
+		}
+		Arena->CurrentBlock = CurrentBlock;
+		CurrentBlock->Used = Align_Pow2(CurrentBlock->Used, Alignment);
+		Assert(CurrentBlock->Used + Size <= CurrentBlock->Size);
+
+		u8* Result = CurrentBlock->Memory + CurrentBlock->Used;
+		CurrentBlock->Used += Size;
+		return Result;
 	}
-
-	Arena->Used = NewUsed;
-	void* Memory = Reserve->BaseAddress + Arena->Used;
-	Arena->Used += Size;
-
-	return Memory;
 }
 
 function void* Arena_Push_Aligned(arena* Arena, size_t Size, size_t Alignment) {
@@ -1359,21 +1431,49 @@ function void* Arena_Push(arena* Arena, size_t Size) {
 #define Arena_Push_Array_No_Clear(arena, count, type) (type*)Arena_Push_No_Clear(arena, sizeof(type)*(count))
 
 function inline arena_marker Arena_Get_Marker(arena* Arena) {
-	arena_marker Result = {
-		.Arena = Arena,
-		.Used  = Arena->Used
-	};
-	return Result;
+	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
+		arena_marker Result = {
+			.Arena = Arena,
+			.Used = Arena->Used
+		};
+		return Result;
+	} else {
+		arena_marker Result = {
+			.Arena = Arena,
+			.Block = Arena->CurrentBlock,
+			.Used = Arena->CurrentBlock != NULL ? Arena->CurrentBlock->Used : 0
+		};
+		return Result;
+	}
 }
 
 function inline void Arena_Set_Marker(arena* Arena, arena_marker Marker) {
 	Assert(Arena == Marker.Arena);
-	Arena->Used = Marker.Used;
+	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
+		Assert(!Marker.Block);
+		Arena->Used = Marker.Used;
+	} else {
+		arena_block* CurrentBlock = Marker.Block != NULL ? Marker.Block : Arena->FirstBlock;
+		if (CurrentBlock) {
+			CurrentBlock->Used = Marker.Used;
+			for (arena_block* NextBlock = CurrentBlock->Next; NextBlock; NextBlock = NextBlock->Next) {
+				NextBlock->Used = 0;
+			}
+		}
+		Arena->CurrentBlock = CurrentBlock;
+	}
 }
 
 function inline void Arena_Clear(arena* Arena) {
-	arena_marker Marker = { .Arena = Arena, .Used = sizeof(arena) };
-	Arena_Set_Marker(Arena, Marker);
+	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
+		arena_marker Marker = { .Arena = Arena, .Used = sizeof(arena) };
+		Arena_Set_Marker(Arena, Marker);
+	} else {
+		for (arena_block* Block = Arena->FirstBlock; Block; Block = Block->Next) {
+			Block->Used = 0;
+		}
+		Arena->CurrentBlock = Arena->FirstBlock;
+	}
 }
 
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Arena_Allocate_Memory) {
