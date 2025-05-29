@@ -42,6 +42,8 @@ function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier
 
 		akon_node_slot* Slot = NodeTree->Slots + SlotIndex;
 		DLL_Push_Back_NP(Slot->First, Slot->Last, Node, NextInHash, PrevInHash);
+	} else {
+		Node->Hash = Seed;
 	}
 
 	return Node;
@@ -84,11 +86,9 @@ function b32 AKON_Token_Iter_Move_Next(akon_token_iter* Iter) {
 	return Result;
 }
 
-function b32 AKON_Token_Iter_Is_Valid(akon_token_iter* Iter) {
-	if (!Iter->Token) return false;
-	return Iter->Index < Iter->Count;
+function inline b32 AKON_Token_Iter_Is_Valid(akon_token_iter* Iter) {
+	return Iter->Token != NULL;
 }
-
 
 function b32 AKON_Token_Iter_Skip_To(akon_token_iter* Iter, akon_token* TargetToken) {
 	while (AKON_Token_Iter_Is_Valid(Iter) && Iter->Token != TargetToken) {
@@ -113,6 +113,8 @@ function b32 AKON_Parse_Value(akon_token_iter* TokenIter, akon_node_tree* NodeTr
 	}
 
 	Node->Str = String_Copy((allocator*)NodeTree->Arena, TokenIter->Token->Identifier);
+	AKON_Token_Iter_Move_Next(TokenIter);
+
 	return true;
 }
 
@@ -145,8 +147,9 @@ function b32 AKON_Parse_Object(akon_token_iter* TokenIter, akon_node_tree* NodeT
 				Quit = true;
 			} break;
 		}
-
 	}
+
+	AKON_Token_Iter_Move_Next(TokenIter);
 
 	return true;
 }
@@ -180,7 +183,8 @@ function b32 AKON_Parse_Variable(akon_token_iter* TokenIter, akon_node_tree* Nod
 				}
 			} break;
 
-			case AKON_TOKEN_TYPE_VARIABLE: {
+			case AKON_TOKEN_TYPE_VARIABLE:
+			case '}': {
 				Quit = true;
 			} break;
 		}
@@ -188,7 +192,6 @@ function b32 AKON_Parse_Variable(akon_token_iter* TokenIter, akon_node_tree* Nod
 
 	return true;
 }
-
 
 function akon_token* AKON_Allocate_Token(akon_tokenizer* Tokenizer, akon_token_type Type) {
 	akon_token* Token = Tokenizer->FreeTokens;
@@ -212,6 +215,41 @@ function void AKON_Add_Token(akon_tokenizer* Tokenizer, akon_token_type Type, si
 
 function inline void AKON_Add_Token_Char(akon_tokenizer* Tokenizer, sstream_char Char) {
 	AKON_Add_Token(Tokenizer, Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
+}
+
+
+function void AKON_Tokens_Replace(akon_token_list* ReplaceList, akon_token_list* InsertLink) {
+	InsertLink->First->Prev = ReplaceList->First->Prev;
+	InsertLink->Last->Next = ReplaceList->Last->Next;
+
+	if (ReplaceList->First->Prev) {
+		ReplaceList->First->Prev->Next = InsertLink->First;
+	}
+
+	if (ReplaceList->Last->Next) {
+		ReplaceList->Last->Next->Prev = InsertLink->Last;
+	}
+
+	ReplaceList->First->Prev = NULL;
+	ReplaceList->First->Next = NULL;
+
+	
+}
+
+function void AKON_Tokens_Free(akon_tokenizer* Tokenizer, akon_token_list* FreeList) {
+	akon_token* TokenToFree = FreeList->First;
+	
+	while (TokenToFree) {
+		akon_token* TokenToDelete = TokenToFree;
+		TokenToFree = TokenToFree->Next;
+
+		TokenToDelete->Next = NULL;
+		TokenToDelete->Prev = NULL;
+		SLL_Push_Front(Tokenizer->FreeTokens, TokenToDelete);
+		if (FreeList->Last->Next == TokenToFree) {
+			break;
+		}
+	}
 }
 
 function void AKON_Tokenizer_Begin_Identifier(akon_tokenizer* Tokenizer) {
@@ -256,6 +294,28 @@ function b32 AKON_Generate_Tokens(akon_tokenizer* Tokenizer) {
 	}
 
 	AKON_Tokenizer_End_Identifier(Tokenizer);
+
+	for (akon_token* Token = Tokenizer->Tokens.First; Token; Token = Token->Next) {
+		if (Token->Type == AKON_TOKEN_TYPE_IDENTIFIER) {
+			if (Token->Next && Token->Next->Type == ':') {
+				akon_token* ReplacementToken = AKON_Allocate_Token(Tokenizer, AKON_TOKEN_TYPE_VARIABLE);
+				ReplacementToken->Identifier = Token->Identifier;
+				ReplacementToken->Line = Token->Line;
+
+
+				akon_token_list InsertList = { ReplacementToken, ReplacementToken };
+				akon_token_list ReplaceList = { Token, Token->Next };
+				AKON_Tokens_Replace(&ReplaceList, &InsertList);
+				AKON_Tokens_Free(Tokenizer, &ReplaceList);
+				
+				if (Token == Tokenizer->Tokens.First) {
+					Tokenizer->Tokens.First = ReplacementToken;
+				}
+				
+				Token = ReplacementToken;
+			}
+		}
+	}
 
 	return true;
 }
@@ -309,6 +369,30 @@ function akon_node_tree* AKON_Parse(allocator* Allocator, string Content) {
 	}
 
 	return NodeTree;
+}
+
+function b32 AKON_Node_Is_String_Var(akon_node* Node) {
+	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
+				  (Node->NumChildren == 1) && 
+				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
+				  (Node->FirstChild->ValueType == AKON_VALUE_TYPE_STRING));
+	return Result;
+}
+
+function b32 AKON_Node_Is_Number_Var(akon_node* Node) {
+	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
+				  (Node->NumChildren == 1) && 
+				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
+				  (Node->FirstChild->ValueType == AKON_VALUE_TYPE_NUMBER));
+	return Result;
+}
+
+function b32 AKON_Node_Is_Bool_Var(akon_node* Node) {
+	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
+				  (Node->NumChildren == 1) && 
+				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
+				  (Node->FirstChild->ValueType == AKON_VALUE_TYPE_BOOL));
+	return Result;
 }
 
 function b32 AKON_Node_Read_String(akon_node* Node, string* String) {
