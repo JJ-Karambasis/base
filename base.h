@@ -407,6 +407,7 @@ typedef struct {
 #define MAX_SCRATCH_COUNT 64
 typedef struct {
 	random32_xor_shift Random32;
+
 	size_t 		 	   ScratchIndex;
 	arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
 	arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];

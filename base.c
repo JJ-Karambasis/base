@@ -1825,7 +1825,7 @@ function string String_FormatV(allocator* Allocator, const char* Format, va_list
 	char TmpBuffer[1];
 	int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, Args);
 	char* Buffer = Allocator_Allocate_Array(Allocator, TotalLength + 1, char);
-	stbsp_vsnprintf(Buffer, TotalLength + 1, Format, Args);
+	stbsp_vsnprintf(Buffer, TotalLength+1, Format, Args);
 	return Make_String(Buffer, TotalLength);
 }
 
@@ -2770,10 +2770,12 @@ function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 
 }
 
 function inline u32 Hashmap_Hash(hashmap* Hashmap, void* Key) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	return Hashmap->HashFunc(Key);
 }
 
 function void Hashmap_Add(hashmap* Hashmap, void* Key, void* Value) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	u32 Hash = Hashmap_Hash(Hashmap, Key); 
 	Hashmap_Add_By_Hash(Hashmap, Key, Value, Hash);
 }
@@ -2788,24 +2790,28 @@ function inline b32 Hashmap_Find_By_Hash(hashmap* Hashmap, void* Key, void* Valu
 }
 
 function inline b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	u32 Hash = Hashmap_Hash(Hashmap, Key);
 	b32 Result = Hashmap_Find_By_Hash(Hashmap, Key, Value, Hash);
 	return Result;
 }
 
 function inline b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	if (Index >= Hashmap->ItemCount) return false;
 	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
 	return true;
 }
 
 function inline b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	if (Index >= Hashmap->ItemCount) return false;
 	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
 	return true;
 }
 
 function inline b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* Key, void* Value) {
+	Assert(Hashmap_Is_Valid(Hashmap));
 	if (Index >= Hashmap->ItemCount) return false;
 	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
 	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
