@@ -1387,6 +1387,7 @@ function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Ali
 		Arena->Used = NewUsed;
 		void* Memory = Reserve->BaseAddress + Arena->Used;
 		Arena->Used += Size;
+
 		return Memory;
 	} else {
 		arena_block* CurrentBlock = Arena_Get_Current_Block(Arena, Size, Alignment);

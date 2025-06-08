@@ -18,6 +18,41 @@
 #define export_function
 #endif
 
+#if defined(COMPILER_MSVC)
+# if defined(__SANITIZE_ADDRESS__)
+#  define ASAN_ENABLED
+#  define NO_ASAN __declspec(no_sanitize_address)
+# else
+#  define NO_ASAN
+# endif
+#elif defined(COMPILER_CLANG)
+# if defined(__has_feature)
+#  if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#   define ASAN_ENABLED
+#  endif
+# endif
+# define NO_ASAN __attribute__((no_sanitize("address")))
+#else
+# define NO_ASAN
+#endif
+
+#define Stringify_(x) #x
+#define Stringify(x) Stringify_(x)
+
+#define CLANG_PATH Stringify(CLANG_PATH_)
+
+
+#ifdef ASAN_ENABLED
+#pragma comment(lib, "clang_rt.asan_dynamic-x86_64.lib")
+void __asan_poison_memory_region(void const volatile *addr, size_t size);
+void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+# define Asan_Poison_Memory_Region(addr, size)   __asan_poison_memory_region((addr), (size))
+# define Asan_Unpoison_Memory_Region(addr, size) __asan_unpoison_memory_region((addr), (size))
+#else
+# define Asan_Poison_Memory_Region(addr, size)   ((void)(addr), (void)(size))
+# define Asan_Unpoison_Memory_Region(addr, size) ((void)(addr), (void)(size))
+#endif
+
 #define function static 
 #define global static
 #define local static
