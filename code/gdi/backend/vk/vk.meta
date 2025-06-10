@@ -1,0 +1,301 @@
+META_MACRO(VK_FUNC, name) {
+	META_VARIABLE(PFN_${name}, ${name});
+}
+
+META_MACRO(VK_INSTANCE_FUNCS, name, funcs) {
+	META_GLOBALS(${name}) ${funcs}
+
+	META_FUNCTION(${name:pascal}_Funcs_Load, VkInstance Instance) -> void {
+		META_FOR(${name}) {
+			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetInstanceProcAddr(Instance, "${META_ENTRY_NAME}");
+		}
+	}
+}
+
+
+META_MACRO(VK_DEVICE_FUNCS, name, funcs) {
+	META_GLOBALS(${name}) ${funcs}
+
+	META_FUNCTION(${name:pascal}_Funcs_Load, VkDevice Device) -> void {
+		META_FOR(${name}) {
+			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetDeviceProcAddr(Device, "${META_ENTRY_NAME}");
+		}
+	}
+}
+
+META_GLOBALS(vk_library_func) {
+	VK_FUNC(vkGetInstanceProcAddr);
+}
+
+META_GLOBALS(vk_global_func) {
+	VK_FUNC(vkEnumerateInstanceExtensionProperties);
+	VK_FUNC(vkEnumerateInstanceLayerProperties);
+	VK_FUNC(vkCreateInstance);
+}
+
+VK_INSTANCE_FUNCS(vk_instance, {
+	VK_FUNC(vkDestroyInstance);
+	VK_FUNC(vkEnumeratePhysicalDevices);
+	VK_FUNC(vkGetPhysicalDeviceProperties);
+	VK_FUNC(vkEnumerateDeviceExtensionProperties);
+	VK_FUNC(vkGetPhysicalDeviceQueueFamilyProperties);
+	VK_FUNC(vkCreateDevice);
+	VK_FUNC(vkGetPhysicalDeviceMemoryProperties);
+	VK_FUNC(vkGetDeviceProcAddr);
+});
+
+VK_INSTANCE_FUNCS(VK_KHR_get_physical_device_properties2, {
+	VK_FUNC(vkGetPhysicalDeviceFeatures2KHR);
+});
+
+VK_DEVICE_FUNCS(vk_device, {
+	VK_FUNC(vkGetDeviceQueue);
+	VK_FUNC(vkDestroyDevice);
+	VK_FUNC(vkCreateCommandPool);
+	VK_FUNC(vkAllocateCommandBuffers);
+	VK_FUNC(vkCreateFence);
+	VK_FUNC(vkCreateSemaphore);
+	VK_FUNC(vkResetCommandPool);
+	VK_FUNC(vkBeginCommandBuffer);
+	VK_FUNC(vkCmdPipelineBarrier);
+	VK_FUNC(vkCmdExecuteCommands);
+	VK_FUNC(vkEndCommandBuffer);
+	VK_FUNC(vkQueueSubmit);
+	VK_FUNC(vkWaitForFences);
+	VK_FUNC(vkGetFenceStatus);
+	VK_FUNC(vkResetFences);
+	VK_FUNC(vkCreateImageView);
+	VK_FUNC(vkAllocateMemory);
+	VK_FUNC(vkFreeMemory);
+	VK_FUNC(vkMapMemory);
+	VK_FUNC(vkUnmapMemory);
+	VK_FUNC(vkFlushMappedMemoryRanges);
+	VK_FUNC(vkInvalidateMappedMemoryRanges);
+	VK_FUNC(vkBindBufferMemory);
+	VK_FUNC(vkBindImageMemory);
+	VK_FUNC(vkGetBufferMemoryRequirements);
+	VK_FUNC(vkGetImageMemoryRequirements);
+	VK_FUNC(vkCreateBuffer);
+	VK_FUNC(vkDestroyBuffer);
+	VK_FUNC(vkCreateImage);
+	VK_FUNC(vkDestroyImage);
+	VK_FUNC(vkCmdCopyBuffer);
+	VK_FUNC(vkCmdCopyBufferToImage);
+	VK_FUNC(vkCreateSampler);
+	VK_FUNC(vkCreateDescriptorSetLayout);
+	VK_FUNC(vkCreateDescriptorPool);
+	VK_FUNC(vkAllocateDescriptorSets);
+	VK_FUNC(vkUpdateDescriptorSets);
+	VK_FUNC(vkCreateShaderModule);
+	VK_FUNC(vkCreatePipelineLayout);
+	VK_FUNC(vkCreateGraphicsPipelines);
+	VK_FUNC(vkDestroyPipelineLayout);
+	VK_FUNC(vkDestroyShaderModule);
+	VK_FUNC(vkCmdBindPipeline);
+	VK_FUNC(vkCmdBindDescriptorSets);
+	VK_FUNC(vkCmdBindVertexBuffers);
+	VK_FUNC(vkCmdBindIndexBuffer);
+	VK_FUNC(vkCmdDrawIndexed);
+	VK_FUNC(vkCmdPushConstants);
+	VK_FUNC(vkCmdSetViewport);
+	VK_FUNC(vkCmdSetScissor);
+	VK_FUNC(vkCreateComputePipelines);
+	VK_FUNC(vkCmdDispatch);
+	VK_FUNC(vkDestroyDescriptorSetLayout);
+	VK_FUNC(vkCmdCopyImageToBuffer);
+});
+
+
+VK_INSTANCE_FUNCS(VK_EXT_debug_utils, {
+	VK_FUNC(vkCreateDebugUtilsMessengerEXT);
+	VK_FUNC(vkDestroyDebugUtilsMessengerEXT);
+});
+
+VK_INSTANCE_FUNCS(VK_KHR_surface, {
+	VK_FUNC(vkDestroySurfaceKHR);
+	VK_FUNC(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+	VK_FUNC(vkGetPhysicalDeviceSurfaceFormatsKHR);
+	VK_FUNC(vkGetPhysicalDeviceSurfacePresentModesKHR);
+	VK_FUNC(vkGetPhysicalDeviceSurfaceSupportKHR);
+});
+
+VK_DEVICE_FUNCS(VK_KHR_swapchain, {
+	VK_FUNC(vkAcquireNextImageKHR);
+	VK_FUNC(vkCreateSwapchainKHR);
+	VK_FUNC(vkDestroySwapchainKHR);
+	VK_FUNC(vkGetSwapchainImagesKHR);
+	VK_FUNC(vkQueuePresentKHR);
+});
+
+VK_DEVICE_FUNCS(VK_KHR_synchronization2, {
+	VK_FUNC(vkCmdPipelineBarrier2KHR);
+});
+
+VK_DEVICE_FUNCS(VK_KHR_dynamic_rendering, {
+	VK_FUNC(vkCmdBeginRenderingKHR);
+	VK_FUNC(vkCmdEndRenderingKHR);
+});
+
+VK_DEVICE_FUNCS(VK_KHR_push_descriptor, {
+	VK_FUNC(vkCmdPushDescriptorSetKHR);
+});
+
+META_FUNCTION(VK_Load_Library_Funcs, os_library* Library) -> void {
+	META_FOR(vk_library_func) {
+		${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})OS_Library_Get_Function(Library, "${META_ENTRY_NAME}");
+	}
+}
+
+META_FUNCTION(VK_Load_Global_Funcs) -> void {
+	META_FOR(vk_global_func) {
+		${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetInstanceProcAddr(NULL, "${META_ENTRY_NAME}");
+	}
+}
+
+META_MACRO(VK_Resource, name) {
+	META_STRUCT(vk_${name}_pool) {
+		META_VARIABLE(gdi_pool, Pool); 
+		META_VARIABLE(vk_${name}, Entries[65334]);
+	}
+
+	META_STRUCT(vk_${name}_delete_queue_entry) {
+		META_VARIABLE(vk_${name}, Entry);
+		META_VARIABLE(vk_${name}_delete_queue_entry*, Next);
+	}
+
+	META_STRUCT(vk_${name}_delete_queue) {
+		META_VARIABLE(vk_${name}_delete_queue_entry*, First);
+		META_VARIABLE(vk_${name}_delete_queue_entry*, Last);
+	}
+
+	META_VARIABLE(vk_${name}_pool, ${name:pascal}Pool) Tags(name: ${name});
+
+	META_FUNCTION(VK_${name:pascal}_Pool_Init, vk_${name}_pool* Pool, arena* Arena) -> void {
+		u16* IndicesPtr = Arena_Push_Array(Arena, Array_Count(Pool->Entries), u16);
+		gdi_id* IDsPtr = Arena_Push_Array(Arena, Array_Count(Pool->Entries), gdi_id);
+		GDI_Pool_Init_Raw(&Pool->Pool, IndicesPtr, IDsPtr, Array_Count(Pool->Entries));
+	}
+
+	META_FUNCTION(VK_${name:pascal}_Pool_Allocate, vk_resource_pool* Pool) -> gdi_handle {
+		gdi_id ID = GDI_Pool_Allocate(&Pool->${name:pascal}Pool.Pool);
+		if(GDI_ID_Is_Null(ID)) return GDI_Null_Handle(); 
+
+		gdi_handle Result;
+#ifdef DEBUG_BUILD
+		Result.Type = GDI_OBJECT_TYPE_${name:upper};
+#endif
+		Result.ID = ID;
+		Memory_Clear(&Pool->${name:pascal}Pool.Entries[ID.Index], sizeof(vk_${name}));
+		return Result;
+	}
+
+	META_FUNCTION(VK_${name:pascal}_Pool_Free, vk_resource_pool* Pool, gdi_handle Handle) -> void {
+		if(!GDI_Is_Null(Handle)) {
+			Assert(GDI_Is_Type(Handle, ${name:upper}));
+			GDI_Pool_Free(&Pool->${name:pascal}Pool.Pool, Handle.ID);
+		}
+	}
+
+	META_FUNCTION(VK_${name:pascal}_Pool_Get, vk_resource_pool* Pool, gdi_handle Handle) -> vk_${name}* {
+		if(!GDI_Pool_Is_Allocated(&Pool->${name:pascal}Pool.Pool, Handle.ID)) return NULL;
+		Assert(GDI_Is_Type(Handle, ${name:upper}));
+		return Pool->${name:pascal}Pool.Entries + Handle.ID.Index;
+	}
+
+	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_gdi* GDI, gdi_handle Handle) -> void {
+		vk_${name}* Object = VK_${name:pascal}_Pool_Get(&GDI->ResourcePool, Handle);
+		if(Object) {
+			OS_RW_Mutex_Read_Lock(GDI->DeleteLock);
+			vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(GDI, GDI->CurrentDeleteQueue);
+			vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_${name}_delete_queue_entry);
+			Entry->Entry = *Object;
+			SLL_Push_Back(ThreadContext->${name:pascal}DeleteQueue.First, ThreadContext->${name:pascal}DeleteQueue.Last, Entry);
+			OS_RW_Mutex_Read_Unlock(GDI->DeleteLock);
+
+			Memory_Clear(Object, sizeof(vk_${name}));
+			VK_${name:pascal}_Pool_Free(&GDI->ResourcePool, Handle);
+		}
+	}
+}
+
+META_STRUCT(vk_resource_pool) {
+	VK_Resource(texture);
+	VK_Resource(texture_view);
+	VK_Resource(buffer);
+	VK_Resource(sampler);
+	VK_Resource(bind_group_layout);
+	VK_Resource(bind_group);
+	VK_Resource(shader);
+}
+
+META_FUNCTION(VK_Resource_Pool_Init, vk_resource_pool* Pool, arena* Arena) -> void {
+	META_FOR(vk_resource_pool) {
+		VK_${META_GET_TAG_VALUE(name):pascal}_Pool_Init(&Pool->${META_ENTRY_NAME}, Arena);
+	}
+}
+
+META_FUNCTION(VK_Get_GDI_Format, VkFormat Format) -> gdi_format {
+	switch (Format) {
+		META_FOR(gdi_format, flags: NoBraces) {
+			case ${META_GET_TAG_VALUE(vk):upper}: return ${META_ENTRY_NAME};
+		}
+		Invalid_Default_Case;
+	}
+
+	return GDI_FORMAT_NONE;
+}
+
+
+META_FUNCTION(VK_Get_Filter, gdi_filter Filter) -> VkFilter {
+	static const VkFilter Filters[] = {
+		META_FOR(gdi_filter, flags: NoBraces) {
+			VK_FILTER_${META_ENTRY_SHORT_NAME:upper},
+		}
+	};
+	Assert(Filter < Array_Count(Filters));
+	return Filters[Filter];
+}
+
+META_FUNCTION(VK_Get_Mipmap_Mode, gdi_filter Filter) -> VkSamplerMipmapMode  {
+	static const VkSamplerMipmapMode MipmapMode[] = {
+		META_FOR(gdi_filter, flags: NoBraces) {
+			VK_SAMPLER_MIPMAP_MODE_${META_ENTRY_SHORT_NAME:upper},
+		}
+	};
+	Assert(Filter < Array_Count(MipmapMode));
+	return MipmapMode[Filter];
+}
+
+META_MACRO(VK_Enum_Mapper, name, type, mapped_type) {
+	META_FUNCTION(VK_Get_${name}, ${type} Entry) -> ${mapped_type} {
+		static const ${mapped_type} Entries[] = {
+			META_FOR(${type}, flags: NoBraces) {
+				${META_GET_TAG_VALUE(vk):upper},
+			}
+		};
+
+		Assert(Entry < Array_Count(Entries));
+		return Entries[Entry];
+	}
+}
+
+VK_Enum_Mapper(Format, gdi_format, VkFormat);
+VK_Enum_Mapper(Address_Mode, gdi_address_mode, VkSamplerAddressMode);
+VK_Enum_Mapper(Descriptor_Type, gdi_bind_group_type, VkDescriptorType);
+VK_Enum_Mapper(Compare_Func, gdi_compare_func, VkCompareOp);
+VK_Enum_Mapper(Idx_Type, gdi_idx_format, VkIndexType);
+VK_Enum_Mapper(Primitive, gdi_primitive, VkPrimitiveTopology);
+VK_Enum_Mapper(Blend, gdi_blend, VkBlendFactor);
+
+META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_gdi* GDI, vk_delete_thread_context* DeleteContext) -> void {
+	META_FOR(vk_delete_thread_context) {
+		META_IF(META_NOT_CONTAINS_TAG(NoIteration)) {
+			for(${META_ENTRY_TYPE}_entry* QueueEntry = DeleteContext->${META_ENTRY_NAME}.First; QueueEntry; QueueEntry = QueueEntry->Next) {
+				VK_Delete_${META_GET_TAG_VALUE(name):pascal}_Resources(GDI, &QueueEntry->Entry);
+			}
+			Memory_Clear(&DeleteContext->${META_ENTRY_NAME}, sizeof(${META_ENTRY_TYPE}));
+		}
+	}
+
+	Arena_Set_Marker(DeleteContext->Arena, DeleteContext->ArenaMarker);
+}
