@@ -108,4 +108,25 @@ typedef struct {
 	sstream_char 	StartIdentifierChar;
 } akon_tokenizer;
 
+export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content);
+export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name);
+export_function b32 AKON_Node_Is_String_Var(akon_node* Node);
+export_function b32 AKON_Node_Is_Number_Var(akon_node* Node);
+export_function b32 AKON_Node_Is_Bool_Var(akon_node* Node);
+export_function b32 AKON_Node_Read_String(akon_node* Node, string* String);
+export_function b32 AKON_Node_Read_F32(akon_node* Node, f32* Value);
+export_function b32 AKON_Node_Read_Bool(akon_node* Node, b32* Value);
+export_function b32 AKON_Node_Read_String_Var(akon_node* Node, string* String);
+export_function b32 AKON_Node_Read_F32_Var(akon_node* Node, f32* Value);
+export_function b32 AKON_Node_Read_Bool_Var(akon_node* Node, b32* Value);
+export_function b32 AKON_Node_Read_F32_Array(akon_node* Node, f32* Data, size_t Count);
+export_function akon_node* AKON_Node_Write_String(akon_node_tree* NodeTree, akon_node* ParentNode, string Value);
+export_function akon_node* AKON_Node_Write_F32(akon_node_tree* NodeTree, akon_node* ParentNode, f32 Value);
+export_function akon_node* AKON_Node_Write_Bool(akon_node_tree* NodeTree, akon_node* ParentNode, b32 Value);
+export_function akon_node* AKON_Node_Write_String_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, string Value);
+export_function akon_node* AKON_Node_Write_F32_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32 Value);
+export_function akon_node* AKON_Node_Write_Bool_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, b32 Value);
+export_function akon_node* AKON_Node_Write_F32_Array(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32* Data, size_t Count);
+
+
 #endif

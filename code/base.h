@@ -892,6 +892,7 @@ export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t S
 export_function u32 BStream_Reader_U32(bstream_reader* Reader);
 #define BStream_Reader_Struct(reader, type) *(const type*)BStream_Reader_Size(reader, sizeof(type))
 
+#define HASH_INVALID_SLOT (u32)-1
 typedef struct {
 	u32 Hash;
 	u32 ItemIndex;
@@ -924,6 +925,7 @@ export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t Valu
 export_function hashmap Hashmap_Init(allocator* Allocator, size_t ItemSize, size_t KeySize, key_hash_func* HashFunc, key_comp_func* CompareFunc);
 export_function b32 Hashmap_Is_Valid(hashmap* Hashmap);
 export_function void Hashmap_Clear(hashmap* Hashmap);
+export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash);
 export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash);
 export_function u32 Hashmap_Hash(hashmap* Hashmap, void* Key);
 export_function void Hashmap_Add(hashmap* Hashmap, void* Key, void* Value);
@@ -951,6 +953,23 @@ typedef struct {
     size_t Count;
 } slot_map;
 
+function inline slot_id Slot_Null() {
+	slot_id Result = { .ID = 0 };
+	return Result;
+}
+
+function inline b32 Slot_Is_Null(slot_id SlotID) {
+	return SlotID.ID == 0;
+}
+
+export_function void Slot_Map_Clear(slot_map* SlotMap);
+export_function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity);
+export_function slot_id Slot_Map_Allocate(slot_map* SlotMap);
+export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID);
+export_function b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID);
+export_function b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index);
+export_function slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index);
+
 #define BINARY_HEAP_COMPARE_FUNC(name) b32 name(void* A, void* B)
 typedef BINARY_HEAP_COMPARE_FUNC(binary_heap_compare_func);
 
@@ -961,6 +980,12 @@ typedef struct {
 	size_t ItemSize;
 	u8*    Ptr;
 } binary_heap;
+
+export_function b32 Binary_Heap_Is_Empty(binary_heap* Heap);
+export_function binary_heap Binary_Heap_Init(void* Ptr, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc);
+export_function binary_heap Binary_Heap_Alloc(arena* Arena, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc);
+export_function void  Binary_Heap_Push(binary_heap* Heap, void* Data);
+export_function void* Binary_Heap_Pop(binary_heap* Heap);
 
 #define ASYNC_STACK_INDEX16_INVALID ((u16)-1) 
 

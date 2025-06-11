@@ -27,15 +27,6 @@ function inline job_id Job_Make_ID(job* Job) {
     return Result;
 }
 
-function inline job_id Job_ID_Empty() {
-	job_id Result = { 0 };
-	return Result;
-}
-
-function inline b32 Job_Is_Null(job_id JobID) {
-	return JobID.Job == NULL || JobID.Generation == 0;
-}
-
 function void Job_Allocate_Data(job* Job, void* Bytes, size_t ByteSize) {
     void* Data;
     if(ByteSize <= sizeof(Job->JobUserData)) {

@@ -49,7 +49,7 @@ function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier
 	return Node;
 }
 
-function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name) {	
+export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name) {	
 	u64 Hash = 0;
 	if (ParentNode) Hash = ParentNode->Hash;
 	Hash = U64_Hash_String_With_Seed(Name, Hash);
@@ -354,7 +354,7 @@ function akon_node_tree* AKON_Allocate_Node_Tree(allocator* Allocator) {
 	return NodeTree;
 }
 
-function akon_node_tree* AKON_Parse(allocator* Allocator, string Content) {
+export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content) {
 	arena* Arena = Arena_Create_With_Allocator(Allocator);
 	akon_node_tree* NodeTree = Arena_Push_Struct(Arena, akon_node_tree);
 	NodeTree->Arena = Arena;
@@ -371,7 +371,7 @@ function akon_node_tree* AKON_Parse(allocator* Allocator, string Content) {
 	return NodeTree;
 }
 
-function b32 AKON_Node_Is_String_Var(akon_node* Node) {
+export_function b32 AKON_Node_Is_String_Var(akon_node* Node) {
 	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
 				  (Node->NumChildren == 1) && 
 				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
@@ -379,7 +379,7 @@ function b32 AKON_Node_Is_String_Var(akon_node* Node) {
 	return Result;
 }
 
-function b32 AKON_Node_Is_Number_Var(akon_node* Node) {
+export_function b32 AKON_Node_Is_Number_Var(akon_node* Node) {
 	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
 				  (Node->NumChildren == 1) && 
 				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
@@ -387,7 +387,7 @@ function b32 AKON_Node_Is_Number_Var(akon_node* Node) {
 	return Result;
 }
 
-function b32 AKON_Node_Is_Bool_Var(akon_node* Node) {
+export_function b32 AKON_Node_Is_Bool_Var(akon_node* Node) {
 	b32 Result = ((Node->NodeType == AKON_NODE_TYPE_VARIABLE) && 
 				  (Node->NumChildren == 1) && 
 				  (Node->FirstChild->NodeType == AKON_NODE_TYPE_VALUE) && 
@@ -395,40 +395,40 @@ function b32 AKON_Node_Is_Bool_Var(akon_node* Node) {
 	return Result;
 }
 
-function b32 AKON_Node_Read_String(akon_node* Node, string* String) {
+export_function b32 AKON_Node_Read_String(akon_node* Node, string* String) {
 	if (Node->NodeType != AKON_NODE_TYPE_VALUE || Node->ValueType != AKON_VALUE_TYPE_STRING) return false;
 	*String = Node->Str;
 	return true;
 }
 
-function b32 AKON_Node_Read_F32(akon_node* Node, f32* Value) {
+export_function b32 AKON_Node_Read_F32(akon_node* Node, f32* Value) {
 	if (Node->NodeType != AKON_NODE_TYPE_VALUE || Node->ValueType != AKON_VALUE_TYPE_NUMBER) return false;
 	*Value = (f32)Node->Number;
 	return true;
 }
 
-function b32 AKON_Node_Read_Bool(akon_node* Node, b32* Value) {
+export_function b32 AKON_Node_Read_Bool(akon_node* Node, b32* Value) {
 	if (Node->NodeType != AKON_NODE_TYPE_VALUE || Node->ValueType != AKON_VALUE_TYPE_BOOL) return false;
 	*Value = (b32)Node->Bool;
 	return true;
 }
 
-function b32 AKON_Node_Read_String_Var(akon_node* Node, string* String) {
+export_function b32 AKON_Node_Read_String_Var(akon_node* Node, string* String) {
 	if (Node->NodeType != AKON_NODE_TYPE_VARIABLE || Node->NumChildren != 1) return false;
 	return AKON_Node_Read_String(Node->FirstChild, String);
 }
 
-function b32 AKON_Node_Read_F32_Var(akon_node* Node, f32* Value) {
+export_function b32 AKON_Node_Read_F32_Var(akon_node* Node, f32* Value) {
 	if (Node->NodeType != AKON_NODE_TYPE_VARIABLE || Node->NumChildren != 1) return false;
 	return AKON_Node_Read_F32(Node->FirstChild, Value);
 }
 
-function b32 AKON_Node_Read_Bool_Var(akon_node* Node, b32* Value) {
+export_function b32 AKON_Node_Read_Bool_Var(akon_node* Node, b32* Value) {
 	if (Node->NodeType != AKON_NODE_TYPE_VARIABLE || Node->NumChildren != 1) return false;
 	return AKON_Node_Read_Bool(Node->FirstChild, Value);
 }
 
-function b32 AKON_Node_Read_F32_Array(akon_node* Node, f32* Data, size_t Count) {
+export_function b32 AKON_Node_Read_F32_Array(akon_node* Node, f32* Data, size_t Count) {
 	if (Node->NumChildren != Count) return false;
 
 	akon_node* ValueNode = Node->FirstChild;
@@ -440,14 +440,14 @@ function b32 AKON_Node_Read_F32_Array(akon_node* Node, f32* Data, size_t Count) 
 	return true;
 }
 
-function akon_node* AKON_Node_Write_String(akon_node_tree* NodeTree, akon_node* ParentNode, string Value) {
+export_function akon_node* AKON_Node_Write_String(akon_node_tree* NodeTree, akon_node* ParentNode, string Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, String_Empty(), ParentNode, AKON_NODE_TYPE_VALUE);
 	Node->ValueType = AKON_VALUE_TYPE_STRING;
 	Node->Str = String_Copy((allocator*)NodeTree->Arena, Value);
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_F32(akon_node_tree* NodeTree, akon_node* ParentNode, f32 Value) {
+export_function akon_node* AKON_Node_Write_F32(akon_node_tree* NodeTree, akon_node* ParentNode, f32 Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, String_Empty(), ParentNode, AKON_NODE_TYPE_VALUE);
 	Node->ValueType = AKON_VALUE_TYPE_NUMBER;
 	Node->Number = Value;
@@ -455,7 +455,7 @@ function akon_node* AKON_Node_Write_F32(akon_node_tree* NodeTree, akon_node* Par
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_Bool(akon_node_tree* NodeTree, akon_node* ParentNode, b32 Value) {
+export_function akon_node* AKON_Node_Write_Bool(akon_node_tree* NodeTree, akon_node* ParentNode, b32 Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, String_Empty(), ParentNode, AKON_NODE_TYPE_VALUE);
 	Node->ValueType = AKON_VALUE_TYPE_BOOL;
 	Node->Bool = Value;
@@ -463,25 +463,25 @@ function akon_node* AKON_Node_Write_Bool(akon_node_tree* NodeTree, akon_node* Pa
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_String_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, string Value) {
+export_function akon_node* AKON_Node_Write_String_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, string Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, Name, ParentNode, AKON_NODE_TYPE_VARIABLE);
 	if (!AKON_Node_Write_String(NodeTree, Node, Value)) return NULL;
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_F32_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32 Value) {
+export_function akon_node* AKON_Node_Write_F32_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32 Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, Name, ParentNode, AKON_NODE_TYPE_VARIABLE);
 	if (!AKON_Node_Write_F32(NodeTree, Node, Value)) return NULL;
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_Bool_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, b32 Value) {
+export_function akon_node* AKON_Node_Write_Bool_Var(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, b32 Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, Name, ParentNode, AKON_NODE_TYPE_VARIABLE);
 	if (!AKON_Node_Write_Bool(NodeTree, Node, Value)) return NULL;
 	return Node;
 }
 
-function akon_node* AKON_Node_Write_F32_Array(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32* Data, size_t Count) {
+export_function akon_node* AKON_Node_Write_F32_Array(akon_node_tree* NodeTree, akon_node* ParentNode, string Name, f32* Data, size_t Count) {
 	akon_node* Node = AKON_Create_Node(NodeTree, Name, ParentNode, AKON_NODE_TYPE_VARIABLE);
 	for (size_t i = 0; i < Count; i++) {
 		if (!AKON_Node_Write_F32(NodeTree, Node, Data[i])) return NULL;

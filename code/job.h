@@ -107,6 +107,15 @@ struct job_system {
     atomic_b32         IsRunning;
 };
 
+function inline job_id Job_ID_Empty() {
+	job_id Result = { 0 };
+	return Result;
+}
+
+function inline b32 Job_Is_Null(job_id JobID) {
+	return JobID.Job == NULL || JobID.Generation == 0;
+}
+
 export_function job_system* Job_System_Create(u32 MaxJobCount, u32 ThreadCount, u32 MaxDependencyCount);
 export_function void        Job_System_Delete(job_system* JobSystem);
 export_function job_id      Job_System_Alloc_Job(job_system* JobSystem, job_data JobData, job_id ParentID, job_flags Flags);

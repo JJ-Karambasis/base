@@ -2488,8 +2488,6 @@ export_function u32 BStream_Reader_U32(bstream_reader* Reader) {
 	return Result;
 }
 
-#define HASH_INVALID_SLOT (u32)-1
-
 export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t ValueSize, size_t KeySize, u32 ItemCapacity, key_hash_func* HashFunc, key_comp_func* CompareFunc) {
 	hashmap Result = { Allocator };
 	Result.ItemCapacity = ItemCapacity;
@@ -2714,16 +2712,7 @@ export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* 
 	return true;
 }
 
-function inline slot_id Slot_Null() {
-	slot_id Result = { .ID = 0 };
-	return Result;
-}
-
-function inline b32 Slot_Is_Null(slot_id SlotID) {
-	return SlotID.ID == 0;
-}
-
-function void Slot_Map_Clear(slot_map* SlotMap) {
+export_function void Slot_Map_Clear(slot_map* SlotMap) {
 	SlotMap->FreeCount = SlotMap->Capacity;
 	SlotMap->Count = 0;
 	for (size_t i = 0; i < SlotMap->Capacity; i++) {
@@ -2732,7 +2721,7 @@ function void Slot_Map_Clear(slot_map* SlotMap) {
 	}
 }
 
-function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
+export_function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
 	slot_map Result = { 0 };
 	Result.Slots = Allocator_Allocate_Array(Allocator, 2 * Capacity, u32);
 	Result.FreeIndices = Result.Slots + Capacity;
@@ -2741,7 +2730,7 @@ function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
 	return Result;
 }
 
-function slot_id Slot_Map_Allocate(slot_map* SlotMap) {
+export_function slot_id Slot_Map_Allocate(slot_map* SlotMap) {
 	Assert(SlotMap->FreeCount);
 	u32 FreeIndex = SlotMap->FreeIndices[--SlotMap->FreeCount];
 	
@@ -2753,7 +2742,7 @@ function slot_id Slot_Map_Allocate(slot_map* SlotMap) {
 	return Result;
 }
 
-function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
+export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
 	Assert(ID.ID);
 	if (!ID.ID) {
 		return;
@@ -2775,25 +2764,24 @@ function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
 	}
 }
 
-function inline b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID) {
+export_function inline b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID) {
 	if (!SlotID.ID) return false;
 	u32 Index = SlotID.Index;
 	Assert(Index < SlotMap->Capacity);
 	return SlotMap->Slots[Index] == SlotID.Slot;
 }
 
-function inline b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index) {
+export_function inline b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index) {
 	Assert(Index < SlotMap->Capacity);
 	u32 Slot = SlotMap->Slots[Index];
 	return Read_Bit(Slot, 31) != 0;
 }
 
-function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
+export_function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
 	Assert(Index < SlotMap->Capacity);
 	slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
 	return Result;
 }
-
 
 #define Binary_Heap_Parent(i) ((i - 1) / 2)
 // to get index of left child of node at index i 
@@ -2801,12 +2789,12 @@ function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
 // to get index of right child of node at index i 
 #define Binary_Heap_Right(i) (2 * i + 2)
 
-function b32 Binary_Heap_Is_Empty(binary_heap* Heap) {
+export_function b32 Binary_Heap_Is_Empty(binary_heap* Heap) {
 	b32 Result = Heap->Count == 0;
 	return Result;
 }
 
-function binary_heap Binary_Heap_Init(void* Ptr, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
+export_function binary_heap Binary_Heap_Init(void* Ptr, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
 	binary_heap Result = {
 		.CompareFunc = CompareFunc,
 		.Capacity = Capacity,
@@ -2816,7 +2804,7 @@ function binary_heap Binary_Heap_Init(void* Ptr, size_t Capacity, size_t ItemSiz
 	return Result; 
 }
 
-function binary_heap Binary_Heap_Alloc(arena* Arena, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
+export_function binary_heap Binary_Heap_Alloc(arena* Arena, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
 	void* Result = Arena_Push(Arena, Capacity * ItemSize);
 	return Binary_Heap_Init(Result, Capacity, ItemSize, CompareFunc);
 }
@@ -2868,7 +2856,7 @@ function void Binary_Heap_Maxify(binary_heap* Heap) {
 	} while (Largest != Index);
 }
 
-function void Binary_Heap_Push(binary_heap* Heap, void* Data) {
+export_function void Binary_Heap_Push(binary_heap* Heap, void* Data) {
 	Assert(Heap->Count < Heap->Capacity);
 	size_t Index = Heap->Count++;
 	Memory_Copy(Binary_Heap_Get_Data(Heap, Index), 
@@ -2883,7 +2871,7 @@ function void Binary_Heap_Push(binary_heap* Heap, void* Data) {
 	}
 }
 
-function void* Binary_Heap_Pop(binary_heap* Heap) {
+export_function void* Binary_Heap_Pop(binary_heap* Heap) {
 	Assert(Heap->Count);
 	if (Heap->Count == 1) {
 		Heap->Count--;
