@@ -9,6 +9,10 @@
 #define XXH_PRIVATE_API
 #include "third_party/xxHash/xxhash.h"
 
+#define RPMALLOC_FIRST_CLASS_HEAPS 1
+#include "third_party/rpmalloc/rpmalloc.h"
+#include "third_party/rpmalloc/rpmalloc.c"
+
 #include "atomic/atomic.c"
 
 global base* G_Base;
@@ -28,14 +32,13 @@ export_function allocator* Default_Allocator_Get() {
 }
 
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Default_Allocate_Memory) {
-	void* Result = malloc(Size);
-	if (Result && ClearFlag == CLEAR_FLAG_YES) Memory_Clear(Result, Size);
-	return Result;
+	if (ClearFlag == CLEAR_FLAG_YES) return rpzalloc(Size);
+	else return rpmalloc(Size);
 }
 
 function ALLOCATOR_FREE_MEMORY_DEFINE(Default_Free_Memory) {
 	if (Memory) {
-		free(Memory);
+		rpfree(Memory);
 	}
 }	
 
@@ -51,10 +54,56 @@ global allocator_vtable Arena_VTable = {
 	.FreeMemoryFunc = Arena_Free_Memory
 };
 
+function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Heap_Allocate_Memory);
+function ALLOCATOR_FREE_MEMORY_DEFINE(Heap_Free_Memory);
+global allocator_vtable Heap_VTable = {
+	.AllocateMemoryFunc = Heap_Allocate_Memory,
+	.FreeMemoryFunc = Heap_Free_Memory
+};
+
+function void* RPMalloc_Memory_Map(size_t Size, size_t Alignment, size_t* Offset, size_t* MappedSize) {
+	size_t ReserveSize = Size + Alignment;
+	void* Memory = OS_Reserve_Memory(ReserveSize);
+	if (Memory) {
+		if (Alignment) {
+			size_t Padding = ((uintptr_t)Memory & (uintptr_t)(Alignment - 1));
+			if (Padding) Padding = Alignment - Padding;
+			Memory = Offset_Pointer(Memory, Padding);
+			*Offset = Padding;
+		}
+		*MappedSize = ReserveSize;
+	}
+
+	return Memory;
+}
+
+function void RPMalloc_Memory_Commit(void* Address, size_t Size) {
+	OS_Commit_Memory(Address, Size);
+}
+
+function void RPMalloc_Memory_Decommit(void* Address, size_t Size) {
+	OS_Decommit_Memory(Address, Size);
+}
+
+function void RPMalloc_Memory_Unmap(void* Address, size_t Offset, size_t MappedSize) {
+	Address = Offset_Pointer(Address, -(intptr_t)Offset);
+	OS_Release_Memory(Address, MappedSize);
+}
+
+global rpmalloc_interface_t Memory_VTable = {
+	.memory_map = RPMalloc_Memory_Map,
+	.memory_commit = RPMalloc_Memory_Commit,
+	.memory_decommit = RPMalloc_Memory_Decommit,
+	.memory_unmap = RPMalloc_Memory_Unmap
+};
+
 export_function base* Base_Init() {
 	local base Base;
 	Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
 	Base.ArenaVTable = &Arena_VTable;
+	Base.HeapVTable = &Heap_VTable;
+
+	rpmalloc_initialize(&Memory_VTable);
 
 	Base_Set(&Base);
 	OS_Base_Init(&Base);
@@ -1472,6 +1521,65 @@ function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Arena_Allocate_Memory) {
 
 function ALLOCATOR_FREE_MEMORY_DEFINE(Arena_Free_Memory) {
 	//Noop
+}
+
+struct heap {
+	allocator 		 Base;
+	rpmalloc_heap_t* Heap;
+};
+
+export_function heap* Heap_Create() {
+	heap* Heap = Allocator_Allocate_Struct(Default_Allocator_Get(), heap);
+	Heap->Base.VTable = Base_Get()->HeapVTable;
+	Heap->Heap = rpmalloc_heap_acquire();
+	return Heap;
+}
+
+export_function void Heap_Delete(heap* Heap) {
+	rpmalloc_heap_free_all(Heap->Heap);
+	rpmalloc_heap_release(Heap->Heap);
+	Allocator_Free_Memory(Default_Allocator_Get(), Heap);
+}
+
+export_function void* Heap_Alloc_Aligned_No_Clear(heap* Heap, size_t Size, size_t Alignment) {
+	void* Result = rpmalloc_heap_aligned_alloc(Heap->Heap, Alignment, Size);
+	return Result;
+}
+
+export_function void* Heap_Alloc_Aligned(heap* Heap, size_t Size, size_t Alignment) {
+	void* Result = Heap_Alloc_Aligned_No_Clear(Heap, Size, Alignment);
+	if (Result) Memory_Clear(Result, Size);
+	return Result;
+}
+
+export_function void* Heap_Alloc_No_Clear(heap* Heap, size_t Size) {
+	return Heap_Alloc_Aligned_No_Clear(Heap, Size, DEFAULT_ALIGNMENT);
+}
+
+export_function void* Heap_Alloc(heap* Heap, size_t Size) {
+	return Heap_Alloc_Aligned(Heap, Size, DEFAULT_ALIGNMENT);
+}
+
+export_function void Heap_Free(heap* Heap, void* Memory) {
+	rpmalloc_heap_free(Heap->Heap, Memory);
+}
+
+export_function void Heap_Clear(heap* Heap) {
+	rpmalloc_heap_free_all(Heap->Heap);
+}
+
+function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Heap_Allocate_Memory) {
+	heap* Heap = (heap*)Allocator;
+	void* Result = Heap_Alloc_No_Clear(Heap, Size);
+	if (Result && ClearFlag == CLEAR_FLAG_YES) {
+		Memory_Clear(Result, Size);
+	}
+	return Result;
+}
+
+function ALLOCATOR_FREE_MEMORY_DEFINE(Heap_Free_Memory) {
+	heap* Heap = (heap*)Allocator;
+	Heap_Free(Heap, Memory);
 }
 
 function random32_xor_shift Random32_XOrShift_Init();

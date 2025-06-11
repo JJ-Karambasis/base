@@ -628,10 +628,20 @@ export_function arena_marker Arena_Get_Marker(arena* Arena);
 export_function void Arena_Set_Marker(arena* Arena, arena_marker Marker);
 export_function void Arena_Clear(arena* Arena);
 
-#define Arena_Push_Struct(arena, type) (type*)Arena_Push(arena, sizeof(type))
-#define Arena_Push_Array(arena, count, type) (type*)Arena_Push(arena, sizeof(type)*(count))
-#define Arena_Push_Struct_No_Clear(arena, type) (type*)Arena_Push_No_Clear(arena, sizeof(type))
-#define Arena_Push_Array_No_Clear(arena, count, type) (type*)Arena_Push_No_Clear(arena, sizeof(type)*(count))
+#define Arena_Push_Struct(arena, type) (type *)Arena_Push(arena, sizeof(type))
+#define Arena_Push_Array(arena, count, type) (type *)Arena_Push(arena, sizeof(type)*(count))
+#define Arena_Push_Struct_No_Clear(arena, type) (type *)Arena_Push_No_Clear(arena, sizeof(type))
+#define Arena_Push_Array_No_Clear(arena, count, type) (type *)Arena_Push_No_Clear(arena, sizeof(type)*(count))
+
+typedef struct heap heap;
+export_function heap* Heap_Create();
+export_function void  Heap_Delete(heap* Heap);
+export_function void* Heap_Alloc_Aligned_No_Clear(heap* Heap, size_t Size, size_t Alignment);
+export_function void* Heap_Alloc_Aligned(heap* Heap, size_t Size, size_t Alignment);
+export_function void* Heap_Alloc_No_Clear(heap* Heap, size_t Size);
+export_function void* Heap_Alloc(heap* Heap, size_t Size);
+export_function void  Heap_Free(heap* Heap, void* Memory);
+export_function void  Heap_Clear(heap* Heap);
 
 #define Array_Define(type) \
 typedef struct { \
@@ -1051,6 +1061,7 @@ typedef struct {
 	allocator DefaultAllocator;
 	os_base*  OSBase;
 	allocator_vtable* ArenaVTable;
+	allocator_vtable* HeapVTable;
 } base;
 
 export_function void Base_Set(base* Base);

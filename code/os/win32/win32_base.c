@@ -623,3 +623,4 @@ void OS_Base_Init(base* Base) {
 }
 
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "advapi32.lib")
