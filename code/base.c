@@ -11,7 +11,6 @@
 
 #define RPMALLOC_FIRST_CLASS_HEAPS 1
 #include "third_party/rpmalloc/rpmalloc.h"
-#include "third_party/rpmalloc/rpmalloc.c"
 
 #include "atomic/atomic.c"
 
@@ -61,49 +60,11 @@ global allocator_vtable Heap_VTable = {
 	.FreeMemoryFunc = Heap_Free_Memory
 };
 
-function void* RPMalloc_Memory_Map(size_t Size, size_t Alignment, size_t* Offset, size_t* MappedSize) {
-	size_t ReserveSize = Size + Alignment;
-	void* Memory = OS_Reserve_Memory(ReserveSize);
-	if (Memory) {
-		if (Alignment) {
-			size_t Padding = ((uintptr_t)Memory & (uintptr_t)(Alignment - 1));
-			if (Padding) Padding = Alignment - Padding;
-			Memory = Offset_Pointer(Memory, Padding);
-			*Offset = Padding;
-		}
-		*MappedSize = ReserveSize;
-	}
-
-	return Memory;
-}
-
-function void RPMalloc_Memory_Commit(void* Address, size_t Size) {
-	OS_Commit_Memory(Address, Size);
-}
-
-function void RPMalloc_Memory_Decommit(void* Address, size_t Size) {
-	OS_Decommit_Memory(Address, Size);
-}
-
-function void RPMalloc_Memory_Unmap(void* Address, size_t Offset, size_t MappedSize) {
-	Address = Offset_Pointer(Address, -(intptr_t)Offset);
-	OS_Release_Memory(Address, MappedSize);
-}
-
-global rpmalloc_interface_t Memory_VTable = {
-	.memory_map = RPMalloc_Memory_Map,
-	.memory_commit = RPMalloc_Memory_Commit,
-	.memory_decommit = RPMalloc_Memory_Decommit,
-	.memory_unmap = RPMalloc_Memory_Unmap
-};
-
 export_function base* Base_Init() {
 	local base Base;
 	Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
 	Base.ArenaVTable = &Arena_VTable;
 	Base.HeapVTable = &Heap_VTable;
-
-	rpmalloc_initialize(&Memory_VTable);
 
 	Base_Set(&Base);
 	OS_Base_Init(&Base);
@@ -1336,6 +1297,8 @@ export_function arena* Arena_Create_With_Size(size_t ReserveSize) {
 	}
 
 	arena* Arena = (arena*)Commit_New_Size(&MemoryReserve, sizeof(arena));
+	Asan_Poison_Memory_Region(Arena, MemoryReserve.CommitSize);
+	Asan_Unpoison_Memory_Region(Arena, sizeof(arena));
 	
 	Arena->Base.VTable = Base->ArenaVTable;
 	Arena->Type = ARENA_TYPE_VIRTUAL;
@@ -1398,7 +1361,9 @@ function arena_block* Arena_Get_Current_Block(arena* Arena, size_t Size, size_t 
 function  arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
 	Assert(Arena->Type == ARENA_TYPE_ALLOCATOR);
 	allocator* Allocator = Arena->Allocator;
-	arena_block* Block = (arena_block*)Allocator_Allocate_Memory(Allocator, BlockSize + sizeof(arena_block));
+
+	size_t AllocationSize = BlockSize + sizeof(arena_block);
+	arena_block* Block = (arena_block*)Allocator_Allocate_Memory(Allocator, AllocationSize);
 	if (!Block) return NULL;
 
 	Block->Memory = (u8*)(Block + 1);
@@ -1406,6 +1371,7 @@ function  arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
 	Block->Size = BlockSize;
 
 	SLL_Push_Back(Arena->FirstBlock, Arena->LastBlock, Block);
+	Asan_Poison_Memory_Region(Block, AllocationSize);
 
 	return Block;
 }
@@ -1413,21 +1379,22 @@ function  arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
 export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Alignment) {
 	Assert(Is_Pow2(Alignment));
 	
+	void* Result = NULL;
 	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
 		memory_reserve* Reserve = &Arena->Reserve;
 		size_t NewUsed = Align_Pow2(Arena->Used, Alignment);
 		if (NewUsed + Size > Reserve->CommitSize) {
+			size_t OldCommitSize = Reserve->CommitSize;
 			if (!Commit_New_Size(Reserve, NewUsed + Size)) {
 				//todo: Diagnostic and error logging
 				return NULL;
 			}
+			Asan_Poison_Memory_Region(Reserve->BaseAddress+OldCommitSize, Reserve->CommitSize-OldCommitSize);
 		}
 
 		Arena->Used = NewUsed;
-		void* Memory = Reserve->BaseAddress + Arena->Used;
+		Result = Reserve->BaseAddress + Arena->Used;
 		Arena->Used += Size;
-
-		return Memory;
 	} else {
 		arena_block* CurrentBlock = Arena_Get_Current_Block(Arena, Size, Alignment);
 		if (!CurrentBlock) {
@@ -1442,10 +1409,11 @@ export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, siz
 		CurrentBlock->Used = Align_Pow2(CurrentBlock->Used, Alignment);
 		Assert(CurrentBlock->Used + Size <= CurrentBlock->Size);
 
-		u8* Result = CurrentBlock->Memory + CurrentBlock->Used;
+		Result = CurrentBlock->Memory + CurrentBlock->Used;
 		CurrentBlock->Used += Size;
-		return Result;
 	}
+	Asan_Unpoison_Memory_Region(Result, Size);
+	return Result;
 }
 
 export_function void* Arena_Push_Aligned(arena* Arena, size_t Size, size_t Alignment) {
@@ -1486,12 +1454,15 @@ export_function void Arena_Set_Marker(arena* Arena, arena_marker Marker) {
 	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
 		Assert(!Marker.Block);
 		Arena->Used = Marker.Used;
+		Asan_Poison_Memory_Region(Arena->Reserve.BaseAddress+Arena->Used, Arena->Reserve.CommitSize);
 	} else {
 		arena_block* CurrentBlock = Marker.Block != NULL ? Marker.Block : Arena->FirstBlock;
 		if (CurrentBlock) {
 			CurrentBlock->Used = Marker.Used;
+			Asan_Poison_Memory_Region(CurrentBlock->Memory + CurrentBlock->Used, CurrentBlock->Size - CurrentBlock->Used);
 			for (arena_block* NextBlock = CurrentBlock->Next; NextBlock; NextBlock = NextBlock->Next) {
 				NextBlock->Used = 0;
+				Asan_Poison_Memory_Region(NextBlock->Memory, NextBlock->Size);
 			}
 		}
 		Arena->CurrentBlock = CurrentBlock;
@@ -1505,6 +1476,7 @@ export_function void Arena_Clear(arena* Arena) {
 	} else {
 		for (arena_block* Block = Arena->FirstBlock; Block; Block = Block->Next) {
 			Block->Used = 0;
+			Asan_Poison_Memory_Region(Block->Memory, Block->Size);
 		}
 		Arena->CurrentBlock = Arena->FirstBlock;
 	}

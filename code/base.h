@@ -108,15 +108,15 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #ifdef DEBUG_BUILD
 #include <assert.h>
 #define Assert(c) assert(c)
+#define Static_Assert(c) static_assert((c), "(" #c ") failed")
 #else
 #define Assert(c)
+#define Static_Assert(c) _Static_assert((c), "(" #c ") failed")
 #endif
 
 #define Invalid_Default_Case default: { Assert(false); } break
 #define Invalid_Else else Assert(false)
 #define Not_Implemented Assert(false)
-
-#define Static_Assert(c) static_assert((c), "(" #c ") failed")
 
 //Generic link list macros
 #define SLL_Pop_Front_N(First, Next) ((First) = (First)->Next)
