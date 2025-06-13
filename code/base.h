@@ -655,8 +655,8 @@ export_function void  Heap_Clear(heap* Heap);
 
 #define Array_Define(type) \
 typedef struct { \
-size_t Count; \
 type*  Ptr; \
+size_t Count; \
 } type##_array;
 
 #define Dynamic_Array_Define(type, name) \
@@ -670,8 +670,8 @@ size_t Capacity; \
 #define Array_Implement(type, name) \
 function type##_array name##_Array_Init(type* Ptr, size_t Count) { \
 type##_array Result = { \
-.Count = Count, \
-.Ptr = Ptr \
+.Ptr = Ptr, \
+.Count = Count \
 }; \
 return Result; \
 } \

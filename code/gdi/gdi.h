@@ -1,6 +1,10 @@
 #ifndef GDI_H
 #define GDI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define GDI_MAX_RENDER_TARGET_COUNT 4
 #define GDI_MAX_BIND_GROUP_COUNT 4
 #define GDI_MAX_VTX_BUFFER_COUNT 4
@@ -123,9 +127,9 @@ typedef enum {
 
 /* Structs */
 typedef struct {
-#ifdef DEBUG_BUILD
+	#ifdef DEBUG_BUILD
 	gdi_object_type Type;
-#endif
+	#endif
 	gdi_id ID;
 } gdi_handle;
 Array_Define(gdi_handle);
@@ -580,5 +584,9 @@ export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s
 export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset);
 
 #include "im_gdi.h"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

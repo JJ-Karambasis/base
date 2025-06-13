@@ -1,1 +1,3 @@
-#include "vk_gdi.c"
+extern "C" {
+	#include "vk_gdi.c"
+}
