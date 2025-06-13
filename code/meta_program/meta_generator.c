@@ -157,5 +157,3 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 	Result.Source = Source;
 	return Result;
 }
-
-#pragma comment(lib, "base.lib")

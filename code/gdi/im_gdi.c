@@ -43,7 +43,7 @@ function im_gdi* IM_GDI_Get() {
 	return Result;
 }
 
-function void IM_Flush(gdi_render_pass* RenderPass) {
+export_function void IM_Flush(gdi_render_pass* RenderPass) {
 	im_gdi* IM = IM_GDI_Get();
 	
 	u32 IdxCount = (u32)((IM->IdxBufferUsed - IM->LastIdxBufferUsed)/sizeof(u32));
@@ -59,7 +59,7 @@ function void IM_Flush(gdi_render_pass* RenderPass) {
 	IM->LastIdxBufferUsed = IM->IdxBufferUsed;
 }
 
-function u32 IM_Push(const void* Vtx, size_t Size) {
+export_function u32 IM_Push(const void* Vtx, size_t Size) {
 	im_gdi* IM = IM_GDI_Get();
 	IM->VtxBufferUsed = Align(IM->VtxBufferUsed, Size);
 	u32 Idx = (u32)(IM->VtxBufferUsed / Size);
@@ -69,14 +69,14 @@ function u32 IM_Push(const void* Vtx, size_t Size) {
 	return Idx;
 }
 
-function void IM_Push_Idx(u32 Idx) {
+export_function void IM_Push_Idx(u32 Idx) {
 	im_gdi* IM = IM_GDI_Get();
 	Memory_Copy(IM->IdxBufferPtr + IM->IdxBufferUsed, &Idx, sizeof(u32));
 	IM->IdxBufferUsed += sizeof(u32);
 	Assert(IM->IdxBufferUsed < IM_MAX_IDX_BUFFER_SIZE);
 }
 
-function void IM_Push_Vtx(const void* Vtx, size_t Size) {
+export_function void IM_Push_Vtx(const void* Vtx, size_t Size) {
 	im_gdi* IM = IM_GDI_Get();
 	u32 Idx = IM_Push(Vtx, Size);
 	IM_Push_Idx(Idx);
@@ -88,7 +88,7 @@ typedef struct {
 	v4 C;
 } im_vtx_v2_uv2_c;
 
-function void IM_Push_Rect(v2 Min, v2 Max, v4 Color) {
+export_function void IM_Push_Rect(v2 Min, v2 Max, v4 Color) {
 	im_vtx_v2_uv2_c v0 = { .P = Min, .UV = V2(0.0f, 0.0f), .C = Color };
 	im_vtx_v2_uv2_c v1 = { .P = V2(Min.x, Max.y), .UV = V2(0.0f, 1.0f), .C = Color };
 	im_vtx_v2_uv2_c v2 = { .P = Max, .UV = V2(1.0f, 1.0f), .C = Color };

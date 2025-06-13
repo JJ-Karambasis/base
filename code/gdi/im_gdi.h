@@ -25,4 +25,10 @@ struct im_gdi {
 	im_gdi* Next;
 };
 
+export_function void IM_Flush(gdi_render_pass* RenderPass);
+export_function u32 IM_Push(const void* Vtx, size_t Size);
+export_function void IM_Push_Idx(u32 Idx);
+export_function void IM_Push_Vtx(const void* Vtx, size_t Size);
+export_function void IM_Push_Rect(v2 Min, v2 Max, v4 Color);
+
 #endif

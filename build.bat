@@ -95,7 +95,7 @@ set clang_link=
 
 set msvc_dll=-LD
 set msvc_compile_only=/c
-set msvc_warnings=/Wall /WX /wd4061 /wd4062 /wd4063 /wd4100 /wd4127 /wd4189 /wd4191 /wd4255 /wd4324 /wd4355 /wd4365 /wd4456 /wd4464 /wd4530 /wd4577 /wd4625 /wd4626 /wd4668 /wd4710 /wd4711 /wd4820 /wd5026 /wd5027 /wd5045
+set msvc_warnings=/Wall /WX /wd4061 /wd4062 /wd4063 /wd4100 /wd4127 /wd4189 /wd4191 /wd4255 /wd4324 /wd4355 /wd4365 /wd4456 /wd4464 /wd4530 /wd4577 /wd4625 /wd4626 /wd4668 /wd4710 /wd4711 /wd4820 /wd5026 /wd5027 /wd5045 /wd5250
 set msvc_flags=/nologo /FC /Z7 /experimental:c11atomics %msvc_optimized_flag%
 set msvc_out=/out:
 set msvc_link=/link /opt:ref /incremental:no
@@ -145,7 +145,7 @@ popd
 
 REM build
 pushd "%bin_path%"
-	%compiler% %compile_flags% %compile_warnings% %compile_dll% %app_defines% %app_includes% "%code_path%\base.c" "%code_path%\os\win32\win32_base.c" %compile_link% %compile_out%base.dll
+	%compiler% %compile_flags% %compile_warnings% %compile_only% %app_defines% %app_includes% "%code_path%\base.c" "%code_path%\os\win32\win32_base.c"
 popd
 
 if %build_meta% == 0 (
@@ -154,7 +154,7 @@ if %build_meta% == 0 (
 
 REM build and run meta program
 pushd "%bin_path%"
-	%compiler% %compile_flags% %compile_warnings% %app_defines% %app_includes% "%code_path%\meta_program\meta_program.c" %compile_link% %compile_out%meta_program.exe	
+	%compiler% %compile_flags% %compile_warnings% %app_defines% %app_includes% "%code_path%\meta_program\meta_program.c" base.obj win32_base.obj %compile_link% %compile_out%meta_program.exe	
 popd
 
 :skip_meta
@@ -167,7 +167,11 @@ if %build_gdi% == 0 (
 pushd "%bin_path%"
 	meta_program.exe -d "%code_path%\gdi"
 	%compiler_cpp% %compile_flags% %compile_warnings% %compile_only% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" %obj_out% vk_mem_alloc.obj "%code_path%\gdi\backend\vk\vk_vma_usage.cpp"
-	%compiler% %compile_flags% %compile_warnings% %compile_dll% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" -I"%code_path%" "%code_path%\gdi\backend\vk\vk_gdi.c" vk_mem_alloc.obj %compile_link% %compile_out%gdi.dll
+	%compiler% %compile_flags% %compile_warnings% %compile_only% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" -I"%code_path%" %obj_out% gdi.obj "%code_path%\gdi\backend\vk\vk_gdi.c" %compile_link% %compile_out%gdi.dll
 popd
 
 :skip_gdi
+
+pushd "%bin_path%"
+	lib /out:base.lib win32_base.obj base.obj gdi.obj vk_mem_alloc.obj
+popd

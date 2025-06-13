@@ -15,7 +15,7 @@ function void AKON_Report_Error(akon_node_tree* NodeTree, akon_token* Token, con
 	Scratch_Release();
 }
 
-function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode, akon_node_type NodeType) {
+export_function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode, akon_node_type NodeType) {
 	size_t AllocationSize = ((Identifier.Size+1) * sizeof(char)) + sizeof(akon_node);
 	akon_node* Node = (akon_node*)Arena_Push(NodeTree->Arena, AllocationSize);
 	
@@ -363,11 +363,7 @@ export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content)
 	NodeTree->RootNode = AKON_Parse_Internal(NodeTree, Scratch, Content);
 	Scratch_Release();
 
-	if (!NodeTree->RootNode) {
-		AKON_Free_Node_Tree(NodeTree);
-		NodeTree = NULL;
-	}
-
+	NodeTree->HasErrors = NodeTree->RootNode == NULL;
 	return NodeTree;
 }
 

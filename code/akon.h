@@ -66,7 +66,9 @@ typedef struct {
 	akon_node_slot Slots[AKON_NODE_MAX_SLOT_COUNT];
 
 	//Errors
+	b32 HasErrors;
 	sstream_writer ErrorStream;
+
 } akon_node_tree;
 
 typedef enum {
@@ -108,6 +110,7 @@ typedef struct {
 	sstream_char 	StartIdentifierChar;
 } akon_tokenizer;
 
+export_function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode, akon_node_type NodeType);
 export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content);
 export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name);
 export_function b32 AKON_Node_Is_String_Var(akon_node* Node);

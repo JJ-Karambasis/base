@@ -143,6 +143,8 @@ typedef struct {
 	gdi_pool_id* 		IDs;
 } gdi_pool;
 
+
+
 typedef struct {
 	gdi_format 		  		   Format;
 	v2i 			  		   Dim;
@@ -493,7 +495,7 @@ struct gdi {
 
 #if defined(OS_WIN32)
 #define GDI_INIT_DEFINE(name) gdi* name(base* Base, HWND Window, HINSTANCE Instance)
-typedef GDI_INIT_DEFINE(gdi_init_func);
+export_function GDI_INIT_DEFINE(GDI_Init);
 #elif defined(OS_OSX)
 
 #ifdef __OBJC__
@@ -503,10 +505,78 @@ typedef void CAMetalLayer;
 #endif
 
 #define GDI_INIT_DEFINE(name) gdi* name(base* Base, CAMetalLayer* Layer)
-typedef GDI_INIT_DEFINE(gdi_init_func);
+export_function GDI_INIT_DEFINE(GDI_Init);
 #else
 #error "Not Implemented!"
 #endif
+
+
+/*Quick access helper lookups*/
+function inline gdi_id GDI_Null_ID() {
+	gdi_id Result = { 0 };
+	return Result;
+}
+
+
+function inline gdi_handle GDI_Null_Handle() {
+	gdi_handle Result = { 0 };
+	return Result;
+}
+
+function inline b32 GDI_ID_Is_Null(gdi_id ID) {
+	return ID.ID == 0;
+}
+
+function inline b32 GDI_Is_Null(gdi_handle Handle) {
+	return GDI_ID_Is_Null(Handle.ID);
+}
+
+function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
+	b32 Result = A.ID.ID == B.ID.ID;
+	//If they are equal, make sure the types are the same
+	Assert(Result ? A.Type == B.Type : true);
+	return Result;
+}
+
+export_function gdi_format GDI_Get_SRGB_Format(gdi_format Format);
+export_function gdi* GDI_Get();
+export_function void GDI_Set(gdi* GDI);
+
+export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
+export_function void GDI_Delete_Texture(gdi_handle Texture);
+export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo);
+export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Texture);
+export_function void GDI_Delete_Texture_View(gdi_handle TextureView);
+export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo);
+export_function void GDI_Delete_Buffer(gdi_handle Buffer);
+export_function void* GDI_Map_Buffer(gdi_handle Buffer);
+export_function void GDI_Unmap_Buffer(gdi_handle Buffer);
+export_function gdi_handle GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo);
+export_function void GDI_Delete_Sampler(gdi_handle Sampler);
+export_function gdi_handle GDI_Create_Bind_Group_Layout(const gdi_bind_group_layout_create_info* CreateInfo);
+export_function void GDI_Delete_Bind_Group_Layout(gdi_handle BindGroupLayout);
+export_function gdi_handle GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo);
+export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup);
+export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
+export_function void GDI_Delete_Shader(gdi_handle Shader);
+
+/* Frames */
+export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);
+export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi_handle_array BufferWrites, gdi_dispatch_array Dispatches);
+export_function void GDI_Render(const gdi_render_params* RenderParams);
+
+/* Render Pass */
+export_function gdi_render_pass* GDI_Begin_Render_Pass(const gdi_render_pass_begin_info* BeginInfo);
+export_function void GDI_End_Render_Pass(gdi_render_pass* RenderPass);
+export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_handle Shader);
+export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_handle* BindGroups, size_t Count);
+export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_handle BindGroup);
+export_function void Render_Set_Push_Constants(gdi_render_pass* RenderPass, void* Data, size_t Size);
+export_function void Render_Set_Vtx_Buffer(gdi_render_pass* RenderPass, u32 Index, gdi_handle VtxBuffer);
+export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Count, gdi_handle* VtxBuffers);
+export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_handle IdxBuffer, gdi_idx_format IdxFormat);
+export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s32 MinY, s32 MaxX, s32 MaxY);
+export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset);
 
 #include "im_gdi.h"
 
