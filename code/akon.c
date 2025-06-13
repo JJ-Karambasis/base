@@ -214,7 +214,7 @@ function void AKON_Add_Token(akon_tokenizer* Tokenizer, akon_token_type Type, si
 }
 
 function inline void AKON_Add_Token_Char(akon_tokenizer* Tokenizer, sstream_char Char) {
-	AKON_Add_Token(Tokenizer, Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
+	AKON_Add_Token(Tokenizer, (akon_token_type)Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
 }
 
 

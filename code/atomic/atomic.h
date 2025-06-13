@@ -1,7 +1,11 @@
 #ifndef ATOMIC_H
 #define ATOMIC_H
 
+#ifdef __cplusplus
+#include "cpp_atomics.h"
+#else
 #include "c11_atomics.h"
+#endif
 
 typedef struct {
 	atomic_s32 Internal;

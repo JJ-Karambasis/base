@@ -252,7 +252,7 @@ META_FUNCTION(VK_Get_Filter, gdi_filter Filter) -> VkFilter {
 			VK_FILTER_${META_ENTRY_SHORT_NAME:upper},
 		}
 	};
-	Assert(Filter < Array_Count(Filters));
+	Assert((size_t)Filter < Array_Count(Filters));
 	return Filters[Filter];
 }
 
@@ -262,7 +262,7 @@ META_FUNCTION(VK_Get_Mipmap_Mode, gdi_filter Filter) -> VkSamplerMipmapMode  {
 			VK_SAMPLER_MIPMAP_MODE_${META_ENTRY_SHORT_NAME:upper},
 		}
 	};
-	Assert(Filter < Array_Count(MipmapMode));
+	Assert((size_t)Filter < Array_Count(MipmapMode));
 	return MipmapMode[Filter];
 }
 
@@ -270,11 +270,11 @@ META_MACRO(VK_Enum_Mapper, name, type, mapped_type) {
 	META_FUNCTION(VK_Get_${name}, ${type} Entry) -> ${mapped_type} {
 		static const ${mapped_type} Entries[] = {
 			META_FOR(${type}, flags: NoBraces) {
-				${META_GET_TAG_VALUE(vk):upper},
+				(${mapped_type})${META_GET_TAG_VALUE(vk):upper},
 			}
 		};
 
-		Assert(Entry < Array_Count(Entries));
+		Assert((size_t)Entry < Array_Count(Entries));
 		return Entries[Entry];
 	}
 }

@@ -237,7 +237,7 @@ function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_gdi* GDI,
 }
 
 function void VK_Delete_Queued_Resources(vk_gdi* GDI, vk_delete_queue* DeleteQueue) {
-	for (vk_delete_thread_context* ThreadContext = Atomic_Load_Ptr(&DeleteQueue->TopThread);
+	for (vk_delete_thread_context* ThreadContext = (vk_delete_thread_context*)Atomic_Load_Ptr(&DeleteQueue->TopThread);
 		ThreadContext; ThreadContext = ThreadContext->Next) {
 		VK_Delete_Queued_Thread_Resources(GDI, ThreadContext);
 	}
@@ -432,7 +432,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
 		.format = VK_Get_Format(TextureInfo->Format),
-		.extent = { TextureInfo->Dim.x, TextureInfo->Dim.y, 1 },
+		.extent = { (u32)TextureInfo->Dim.x, (u32)TextureInfo->Dim.y, 1 },
 		.mipLevels = TextureInfo->MipCount,
 		.arrayLayers = 1,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
@@ -486,7 +486,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 			VkBufferImageCopy BufferImageCopy = {
 				.bufferOffset = Upload.Offset + Offset,
 				.imageSubresource = { ImageAspect, i, 0, 1 },
-				.imageExtent = { TextureDim.x, TextureDim.y, 1 }
+				.imageExtent = { (u32)TextureDim.x, (u32)TextureDim.y, 1 }
 			};
 			Regions[i] = BufferImageCopy;
 			TextureDim = V2i_Div_S32(TextureDim, 2);
@@ -664,8 +664,8 @@ function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
 
 	VkSamplerCreateInfo CreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.minFilter = Filter,
 		.magFilter = Filter,
+		.minFilter = Filter,
 		.mipmapMode = MipmapMode,
 		.addressModeU = VK_Get_Address_Mode(SamplerInfo->AddressModeU),
 		.addressModeV = VK_Get_Address_Mode(SamplerInfo->AddressModeV)
@@ -740,9 +740,9 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 
 	VkDescriptorSetAllocateInfo AllocateInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = VkGDI->DescriptorPool,
 		.descriptorSetCount = 1,
 		.pSetLayouts = &Layout->Layout,
-		.descriptorPool = VkGDI->DescriptorPool
 	};
 
 	VkDescriptorSet Set;
@@ -870,8 +870,8 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 
 		VkDescriptorSetLayoutCreateInfo CreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = (u32)ShaderInfo->WritableBindings.Count,
 			.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+			.bindingCount = (u32)ShaderInfo->WritableBindings.Count,
 			.pBindings = Bindings
 		};
 
@@ -902,7 +902,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 
 	VkPushConstantRange PushRange = {
 		.stageFlags = VK_SHADER_STAGE_ALL,
-		.size = ShaderInfo->PushConstantCount * sizeof(u32)
+		.size = (u32)(ShaderInfo->PushConstantCount * sizeof(u32))
 	};
 
 	for (size_t i = 0; i < ShaderInfo->BindGroupLayouts.Count; i++) {
@@ -913,10 +913,10 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 
 	VkPipelineLayoutCreateInfo LayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pushConstantRangeCount = ShaderInfo->PushConstantCount ? 1 : 0,
-		.pPushConstantRanges = ShaderInfo->PushConstantCount ? &PushRange : VK_NULL_HANDLE,
 		.setLayoutCount = LayoutCount,
-		.pSetLayouts = SetLayouts
+		.pSetLayouts = SetLayouts,
+		.pushConstantRangeCount = ShaderInfo->PushConstantCount ? 1u : 0u,
+		.pPushConstantRanges = ShaderInfo->PushConstantCount ? &PushRange : VK_NULL_HANDLE,
 	};
 
 	gdi_handle Result = GDI_Null_Handle();
@@ -1052,8 +1052,8 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 
 			VkPipelineDepthStencilStateCreateInfo DepthStencilState = {
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-				.depthTestEnable = ShaderInfo->DepthState.TestEnabled,
-				.depthWriteEnable = ShaderInfo->DepthState.WriteEnabled,
+				.depthTestEnable = (VkBool32)ShaderInfo->DepthState.TestEnabled,
+				.depthWriteEnable = (VkBool32)ShaderInfo->DepthState.WriteEnabled,
 				.depthCompareOp = VK_Get_Compare_Func(ShaderInfo->DepthState.CompareFunc)
 			};
 
@@ -1213,13 +1213,13 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		Assert(vkGetFenceStatus(VkGDI->Device, NewTransferContext->DEBUGFence) == VK_SUCCESS);
 		vkResetFences(VkGDI->Device, 1, &NewTransferContext->DEBUGFence);
 #endif
-		for (vk_transfer_thread_context* Thread = Atomic_Load_Ptr(&NewTransferContext->TopThread); Thread; Thread = Thread->Next) {
+		for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&NewTransferContext->TopThread); Thread; Thread = Thread->Next) {
 			Thread->NeedsReset = true;
 		}
 		OS_RW_Mutex_Write_Unlock(VkGDI->TransferLock);
 	}
 
-	for (vk_transfer_thread_context* Thread = Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
+	for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
 		if (!Thread->NeedsReset) {
 			vkEndCommandBuffer(Thread->CmdBuffer);
 		}
@@ -1250,7 +1250,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		dynamic_vk_image_memory_barrier2_array PrePassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
 		dynamic_vk_image_memory_barrier2_array PostPassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
 
-		for (vk_transfer_thread_context* Thread = Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
+		for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
 			if (!Thread->NeedsReset) {
 				for (vk_texture_barrier_cmd* Cmd = Thread->FirstTextureBarrierCmd; Cmd; Cmd = Cmd->Next) {
 					vk_texture* Texture = Cmd->Texture;
@@ -1260,8 +1260,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkImageMemoryBarrier2KHR PostBarrier = {
 						.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 						.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 						.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+						.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 						.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 						.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 						.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1273,8 +1273,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PreBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
 							.srcAccessMask = 0,
+							.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 							.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1285,8 +1285,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PostBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1301,8 +1301,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PostBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
-							.dstStageMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.srcAccessMask = 0,
+							.dstStageMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1332,8 +1332,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			VkMemoryBarrier2KHR MemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 				.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				.srcAccessMask = 0,
+				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT
 			};
 
@@ -1360,8 +1360,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			VkMemoryBarrier2KHR MemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 				.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
 				.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
 				.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
 			};
 
@@ -1392,8 +1392,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.commandBufferCount = Array_Count(CmdBuffers),
 			.pCommandBuffers = CmdBuffers,
+			.signalSemaphoreCount = Array_Count(SignalSemaphores),
 			.pSignalSemaphores = SignalSemaphores,
-			.signalSemaphoreCount = Array_Count(SignalSemaphores)
 		};
 
 		VkFence TransferFence = VK_NULL_HANDLE;
@@ -1447,16 +1447,16 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkMemoryBarrier2 PreMemoryBarrier = {
 						.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 						.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 						.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR,
+						.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 						.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR
 					};
 
 					VkMemoryBarrier2 PostMemoryBarrier = {
 						.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 						.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
 						.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
+						.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
 						.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR
 					};
 
@@ -1475,8 +1475,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PreBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 							.newLayout = VK_IMAGE_LAYOUT_GENERAL,
@@ -1487,8 +1487,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PostBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
 							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1641,8 +1641,11 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					PassCmdBuffer = RenderPass->CmdBuffer;
 		
 					u32 ColorAttachmentCount = 0;
-					VkRenderingAttachmentInfoKHR ColorAttachments[GDI_MAX_RENDER_TARGET_COUNT] = { 0 };
-					VkRenderingAttachmentInfoKHR DepthAttachment = { 0 };
+					VkRenderingAttachmentInfoKHR ColorAttachments[GDI_MAX_RENDER_TARGET_COUNT];
+					Memory_Clear(ColorAttachments, sizeof(ColorAttachments));
+
+					VkRenderingAttachmentInfoKHR DepthAttachment;
+					Memory_Clear(&DepthAttachment, sizeof(DepthAttachment));
 
 					gdi_clear_state* ClearState = &RenderPass->ClearState;
 
@@ -1669,8 +1672,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 							VkImageMemoryBarrier2KHR PreBarrier = {
 								.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 								.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-								.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
 								.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+								.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
 								.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR|VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
 								.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 								.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1681,8 +1684,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 							VkImageMemoryBarrier2KHR PostBarrier = {
 								.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 								.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-								.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 								.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR,
+								.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 								.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 								.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 								.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1716,8 +1719,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PreBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
 							.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 							.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1728,8 +1731,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkImageMemoryBarrier2KHR PostBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1767,7 +1770,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkRenderingInfoKHR RenderingInfo = {
 						.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 						.flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT_KHR,
-						.renderArea = { { 0 }, { RenderPass->Dim.x, RenderPass->Dim.y } },
+						.renderArea = { { 0 }, { (u32)RenderPass->Dim.x, (u32)RenderPass->Dim.y } },
 						.layerCount = 1,
 						.colorAttachmentCount = ColorAttachmentCount,
 						.pColorAttachments = ColorAttachments,
@@ -1814,16 +1817,16 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			VkMemoryBarrier2KHR PreMemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 				.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR,
+				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
 				.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT
 			};
 
 			VkMemoryBarrier2KHR PostMemoryBarrier = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
 				.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
 				.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
 				.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR
 			};
 
@@ -1840,8 +1843,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				VkImageMemoryBarrier2KHR PreBarrier = {
 					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 					.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-					.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
 					.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+					.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
 					.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT_KHR,
 					.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1852,8 +1855,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				VkImageMemoryBarrier2KHR PostBarrier = {
 					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 					.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-					.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 					.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT_KHR,
+					.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 					.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 					.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1918,7 +1921,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkBufferImageCopy BufferImageCopy = {
 						.bufferOffset = CpuReadback.Offset + Offset,
 						.imageSubresource = { ImageAspect, i, 0, 1 },
-						.imageExtent = { Dim.x, Dim.y, 1 }
+						.imageExtent = { (u32)Dim.x, (u32)Dim.y, 1 }
 					};
 					Regions[i] = BufferImageCopy;
 					Dim = V2i_Div_S32(Dim, 2);
@@ -1995,13 +1998,13 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	
 			VkSubmitInfo SubmitInfo = {
 				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				.commandBufferCount = Array_Count(CmdBuffers),
-				.pCommandBuffers = CmdBuffers,
+				.waitSemaphoreCount = Array_Count(WaitSemaphores),
 				.pWaitSemaphores = WaitSemaphores,
 				.pWaitDstStageMask = WaitStageFlags,
-				.waitSemaphoreCount = Array_Count(WaitSemaphores),
-				.pSignalSemaphores = SignalSemaphores,
-				.signalSemaphoreCount = Array_Count(SignalSemaphores)
+				.commandBufferCount = Array_Count(CmdBuffers),
+				.pCommandBuffers = CmdBuffers,
+				.signalSemaphoreCount = Array_Count(SignalSemaphores),
+				.pSignalSemaphores = SignalSemaphores
 			};
 			Status = vkQueueSubmit(VkGDI->GraphicsQueue, 1, &SubmitInfo, Frame->Fence);
 			if (Status != VK_SUCCESS) {
@@ -2036,7 +2039,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	}
 
 	//Free renderpasses that were queued for deleting this frame
-	for (vk_transfer_thread_context* Thread = Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
+	for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
 		vk_render_pass* RenderPass = Thread->RenderPassesToDelete;
 		while (RenderPass) {
 			vk_render_pass* RenderPassToDelete = RenderPass;
@@ -2165,7 +2168,9 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	vk_render_pass* VkRenderPass = (vk_render_pass*)RenderPass;
 
 	u32 ColorFormatCount = 0;
-	VkFormat ColorFormats[GDI_MAX_RENDER_TARGET_COUNT] = { 0 };
+	VkFormat ColorFormats[GDI_MAX_RENDER_TARGET_COUNT];
+	Memory_Clear(ColorFormats, sizeof(ColorFormats));
+
 	VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
 
 	for (u32 i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
@@ -2218,7 +2223,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	u32 CurrentVtxOffset = 0;
 	u32 PushConstantCount = 0;
 
-	VkRect2D CurrentScissor = {{}, { VkRenderPass->Dim.x, VkRenderPass->Dim.y } };
+	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
 	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
 
 	bstream_reader Reader = BStream_Reader_Begin(Make_Buffer(VkRenderPass->Base.Memory.BaseAddress, 
@@ -2342,10 +2347,11 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.CreateShaderFunc = VK_Create_Shader,
 	.DeleteShaderFunc = VK_Delete_Shader,
 
-	.RenderFunc = VK_Render,
 
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,
-	.EndRenderPassFunc = VK_End_Render_Pass
+	.EndRenderPassFunc = VK_End_Render_Pass,
+
+	.RenderFunc = VK_Render
 };
 
 function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity, VkDebugUtilsMessageTypeFlagsEXT MessageTypes,
@@ -2443,11 +2449,11 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	VkInstanceCreateInfo InstanceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.flags = InstanceFlags,
+		.pApplicationInfo = &ApplicationInfo,
 		.enabledLayerCount = (u32)Layers.Count,
 		.ppEnabledLayerNames = (const char* const*)Layers.Ptr,
 		.enabledExtensionCount = (u32)InstanceExtensions.Count,
 		.ppEnabledExtensionNames = (const char* const*)InstanceExtensions.Ptr,
-		.pApplicationInfo = &ApplicationInfo
 	};
 
 	VkResult Status = vkCreateInstance(&InstanceCreateInfo, VK_NULL_HANDLE, &GDI->Instance);
@@ -2647,11 +2653,11 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	};
 
 	VmaAllocatorCreateInfo GPUAllocatorInfo = {
-		.vulkanApiVersion = VK_API_VERSION_1_0,
 		.physicalDevice = GDI->TargetGPU->PhysicalDevice,
 		.device = GDI->Device,
+		.pVulkanFunctions = &VmaFunctions,
 		.instance = GDI->Instance,
-		.pVulkanFunctions = &VmaFunctions
+		.vulkanApiVersion = VK_API_VERSION_1_0,
 	};
 
 	Status = vmaCreateAllocator(&GPUAllocatorInfo, &GDI->GPUAllocator);

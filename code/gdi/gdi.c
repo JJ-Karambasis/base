@@ -172,7 +172,7 @@ export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi
 
 export_function void GDI_Render(const gdi_render_params* RenderParams) {
 	gdi* GDI = GDI_Get();
-	for (im_gdi* ImGDI = Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
+	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		if (!ImGDI->IsReset) {
 			GDI_Unmap_Buffer(ImGDI->VtxBuffer);
 			GDI_Unmap_Buffer(ImGDI->IdxBuffer);
@@ -185,7 +185,7 @@ export_function void GDI_Render(const gdi_render_params* RenderParams) {
 	GDI->FirstPass = NULL;
 	GDI->LastPass = NULL;
 
-	for (im_gdi* ImGDI = Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
+	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		ImGDI->IdxBufferUsed = 0;
 		ImGDI->VtxBufferUsed = 0;
 		ImGDI->LastIdxBufferUsed = 0;

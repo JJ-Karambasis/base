@@ -1,11 +1,6 @@
 #include "../../base.h"
 #include "win32_base.h"
-
-#define RPMALLOC_FIRST_CLASS_HEAPS 1
-#define ENABLE_OVERRIDE 0
 #include "../../third_party/rpmalloc/rpmalloc.h"
-#include "../../third_party/rpmalloc/rpmalloc.c"
-
 
 Dynamic_Array_Implement_Type(string, String);
 Array_Implement(string, String);
@@ -512,7 +507,7 @@ function OS_LIBRARY_GET_FUNCTION_DEFINE(Win32_Library_Get_Function) {
 }
 
 function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
-	BCryptGenRandom(NULL, Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+	BCryptGenRandom(NULL, (PUCHAR)Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 }
 
 function OS_SLEEP_DEFINE(Win32_Sleep) {
@@ -587,7 +582,7 @@ function string Win32_Get_Executable_Path(allocator* Allocator) {
 	DWORD MemorySize = 1024;
 	for (int Iterations = 0; Iterations < 32; Iterations++) {
 		arena* Scratch = Scratch_Get();
-		wchar_t* Buffer = Arena_Push(Scratch, sizeof(wchar_t)*MemorySize);
+		wchar_t* Buffer = (wchar_t*)Arena_Push(Scratch, sizeof(wchar_t)*MemorySize);
 		DWORD Size = GetModuleFileNameW(NULL, Buffer, MemorySize);
 		if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
 			string String = String_From_WString(Allocator, Make_WString(Buffer, Size));

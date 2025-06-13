@@ -519,7 +519,8 @@ function inline gdi_id GDI_Null_ID() {
 
 
 function inline gdi_handle GDI_Null_Handle() {
-	gdi_handle Result = { 0 };
+	gdi_handle Result;
+	Memory_Clear(&Result, sizeof(gdi_handle));
 	return Result;
 }
 

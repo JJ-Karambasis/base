@@ -1,6 +1,10 @@
 #ifndef BASE_H
 #define BASE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
@@ -105,13 +109,19 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #define PI 3.14159265359f
 #define TAU 6.28318530717958647692f
 
-#ifdef DEBUG_BUILD
+#ifdef DEBUG_BUILD 
 #include <assert.h>
 #define Assert(c) assert(c)
 #define Static_Assert(c) static_assert((c), "(" #c ") failed")
 #else
 #define Assert(c)
+
+#ifdef __cplusplus
+#define Static_Assert(c) static_assert((c), "(" #c ") failed")
+#else
 #define Static_Assert(c) _Static_assert((c), "(" #c ") failed")
+#endif
+
 #endif
 
 #define Invalid_Default_Case default: { Assert(false); } break
@@ -134,68 +144,68 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 
 #define DLL_Remove_Front_NP(First, Last, Next, Prev) \
 do { \
-	if(First == Last) \
-		First = Last = NULL; \
-			else { \
-				First = First->Next; \
-					First->Prev = NULL; \
-	} \
+if(First == Last) \
+First = Last = NULL; \
+else { \
+First = First->Next; \
+First->Prev = NULL; \
+} \
 } while(0)
 
 #define DLL_Remove_Back_NP(First, Last, Next, Prev) \
 do { \
-	if(First == Last) \
-		First = Last = NULL; \
-			else { \
-				Last = Last->Prev; \
-					Last->Next = NULL; \
-	} \
+if(First == Last) \
+First = Last = NULL; \
+else { \
+Last = Last->Prev; \
+Last->Next = NULL; \
+} \
 } while(0)
 
 #define DLL_Push_Front_NP(First, Last, Node, Next, Prev) (!(First) ? ((First) = (Last) = (Node)) : ((Node)->Next = (First), (First)->Prev = (Node), (First) = (Node)))
 #define DLL_Push_Back_NP(First, Last, Node, Next, Prev) (!(First) ? ((First) = (Last) = (Node)) : ((Node)->Prev = (Last), (Last)->Next = (Node), (Last) = (Node)))
 #define DLL_Remove_NP(First, Last, Node, Next, Prev) \
 do { \
-	if(First == Node) { \
-		First = First->Next; \
-			if(First) First->Prev = NULL; \
-	} \
-		if(Last == Node) { \
-			Last = Last->Prev; \
-				if(Last) Last->Next = NULL; \
-		} \
-			if(Node->Prev) Node->Prev->Next = Node->Next; \
-				if(Node->Next) Node->Next->Prev = Node->Prev; \
-					Node->Prev = NULL; \
-						Node->Next = NULL; \
+if(First == Node) { \
+First = First->Next; \
+if(First) First->Prev = NULL; \
+} \
+if(Last == Node) { \
+Last = Last->Prev; \
+if(Last) Last->Next = NULL; \
+} \
+if(Node->Prev) Node->Prev->Next = Node->Next; \
+if(Node->Next) Node->Next->Prev = Node->Prev; \
+Node->Prev = NULL; \
+Node->Next = NULL; \
 } while(0)
 
 #define DLL_Insert_After_NP(First, Last, Target, Node, Next, Prev) \
 do { \
-	if(Target->Next) { \
-		Target->Next->Prev = Node; \
-			Node->Next = Target->Next; \
-	} \
-		else { \
-			Assert(Target == Last, "Invalid"); \
-				Last = Node; \
-	} \
-		Node->Prev = Target; \
-			Target->Next = Node; \
+if(Target->Next) { \
+Target->Next->Prev = Node; \
+Node->Next = Target->Next; \
+} \
+else { \
+Assert(Target == Last, "Invalid"); \
+Last = Node; \
+} \
+Node->Prev = Target; \
+Target->Next = Node; \
 } while(0)
 
 #define DLL_Insert_Prev_NP(First, Last, Target, Node, Next, Prev) \
 do { \
-	if(Target->Prev) { \
-		Target->Prev->Next = Node; \
-			Node->Prev = Target->Prev; \
-	} \
-		else { \
-			Assert(Target == First, "Invalid"); \
-				First = Node; \
-	} \
-		Node->Next = Target; \
-			Target->Prev = Node; \
+if(Target->Prev) { \
+Target->Prev->Next = Node; \
+Node->Prev = Target->Prev; \
+} \
+else { \
+Assert(Target == First, "Invalid"); \
+First = Node; \
+} \
+Node->Next = Target; \
+Target->Prev = Node; \
 } while(0)
 
 #define DLL_Remove_Back(First, Last) DLL_Remove_Back_NP(First, Last, Next, Prev)
@@ -320,11 +330,6 @@ typedef struct {
 	s32 x, y, z;
 } v3i;
 
-global const v3 G_XAxis    = { 1.0f, 0.0f, 0.0f };
-global const v3 G_YAxis    = { 0.0f, 1.0f, 0.0f };
-global const v3 G_ZAxis    = { 0.0f, 0.0f, 1.0f };
-global const v3 G_UpVector = { 0.0f, 0.0f, 1.0f };
-
 export_function v3 V3_F64(const f64* V);
 export_function v3 V3(f32 x, f32 y, f32 z);
 export_function v3 V3_From_V2(v2 V);
@@ -348,6 +353,11 @@ export_function b32 V3_Is_Close(v3 A, v3 B, f32 ToleranceSq);
 export_function b32 V3_Is_Zero(v3 V, f32 Epsilon);
 export_function v3 V3_Get_Perp(v3 Direction);
 export_function v3i V3i(s32 x, s32 y, s32 z);
+
+global const v3 G_XAxis    = { 1.0f, 0.0f, 0.0f };
+global const v3 G_YAxis    = { 0.0f, 1.0f, 0.0f };
+global const v3 G_ZAxis    = { 0.0f, 0.0f, 1.0f };
+global const v3 G_UpVector = { 0.0f, 0.0f, 1.0f };
 
 typedef struct {
 	union {
@@ -663,72 +673,72 @@ type##_array Result = { \
 .Count = Count, \
 .Ptr = Ptr \
 }; \
-	return Result; \
+return Result; \
 } \
-	function type##_array name##_Array_Alloc(allocator* Allocator, size_t Count) { \
-		type* Ptr = Allocator_Allocate_Array(Allocator, Count, type); \
-			return name##_Array_Init(Ptr, Count); \
+function type##_array name##_Array_Alloc(allocator* Allocator, size_t Count) { \
+type* Ptr = Allocator_Allocate_Array(Allocator, Count, type); \
+return name##_Array_Init(Ptr, Count); \
 } \
-	function type##_array name##_Array_Copy(allocator* Allocator, type* Ptr, size_t Count) { \
-		type##_array Result = name##_Array_Alloc(Allocator, Count); \
-			Memory_Copy(Result.Ptr, Ptr, Count * sizeof(type)); \
-				return Result; \
+function type##_array name##_Array_Copy(allocator* Allocator, type* Ptr, size_t Count) { \
+type##_array Result = name##_Array_Alloc(Allocator, Count); \
+Memory_Copy(Result.Ptr, Ptr, Count * sizeof(type)); \
+return Result; \
 } \
-	function type##_array name##_Array_Sub(type##_array Array, size_t StartIndex, size_t EndIndex) { \
-		Assert(StartIndex <= EndIndex); \
-			Assert(EndIndex <= Array.Count); \
-				type##_array Result = name##_Array_Init(Array.Ptr + StartIndex, EndIndex-StartIndex); \
-					return Result; \
+function type##_array name##_Array_Sub(type##_array Array, size_t StartIndex, size_t EndIndex) { \
+Assert(StartIndex <= EndIndex); \
+Assert(EndIndex <= Array.Count); \
+type##_array Result = name##_Array_Init(Array.Ptr + StartIndex, EndIndex-StartIndex); \
+return Result; \
 } \
-	function type##_array name##_Array_Empty() { \
-		type##_array Result = { 0 }; \
-			return Result; \
+function type##_array name##_Array_Empty() { \
+type##_array Result = { 0 }; \
+return Result; \
 } \
 
 #define Dynamic_Array_Implement(container_name, type, name) \
 function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* Array, size_t NewCapacity) { \
 allocator* Allocator = Array->Allocator; \
 type* NewPtr = Allocator_Allocate_Array(Allocator, NewCapacity, type); \
-	\
-	if (Array->Ptr) { \
-		size_t MinCapacity = Min(Array->Capacity, NewCapacity); \
-			Memory_Copy(NewPtr, Array->Ptr, MinCapacity * sizeof(type)); \
-				Allocator_Free_Memory(Allocator, Array->Ptr); \
-	} \
-		\
-		if (Array->Count > NewCapacity) { \
-			Array->Count = NewCapacity; \
-		} \
-			\
-			Array->Capacity = NewCapacity; \
-				Array->Ptr = NewPtr; \
+\
+if (Array->Ptr) { \
+size_t MinCapacity = Min(Array->Capacity, NewCapacity); \
+Memory_Copy(NewPtr, Array->Ptr, MinCapacity * sizeof(type)); \
+Allocator_Free_Memory(Allocator, Array->Ptr); \
 } \
-	function dynamic_##container_name##_array Dynamic_##name##_Array_Init_With_Size(allocator* Allocator, size_t InitialCapacity) { \
-		dynamic_##container_name##_array Result = { \
-		.Allocator = Allocator \
+\
+if (Array->Count > NewCapacity) { \
+Array->Count = NewCapacity; \
+} \
+\
+Array->Capacity = NewCapacity; \
+Array->Ptr = NewPtr; \
+} \
+function dynamic_##container_name##_array Dynamic_##name##_Array_Init_With_Size(allocator* Allocator, size_t InitialCapacity) { \
+dynamic_##container_name##_array Result = { \
+.Allocator = Allocator \
 }; \
-	\
-	Dynamic_##name##_Array_Reserve(&Result, InitialCapacity); \
-		return Result; \
+\
+Dynamic_##name##_Array_Reserve(&Result, InitialCapacity); \
+return Result; \
 } \
-	function dynamic_##container_name##_array Dynamic_##name##_Array_Init(allocator* Allocator) { \
-		return Dynamic_##name##_Array_Init_With_Size(Allocator, 32); \
+function dynamic_##container_name##_array Dynamic_##name##_Array_Init(allocator* Allocator) { \
+return Dynamic_##name##_Array_Init_With_Size(Allocator, 32); \
 } \
-	function void Dynamic_##name##_Array_Add(dynamic_##container_name##_array* Array, type Entry) { \
-		if (Array->Count == Array->Capacity) { \
-			Dynamic_##name##_Array_Reserve(Array, Array->Capacity*2); \
-		} \
-			Array->Ptr[Array->Count++] = Entry; \
+function void Dynamic_##name##_Array_Add(dynamic_##container_name##_array* Array, type Entry) { \
+if (Array->Count == Array->Capacity) { \
+Dynamic_##name##_Array_Reserve(Array, Array->Capacity*2); \
 } \
-	function void Dynamic_##name##_Array_Add_Range(dynamic_##container_name##_array* Array, type* Ptr, size_t Count) { \
-		if (Array->Count+Count >= Array->Capacity) { \
-			Dynamic_##name##_Array_Reserve(Array, Max(Array->Capacity*2, Array->Count+Count)); \
-		} \
-			Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type)); \
-				Array->Count += Count; \
+Array->Ptr[Array->Count++] = Entry; \
 } \
-	function void Dynamic_##name##_Array_Clear(dynamic_##container_name##_array* Array) { \
-		Array->Count = 0; \
+function void Dynamic_##name##_Array_Add_Range(dynamic_##container_name##_array* Array, type* Ptr, size_t Count) { \
+if (Array->Count+Count >= Array->Capacity) { \
+Dynamic_##name##_Array_Reserve(Array, Max(Array->Capacity*2, Array->Count+Count)); \
+} \
+Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type)); \
+Array->Count += Count; \
+} \
+function void Dynamic_##name##_Array_Clear(dynamic_##container_name##_array* Array) { \
+Array->Count = 0; \
 }
 
 #define Dynamic_Array_Define_Type(type) Dynamic_Array_Define(type, type)
@@ -957,10 +967,10 @@ typedef struct {
 
 typedef struct {
 	u32*   Slots;
-    u32*   FreeIndices;
-    size_t FreeCount;
-    size_t Capacity;
-    size_t Count;
+	u32*   FreeIndices;
+	size_t FreeCount;
+	size_t Capacity;
+	size_t Count;
 } slot_map;
 
 function inline slot_id Slot_Null() {
@@ -1000,17 +1010,17 @@ export_function void* Binary_Heap_Pop(binary_heap* Heap);
 #define ASYNC_STACK_INDEX16_INVALID ((u16)-1) 
 
 typedef union {
-    u32 ID;
-    struct {
-        u16 Index;
-        u16 Key;
-    };
+	u32 ID;
+	struct {
+		u16 Index;
+		u16 Key;
+	};
 } async_stack_index16_key;
 
 typedef struct {
-    u16*  	   NextIndices;
-    atomic_u32 Head;
-    u16   	   Capacity;
+	u16*  	   NextIndices;
+	atomic_u32 Head;
+	u16   	   Capacity;
 } async_stack_index16;
 
 export_function void Async_Stack_Index16_Init_Raw(async_stack_index16* StackIndex, u16* IndicesPtr, u16 Capacity);
@@ -1021,17 +1031,17 @@ export_function u16  Async_Stack_Index16_Pop(async_stack_index16* StackIndex);
 #define ASYNC_STACK_INDEX32_INVALID ((u32)-1) 
 
 typedef union {
-    u64 ID;
-    struct {
-        u32 Index;
-        u32 Key;
-    };
+	u64 ID;
+	struct {
+		u32 Index;
+		u32 Key;
+	};
 } async_stack_index32_key;
 
 typedef struct {
-    u32*  	   NextIndices;
-    atomic_u64 Head;
-    u32   	   Capacity;
+	u32*  	   NextIndices;
+	atomic_u64 Head;
+	u32   	   Capacity;
 } async_stack_index32;
 
 export_function void Async_Stack_Index32_Init_Raw(async_stack_index32* StackIndex, u32* IndicesPtr, u32 Capacity);
@@ -1071,5 +1081,9 @@ export_function base* Base_Init();
 #include "akon.h"
 #include "job.h"
 #include "profiler.h"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,6 @@
 function im_gdi* IM_GDI_Get() {
 	gdi* GDI = GDI_Get();
-	im_gdi* Result = OS_TLS_Get(GDI->IMThreadLocalStorage);
+	im_gdi* Result = (im_gdi*)OS_TLS_Get(GDI->IMThreadLocalStorage);
 	if (!Result) {
 		arena* Arena = Arena_Create();
 		Result = Arena_Push_Struct(Arena, im_gdi);
@@ -28,15 +28,15 @@ function im_gdi* IM_GDI_Get() {
 			}
 		}
 
-		Result->VtxBufferPtr = GDI_Map_Buffer(Result->VtxBuffer);
-		Result->IdxBufferPtr = GDI_Map_Buffer(Result->IdxBuffer);
+		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer);
+		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer);
 
 		OS_TLS_Set(GDI->IMThreadLocalStorage, Result);
 	}
 
 	if (Result->IsReset) {
-		Result->VtxBufferPtr = GDI_Map_Buffer(Result->VtxBuffer);
-		Result->IdxBufferPtr = GDI_Map_Buffer(Result->IdxBuffer);
+		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer);
+		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer);
 		Result->IsReset = false;
 	}
 

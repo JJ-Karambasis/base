@@ -1,5 +1,6 @@
 #ifndef C11_ATOMICS_H
 #define C11_ATOMICS_H
+
 #include <stdatomic.h>
 
 typedef struct {

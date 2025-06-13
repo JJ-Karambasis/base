@@ -9,7 +9,6 @@
 #define XXH_PRIVATE_API
 #include "third_party/xxHash/xxhash.h"
 
-#define RPMALLOC_FIRST_CLASS_HEAPS 1
 #include "third_party/rpmalloc/rpmalloc.h"
 
 #include "atomic/atomic.c"

@@ -595,63 +595,63 @@ function VkFilter VK_Get_Filter(gdi_filter Filter) {
 	static const VkFilter Filters[]={
 		VK_FILTER_NEAREST,VK_FILTER_LINEAR,}
 	;
-	Assert(Filter < Array_Count(Filters));
+	Assert((size_t)Filter < Array_Count(Filters));
 	return Filters[Filter];
 }
 function VkSamplerMipmapMode VK_Get_Mipmap_Mode(gdi_filter Filter) {
 	static const VkSamplerMipmapMode MipmapMode[]={
 		VK_SAMPLER_MIPMAP_MODE_NEAREST,VK_SAMPLER_MIPMAP_MODE_LINEAR,}
 	;
-	Assert(Filter < Array_Count(MipmapMode));
+	Assert((size_t)Filter < Array_Count(MipmapMode));
 	return MipmapMode[Filter];
 }
 function VkFormat VK_Get_Format(gdi_format Entry) {
 	static const VkFormat Entries[]={
-		VK_FORMAT_UNDEFINED,VK_FORMAT_R8_UNORM,VK_FORMAT_R8G8_UNORM,VK_FORMAT_R8G8B8_UNORM,VK_FORMAT_R8G8B8A8_UNORM,VK_FORMAT_B8G8R8A8_UNORM,VK_FORMAT_R8G8B8A8_SRGB,VK_FORMAT_B8G8R8A8_SRGB,VK_FORMAT_R32_SFLOAT,VK_FORMAT_R32G32_SFLOAT,VK_FORMAT_R32G32B32_SFLOAT,VK_FORMAT_R32G32B32A32_SFLOAT,VK_FORMAT_D32_SFLOAT,}
+		(VkFormat)VK_FORMAT_UNDEFINED,(VkFormat)VK_FORMAT_R8_UNORM,(VkFormat)VK_FORMAT_R8G8_UNORM,(VkFormat)VK_FORMAT_R8G8B8_UNORM,(VkFormat)VK_FORMAT_R8G8B8A8_UNORM,(VkFormat)VK_FORMAT_B8G8R8A8_UNORM,(VkFormat)VK_FORMAT_R8G8B8A8_SRGB,(VkFormat)VK_FORMAT_B8G8R8A8_SRGB,(VkFormat)VK_FORMAT_R32_SFLOAT,(VkFormat)VK_FORMAT_R32G32_SFLOAT,(VkFormat)VK_FORMAT_R32G32B32_SFLOAT,(VkFormat)VK_FORMAT_R32G32B32A32_SFLOAT,(VkFormat)VK_FORMAT_D32_SFLOAT,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkSamplerAddressMode VK_Get_Address_Mode(gdi_address_mode Entry) {
 	static const VkSamplerAddressMode Entries[]={
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,}
+		(VkSamplerAddressMode)VK_SAMPLER_ADDRESS_MODE_REPEAT,(VkSamplerAddressMode)VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkDescriptorType VK_Get_Descriptor_Type(gdi_bind_group_type Entry) {
 	static const VkDescriptorType Entries[]={
-		-1,VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,VK_DESCRIPTOR_TYPE_SAMPLER,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,}
+		(VkDescriptorType)-1,(VkDescriptorType)VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,(VkDescriptorType)VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,(VkDescriptorType)VK_DESCRIPTOR_TYPE_SAMPLER,(VkDescriptorType)VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,(VkDescriptorType)VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkCompareOp VK_Get_Compare_Func(gdi_compare_func Entry) {
 	static const VkCompareOp Entries[]={
-		VK_COMPARE_OP_NEVER,VK_COMPARE_OP_LESS,VK_COMPARE_OP_LESS_OR_EQUAL,}
+		(VkCompareOp)VK_COMPARE_OP_NEVER,(VkCompareOp)VK_COMPARE_OP_LESS,(VkCompareOp)VK_COMPARE_OP_LESS_OR_EQUAL,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkIndexType VK_Get_Idx_Type(gdi_idx_format Entry) {
 	static const VkIndexType Entries[]={
-		-1,VK_INDEX_TYPE_UINT16,VK_INDEX_TYPE_UINT32,}
+		(VkIndexType)-1,(VkIndexType)VK_INDEX_TYPE_UINT16,(VkIndexType)VK_INDEX_TYPE_UINT32,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkPrimitiveTopology VK_Get_Primitive(gdi_primitive Entry) {
 	static const VkPrimitiveTopology Entries[]={
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,VK_PRIMITIVE_TOPOLOGY_LINE_LIST,}
+		(VkPrimitiveTopology)VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,(VkPrimitiveTopology)VK_PRIMITIVE_TOPOLOGY_LINE_LIST,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function VkBlendFactor VK_Get_Blend(gdi_blend Entry) {
 	static const VkBlendFactor Entries[]={
-		VK_BLEND_FACTOR_ZERO,VK_BLEND_FACTOR_ONE,VK_BLEND_FACTOR_SRC_COLOR,VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,VK_BLEND_FACTOR_DST_COLOR,VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR,VK_BLEND_FACTOR_SRC_ALPHA,VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,VK_BLEND_FACTOR_DST_ALPHA,VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,}
+		(VkBlendFactor)VK_BLEND_FACTOR_ZERO,(VkBlendFactor)VK_BLEND_FACTOR_ONE,(VkBlendFactor)VK_BLEND_FACTOR_SRC_COLOR,(VkBlendFactor)VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,(VkBlendFactor)VK_BLEND_FACTOR_DST_COLOR,(VkBlendFactor)VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR,(VkBlendFactor)VK_BLEND_FACTOR_SRC_ALPHA,(VkBlendFactor)VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,(VkBlendFactor)VK_BLEND_FACTOR_DST_ALPHA,(VkBlendFactor)VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,}
 	;
-	Assert(Entry < Array_Count(Entries));
+	Assert((size_t)Entry < Array_Count(Entries));
 	return Entries[Entry];
 }
 function void VK_Delete_Queued_Thread_Resources(vk_gdi* GDI, vk_delete_thread_context* DeleteContext) {

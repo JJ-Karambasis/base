@@ -1,4 +1,8 @@
+#ifdef __cplusplus
+#include "cpp_atomics.cpp"
+#else
 #include "c11_atomics.c"
+#endif
 
 export_function b32 Atomic_Load_B32(atomic_b32* Atomic) {
 	return (b32)Atomic_Load_S32(&Atomic->Internal);

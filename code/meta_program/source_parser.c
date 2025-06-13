@@ -53,7 +53,7 @@ function void Source_Add_Token(source_tokenizer* Tokenizer, source_token_type Ty
 }
 
 function inline void Source_Add_Token_Char(source_tokenizer* Tokenizer, sstream_char Char) {
-	Source_Add_Token(Tokenizer, Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
+	Source_Add_Token(Tokenizer, (source_token_type)Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
 }
 
 function void Source_Tokenizer_Begin_Identifier(source_tokenizer* Tokenizer) {
@@ -123,8 +123,8 @@ function b32 Source_Parser_Generate_Tokens(source_tokenizer* Tokenizer, arena* A
 	return true;
 }
 
-function inline b32 Source_Check_Token(source_token* Token, source_token_type Type) {
-	return Token && Token->Type == Type;
+function inline b32 Source_Check_Token(source_token* Token, u32 Type) {
+	return Token && Token->Type == (source_token_type)Type;
 }
 
 function source_token_iter Source_Begin_Token_Iter(source_token* Token) {

@@ -245,13 +245,13 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 	return MetaPredicates[Predicate];
 }
 
-function meta_token* Meta_Allocate_Token(meta_tokenizer* Tokenizer, meta_token_type Type) {
+function meta_token* Meta_Allocate_Token(meta_tokenizer* Tokenizer, u32 Type) {
 	meta_token* Token = Tokenizer->FreeTokens;
 	if (Token) SLL_Pop_Front(Tokenizer->FreeTokens);
 	else Token = Arena_Push_Struct_No_Clear(Tokenizer->Arena, meta_token);
 	Memory_Clear(Token, sizeof(meta_token));
 	
-	Token->Type = Type;
+	Token->Type = (meta_token_type)Type;
 	if (Type < 256) {
 		Token->Identifier = String_Copy((allocator*)Tokenizer->Arena, Make_String((const char*)&Type, 1));
 	}
@@ -268,7 +268,7 @@ function void Meta_Add_Token(meta_tokenizer* Tokenizer, meta_token_type Type, si
 }
 
 function inline void Meta_Add_Token_Char(meta_tokenizer* Tokenizer, sstream_char Char) {
-	Meta_Add_Token(Tokenizer, Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
+	Meta_Add_Token(Tokenizer, (meta_token_type)Char.Char, Char.Index, Char.Index + 1, Char.LineIndex);
 }
 
 function void Meta_Tokenizer_Begin_Identifier(meta_tokenizer* Tokenizer) {
@@ -319,8 +319,8 @@ function void Meta_Tokens_Free(meta_tokenizer* Tokenizer, meta_token_list* FreeL
 	}
 }
 
-function inline b32 Meta_Check_Token(meta_token* Token, meta_token_type Type) {
-	return Token && Token->Type == Type;
+function inline b32 Meta_Check_Token(meta_token* Token, u32 Type) {
+	return Token && Token->Type == (meta_token_type)Type;
 }
 
 function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_token* Token) {
@@ -1828,7 +1828,7 @@ function meta_token* Meta_Evaluate_Routine(meta_parser* Parser, meta_for_loop_co
 		case META_GET_FUNCTIONS_WITH_TAG: {
 			if (Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_GET_FUNCTIONS_WITH_TAG. Expected '1', got '%d'", Parameters.Count);
-				return false;
+				return NULL;
 			}
 
 			Context->SupportFlag = META_FOR_LOOP_SUPPORT_FUNCTION;
