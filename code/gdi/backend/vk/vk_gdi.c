@@ -489,6 +489,19 @@ function b32 VK_Create_Swapchain(vk_gdi* GDI) {
 
 #include "meta/vk_meta.c"
 
+#define VK_Set_Debug_Name(type, type_str, handle, name_str) \
+if (!String_Is_Empty(name_str)) { \
+VkDebugUtilsObjectNameInfoEXT NameInfo = { \
+.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, \
+.objectType = type, \
+.objectHandle = (u64)handle, \
+.pObjectName = name_str.Ptr \
+}; \
+if (vkSetDebugUtilsObjectNameEXT(VkGDI->Device, &NameInfo) != VK_SUCCESS) { \
+Debug_Log("WARNING: Could not set the vulkan debug name for " type_str " %.*s", name_str.Size, name_str.Ptr); \
+} \
+}
+
 function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	vk_gdi* VkGDI = (vk_gdi*)GDI;
 
@@ -540,6 +553,8 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 		Debug_Log("vmaCreateImage failed");
 		return GDI_Null_Handle();
 	}
+
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_IMAGE, "texture", Image, TextureInfo->DebugName);
 
 	gdi_handle Result = VK_Texture_Pool_Allocate(&VkGDI->ResourcePool);	
 	vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, Result);
@@ -638,6 +653,8 @@ function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View) {
 		return GDI_Null_Handle();
 	}
 
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_IMAGE_VIEW, "texture view", ImageView, TextureViewInfo->DebugName);
+
 	gdi_handle Result = VK_Texture_View_Pool_Allocate(&VkGDI->ResourcePool);
 	vk_texture_view* View = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, Result);
 
@@ -732,6 +749,8 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 		return GDI_Null_Handle();
 	}
 
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_BUFFER, "buffer", Handle, BufferInfo->DebugName);
+
 	gdi_handle Result = VK_Buffer_Pool_Allocate(&VkGDI->ResourcePool);
 	vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, Result);
 	Buffer->Buffer = Handle;
@@ -766,6 +785,8 @@ function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
 		Debug_Log("vkCreateSampler failed!");
 		return GDI_Null_Handle();
 	}
+
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_SAMPLER, "sampler", Handle, SamplerInfo->DebugName);
 
 	gdi_handle Result = VK_Sampler_Pool_Allocate(&VkGDI->ResourcePool);
 	vk_sampler* Sampler = VK_Sampler_Pool_Get(&VkGDI->ResourcePool, Result);
@@ -809,6 +830,8 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 		return GDI_Null_Handle();
 	}
 
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "bind group layout", SetLayout, BindGroupLayoutInfo->DebugName);
+
 	gdi_handle Result = VK_Bind_Group_Layout_Pool_Allocate(&VkGDI->ResourcePool);
 	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&VkGDI->ResourcePool, Result);
 	Layout->Layout = SetLayout;
@@ -844,6 +867,8 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 		Debug_Log("vkAllocateDescriptorSets failed!");
 		return GDI_Null_Handle();
 	}
+
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_DESCRIPTOR_SET, "bind group", Set, BindGroupInfo->DebugName);
 
 	gdi_handle Result = VK_Bind_Group_Pool_Allocate(&VkGDI->ResourcePool);
 	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, Result);
@@ -1277,6 +1302,11 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 	}
 
 	Scratch_Release();
+
+	vk_shader* Shader = VK_Shader_Pool_Get(&VkGDI->ResourcePool, Result);
+	if (Shader) {
+		VK_Set_Debug_Name(VK_OBJECT_TYPE_PIPELINE, "shader", Shader->Pipeline, ShaderInfo->DebugName);
+	}
 
 	return Result;
 }

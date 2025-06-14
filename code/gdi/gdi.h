@@ -150,11 +150,12 @@ typedef struct {
 
 
 typedef struct {
-	gdi_format 		  		   Format;
-	v2i 			  		   Dim;
-	gdi_texture_usage 		   Usage;
-	u32 			  		   MipCount;
-	buffer* 		  		   InitialData;
+	gdi_format 		  Format;
+	v2i 			  Dim;
+	gdi_texture_usage Usage;
+	u32 			  MipCount;
+	buffer* 		  InitialData;
+	string 			  DebugName;
 } gdi_texture_create_info;
 
 typedef struct {
@@ -162,18 +163,21 @@ typedef struct {
 	gdi_format Format;
 	u32 	   MipOffset;
 	u32 	   MipCount;
+	string 	   DebugName;
 } gdi_texture_view_create_info;
 
 typedef struct {
 	size_t 			 Size;
 	gdi_buffer_usage Usage;
 	buffer			 InitialData;
+	string 			 DebugName;
 } gdi_buffer_create_info;
 
 typedef struct {
 	gdi_filter 		 Filter;
 	gdi_address_mode AddressModeU;
 	gdi_address_mode AddressModeV;
+	string 			 DebugName;
 } gdi_sampler_create_info;
 
 typedef struct {
@@ -184,6 +188,7 @@ typedef struct {
 Array_Define(gdi_bind_group_binding);
 typedef struct {
 	gdi_bind_group_binding_array Bindings;
+	string 			  			 DebugName;
 } gdi_bind_group_layout_create_info;
 
 typedef struct {
@@ -198,6 +203,7 @@ typedef struct {
 	gdi_bind_group_buffer_array Buffers;
 	gdi_handle_array TextureViews;
 	gdi_handle_array Samplers;
+	string 			 DebugName;
 } gdi_bind_group_create_info;
 
 typedef struct {
@@ -237,6 +243,7 @@ typedef struct {
 	gdi_blend_state_array BlendStates;
 	gdi_depth_state DepthState;
 	gdi_primitive Primitive;
+	string 		  DebugName;
 } gdi_shader_create_info;
 
 typedef union {

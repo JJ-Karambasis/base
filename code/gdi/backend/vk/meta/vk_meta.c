@@ -203,6 +203,9 @@ function void Vk_Ext_Debug_Utils_Funcs_Load(VkInstance Instance) {
 	{
 		vkDestroyDebugUtilsMessengerEXT=(PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(Instance,"vkDestroyDebugUtilsMessengerEXT");
 	}
+	{
+		vkSetDebugUtilsObjectNameEXT=(PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(Instance,"vkSetDebugUtilsObjectNameEXT");
+	}
 }
 function void Vk_Khr_Surface_Funcs_Load(VkInstance Instance) {
 	{

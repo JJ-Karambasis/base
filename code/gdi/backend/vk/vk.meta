@@ -110,6 +110,7 @@ VK_DEVICE_FUNCS(vk_device, {
 VK_INSTANCE_FUNCS(VK_EXT_debug_utils, {
 	VK_FUNC(vkCreateDebugUtilsMessengerEXT);
 	VK_FUNC(vkDestroyDebugUtilsMessengerEXT);
+	VK_FUNC(vkSetDebugUtilsObjectNameEXT);
 });
 
 VK_INSTANCE_FUNCS(VK_KHR_surface, {
