@@ -192,6 +192,9 @@ function void Vk_Device_Funcs_Load(VkDevice Device) {
 	{
 		vkCmdCopyImageToBuffer=(PFN_vkCmdCopyImageToBuffer)vkGetDeviceProcAddr(Device,"vkCmdCopyImageToBuffer");
 	}
+	{
+		vkDestroyImageView=(PFN_vkDestroyImageView)vkGetDeviceProcAddr(Device,"vkDestroyImageView");
+	}
 }
 function void Vk_Ext_Debug_Utils_Funcs_Load(VkInstance Instance) {
 	{

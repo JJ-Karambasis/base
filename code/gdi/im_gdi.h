@@ -2,8 +2,8 @@
 #define IM_GDI_H
 
 //Immediate mode buffer sizes should be pretty small
-#define IM_MAX_VTX_BUFFER_SIZE MB(16)
-#define IM_MAX_IDX_BUFFER_SIZE MB(16)
+#define IM_MAX_VTX_BUFFER_SIZE MB(1)
+#define IM_MAX_IDX_BUFFER_SIZE MB(1)
 
 typedef struct im_gdi im_gdi;
 struct im_gdi {

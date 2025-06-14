@@ -769,6 +769,14 @@ export_function thread_context* Thread_Context_Get();
 export_function arena* Scratch_Get();
 export_function void Scratch_Release();
 
+#ifdef DEBUG_BUILD
+export_function void Thread_Context_Validate_();
+#define Thread_Context_Validate Thread_Context_Validate_
+#else
+#define Thread_Context_Validate
+#endif
+
+
 typedef struct {
 	u8*    Ptr;
 	size_t Size;

@@ -65,6 +65,7 @@ global PFN_vkCreateComputePipelines vkCreateComputePipelines;
 global PFN_vkCmdDispatch vkCmdDispatch;
 global PFN_vkDestroyDescriptorSetLayout vkDestroyDescriptorSetLayout;
 global PFN_vkCmdCopyImageToBuffer vkCmdCopyImageToBuffer;
+global PFN_vkDestroyImageView vkDestroyImageView;
 global PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 global PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 global PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;

@@ -1564,6 +1564,13 @@ export_function thread_context* Thread_Context_Get() {
 	return ThreadContext;
 }
 
+#ifdef DEBUG_BUILD
+export_function void Thread_Context_Validate_() {
+	thread_context* ThreadContext = Thread_Context_Get();
+	Assert(ThreadContext->ScratchIndex == 0);
+}
+#endif
+
 export_function arena* Scratch_Get() {
 	thread_context* ThreadContext = Thread_Context_Get();
 	Assert(ThreadContext->ScratchIndex < MAX_SCRATCH_COUNT);

@@ -404,10 +404,14 @@ function void Job_System_Run(job_system* JobSystem, job_system_thread* JobThread
         if(!Job_System_Process_Next_Job(JobSystem, JobQueue)) {
             OS_Semaphore_Decrement(JobSystem->JobSemaphore);
         }
+
+		Thread_Context_Validate();
     }
 
     /*Cleanup remaining jobs*/
-    while(Job_System_Process_Next_Job(JobSystem, JobQueue)) {}
+    while(Job_System_Process_Next_Job(JobSystem, JobQueue)) {
+		Thread_Context_Validate();
+	}
 }
 
 function void Job_System_Main(job_system_thread* JobThread) {

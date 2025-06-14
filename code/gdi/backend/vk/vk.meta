@@ -103,6 +103,7 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkCmdDispatch);
 	VK_FUNC(vkDestroyDescriptorSetLayout);
 	VK_FUNC(vkCmdCopyImageToBuffer);
+	VK_FUNC(vkDestroyImageView);
 });
 
 

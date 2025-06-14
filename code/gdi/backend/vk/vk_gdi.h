@@ -8,7 +8,7 @@
 
 typedef struct vk_gdi vk_gdi;
 
-#define MINIMUM_VK_CPU_BLOCK_SIZE MB(32)
+#define MINIMUM_VK_CPU_BLOCK_SIZE MB(1)
 typedef struct vk_cpu_buffer_block vk_cpu_buffer_block; 
 
 typedef enum {

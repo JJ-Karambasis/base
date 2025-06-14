@@ -68,9 +68,11 @@ function void VK_CPU_Buffer_Clear(vk_cpu_buffer* CpuBuffer) {
 }
 
 function vk_cpu_buffer_block* VK_CPU_Buffer_Get_Current_Block(vk_cpu_buffer* CpuBuffer, VkDeviceSize Size) {
-	if (!CpuBuffer->CurrentBlock) return NULL;
 	vk_cpu_buffer_block* Block = CpuBuffer->CurrentBlock;
-	while (Block && (Block->Current + Size > Block->End)) {
+	while (Block) {
+		if ((Block->Current + Size) <= Block->End) {
+			return Block;
+		}
 		Block = Block->Next;
 	}
 	return Block;
@@ -195,8 +197,11 @@ function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_gdi* GDI,
 			return NULL;
 		}
 
+		//todo: Improvement
+		//These upload buffers can eat a lot of memory since there is one
+		//upload buffer per frame/per thread. On some system with many
+		//cores this can consume a lot of additional megabytes
 		ThreadContext->UploadBuffer = VK_CPU_Buffer_Init(GDI, ThreadContext->Arena, VK_CPU_BUFFER_TYPE_UPLOAD);
-
 
 		/*Append to link list atomically*/
 		for(;;) {
@@ -244,11 +249,11 @@ function void VK_Delete_Queued_Resources(vk_gdi* GDI, vk_delete_queue* DeleteQue
 }
 
 function void VK_Delete_Texture_Resources(vk_gdi* GDI, vk_texture* Texture) {
-	Not_Implemented;
+	vmaDestroyImage(GDI->GPUAllocator, Texture->Image, Texture->Allocation);
 }
 
 function void VK_Delete_Texture_View_Resources(vk_gdi* GDI, vk_texture_view* TextureView) {
-	Not_Implemented;
+	vkDestroyImageView(GDI->Device, TextureView->ImageView, VK_NULL_HANDLE);
 }
 
 function void VK_Delete_Buffer_Resources(vk_gdi* GDI, vk_buffer* Buffer) {
@@ -396,6 +401,90 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 
 	Scratch_Release();
 	return Result;
+}
+
+function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
+function b32 VK_Create_Swapchain(vk_gdi* GDI) {
+	//Delete the current texture views 
+	for (size_t i = 0; i < GDI->SwapchainImageCount; i++) {
+		VK_Texture_Pool_Free(&GDI->ResourcePool, GDI->SwapchainTextures[i]);
+		VK_Texture_View_Add_To_Delete_Queue(GDI, GDI->SwapchainTextureViews[i]);
+	}
+
+	VkSurfaceCapabilitiesKHR SurfaceCaps;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceCaps);
+
+	u32 ImageCount = GDI->SwapchainImageCount ? GDI->SwapchainImageCount : 2;
+	if (SurfaceCaps.maxImageCount < ImageCount) {
+		Debug_Log("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
+		return false;
+	}
+
+	arena* Scratch = Scratch_Get();
+
+	u32 SurfaceFormatCount = 0;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, VK_NULL_HANDLE);
+
+	VkSurfaceFormatKHR* SurfaceFormats = Arena_Push_Array(Scratch, SurfaceFormatCount, VkSurfaceFormatKHR);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, SurfaceFormats);
+
+	//Just choose the first avaiable surface format for now. We may update this later
+	//todo: Actually decide if we want to update this or if this is fine
+	VkSurfaceFormatKHR SurfaceFormat = SurfaceFormats[0];
+
+	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.surface = GDI->Surface,
+		.minImageCount = ImageCount,
+		.imageFormat = SurfaceFormat.format,
+		.imageColorSpace = SurfaceFormat.colorSpace,
+		.imageExtent = SurfaceCaps.currentExtent,
+		.imageArrayLayers = 1,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR, 
+		.oldSwapchain = GDI->Swapchain
+	};
+
+	VkResult Status = vkCreateSwapchainKHR(GDI->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &GDI->Swapchain);
+	Scratch_Release();
+
+	if (Status != VK_SUCCESS) {
+		Debug_Log("vkCreateSwapchainKHR failed!");
+		return false;
+	}
+
+	if (!GDI->SwapchainImageCount) {
+		vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, VK_NULL_HANDLE);
+		GDI->SwapchainImages = Arena_Push_Array(GDI->Base.Arena, ImageCount, VkImage);
+		GDI->SwapchainTextures = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
+		GDI->SwapchainTextureViews = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
+	}
+
+	vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, GDI->SwapchainImages);
+
+	GDI->Base.ViewFormat = VK_Get_GDI_Format(SurfaceFormat.format);
+	GDI->Base.ViewDim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
+
+	for (u32 i = 0; i < GDI->SwapchainImageCount; i++) {
+		GDI->SwapchainTextures[i] = VK_Texture_Pool_Allocate(&GDI->ResourcePool);
+
+		vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, GDI->SwapchainTextures[i]);
+		Texture->Image = GDI->SwapchainImages[i];
+		Texture->Dim = GDI->Base.ViewDim;
+		Texture->Format = GDI->Base.ViewFormat;
+		Texture->MipCount = 1;
+		Texture->IsSwapchainManaged = true;
+
+		gdi_texture_view_create_info TextureViewCreateInfo = {
+			.Texture = GDI->SwapchainTextures[i]
+		};
+		GDI->SwapchainTextureViews[i] = VK_Create_Texture_View((gdi*)GDI, &TextureViewCreateInfo);
+	}
+
+	return true;
 }
 
 #include "meta/vk_meta.c"
@@ -2032,7 +2121,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			.pImageIndices = ImageIndices
 		};
 		Status = vkQueuePresentKHR(VkGDI->PresentQueue, &PresentInfo);
-		if (Status != VK_SUCCESS) {
+		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+			if (!VK_Create_Swapchain(VkGDI)) return;
+		} else if (Status != VK_SUCCESS) {
 			Debug_Log("vkQueuePresentKHR failed");
 			return;
 		}
@@ -2096,7 +2187,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	//Acquire the swapchain image so we know what view to pass to the user land code
 	Status = vkAcquireNextImageKHR(VkGDI->Device, VkGDI->Swapchain, UINT64_MAX, 
 								   Frame->SwapchainLock, VK_NULL_HANDLE, &VkGDI->SwapchainImageIndex);
-	if (Status != VK_SUCCESS) {
+	if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+		if (!VK_Create_Swapchain(VkGDI)) return;
+	} else if (Status != VK_SUCCESS) {
 		Debug_Log("vkAcquireNextImageKHR failed");
 		return;
 	}
@@ -2698,54 +2791,11 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		return NULL;
 	}
 
-	VkSurfaceCapabilitiesKHR SurfaceCaps;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceCaps);
+	VK_Resource_Pool_Init(&GDI->ResourcePool, GDI->Base.Arena);
 
-	u32 ImageCount = 2;
-	if (SurfaceCaps.maxImageCount < ImageCount) {
-		Debug_Log("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
+	if (!VK_Create_Swapchain(GDI)) {
 		return NULL;
 	}
-
-	u32 SurfaceFormatCount = 0;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, VK_NULL_HANDLE);
-
-	Scratch = Scratch_Get();
-	VkSurfaceFormatKHR* SurfaceFormats = Arena_Push_Array(Scratch, SurfaceFormatCount, VkSurfaceFormatKHR);
-	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, SurfaceFormats);
-
-	//Just choose the first avaiable surface format for now. We may update this later
-	//todo: Actually decide if we want to update this or if this is fine
-	VkSurfaceFormatKHR SurfaceFormat = SurfaceFormats[0];
-
-	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface = GDI->Surface,
-		.minImageCount = ImageCount,
-		.imageFormat = SurfaceFormat.format,
-		.imageColorSpace = SurfaceFormat.colorSpace,
-		.imageExtent = SurfaceCaps.currentExtent,
-		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR, 
-	};
-
-	Status = vkCreateSwapchainKHR(GDI->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &GDI->Swapchain);
-	Scratch_Release();
-
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateSwapchainKHR failed!");
-		return NULL;
-	}
-
-	vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, VK_NULL_HANDLE);
-	GDI->SwapchainImages = Arena_Push_Array(GDI->Base.Arena, ImageCount, VkImage);
-	GDI->SwapchainTextures = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
-	GDI->SwapchainTextureViews = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
-	vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, GDI->SwapchainImages);
 
 	for (u64 i = 0; i < VK_FRAME_COUNT; i++) {
 		vk_frame_context* Frame = GDI->Frames + i;
@@ -2841,26 +2891,6 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	}
 	GDI->CurrentTransfer = &GDI->Transfers[0];
 
-	VK_Resource_Pool_Init(&GDI->ResourcePool, GDI->Base.Arena);
-
-	GDI->Base.ViewFormat = VK_Get_GDI_Format(SurfaceFormat.format);
-	GDI->Base.ViewDim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
-
-	for (u32 i = 0; i < GDI->SwapchainImageCount; i++) {
-		GDI->SwapchainTextures[i] = VK_Texture_Pool_Allocate(&GDI->ResourcePool);
-
-		vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, GDI->SwapchainTextures[i]);
-		Texture->Image = GDI->SwapchainImages[i];
-		Texture->Dim = GDI->Base.ViewDim;
-		Texture->Format = GDI->Base.ViewFormat;
-		Texture->MipCount = 1;
-		Texture->IsSwapchainManaged = true;
-
-		gdi_texture_view_create_info TextureViewCreateInfo = {
-			.Texture = GDI->SwapchainTextures[i]
-		};
-		GDI->SwapchainTextureViews[i] = VK_Create_Texture_View((gdi*)GDI, &TextureViewCreateInfo);
-	}
 	GDI->CurrentFrame = GDI->Frames + GDI->FrameIndex;
 
 	vk_frame_context* Frame = GDI->CurrentFrame;

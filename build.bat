@@ -187,5 +187,5 @@ popd
 :skip_gdi
 
 pushd "%bin_path%"
-	lib /out:base.lib win32_base.obj base.obj gdi.obj vk_mem_alloc.obj rpmalloc.obj
+	lib /nologo /out:base.lib win32_base.obj base.obj gdi.obj vk_mem_alloc.obj rpmalloc.obj
 popd
