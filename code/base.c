@@ -104,6 +104,10 @@ export_function f32 Tan_F32(f32 Value) {
 	return tanf(Value);
 }
 
+export_function f32 ATan2_F32(f32 a, f32 b) {
+	return atan2f(a, b);
+}
+
 export_function size_t Align(size_t Value, size_t Alignment) {
     size_t Remainder = Value % Alignment;
     return Remainder ? Value + (Alignment-Remainder) : Value;
@@ -568,6 +572,27 @@ export_function quat Quat_From_Euler(v3 Euler) {
     q.y = cx * sy * cz + sx * cy * sz;
     q.z = cx * cy * sz - sx * sy * cz;
 	return q;
+}
+
+export_function v3 Euler_From_Quat(quat q) {
+    v3 Result;
+
+    // pitch (x-axis rotation)
+    f32 sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
+    f32 cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
+    Result.x = ATan2_F32(sinr_cosp, cosr_cosp);
+
+    // yaw (y-axis rotation)
+    f32 sinp = Sqrt_F32(1 + 2 * (q.w * q.y - q.x * q.z));
+    f32 cosp = Sqrt_F32(1 - 2 * (q.w * q.y - q.x * q.z));
+    Result.y = 2 * ATan2_F32(sinp, cosp) - PI / 2;
+
+    // roll (z-axis rotation)
+    f32 siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    f32 cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    Result.z = ATan2_F32(siny_cosp, cosy_cosp);
+
+    return Result;
 }
 
 export_function quat Quat_Axis_Angle(v3 Axis, f32 Angle) {
@@ -1826,6 +1851,14 @@ export_function string String_From_Buffer(buffer Buffer) {
 	return Make_String((const char*)Buffer.Ptr, Buffer.Size);
 }
 
+export_function string String_From_Bool(b32 Bool) {
+	return Bool ? String_Lit("true") : String_Lit("false");
+}
+
+export_function string String_From_F64(allocator* Allocator, f64 Number) {
+	return String_Format(Allocator, "%f", Number);
+}
+
 export_function string String_Copy(allocator* Allocator, string Str) {
 	char* Ptr = Allocator_Allocate_Array(Allocator, Str.Size+1, char);
 	Memory_Copy(Ptr, Str.Ptr, Str.Size * sizeof(char));
@@ -2261,7 +2294,7 @@ export_function b32 Try_Parse_Bool(string String, b32* OutBool) {
 	return false;
 }
 
-export_function b32 Try_Parse_Number(string String, f64* OutNumber) {
+export_function b32 Try_Parse_F64(string String, f64* OutNumber) {
 	char* OutPtr;
 	f64 Numeric = strtod(String.Ptr, &OutPtr);
 	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
@@ -2271,7 +2304,7 @@ export_function b32 Try_Parse_Number(string String, f64* OutNumber) {
 	return false;
 }
 
-export_function b32 Try_Parse_Integer(string String, s64* OutNumber) {
+export_function b32 Try_Parse_S64(string String, s64* OutNumber) {
 	char* OutPtr;
 	s64 Numeric = strtol(String.Ptr, &OutPtr, 10);
 	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
@@ -2500,7 +2533,8 @@ export_function sstream_writer Begin_Stream_Writer(allocator* Allocator) {
 
 export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Entry) {
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
-	Node->Entry = Entry;
+	Node->Entry = String_Copy(Writer->Allocator, Entry);
+
 	SLL_Push_Front(Writer->First, Node);
 	if (!Writer->Last) {
 		Writer->Last = Writer->First;
@@ -2512,7 +2546,7 @@ export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Ent
 
 export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry) {
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
-	Node->Entry = Entry;
+	Node->Entry = String_Copy(Writer->Allocator, Entry);
 	SLL_Push_Back(Writer->First, Writer->Last, Node);
 
 	Writer->NodeCount++;
@@ -2525,7 +2559,12 @@ export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const cha
 	string String = String_FormatV(Writer->Allocator, Format, List);
 	va_end(List);
 
-	SStream_Writer_Add(Writer, String);
+	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
+	Node->Entry = String;
+	SLL_Push_Back(Writer->First, Writer->Last, Node);
+
+	Writer->NodeCount++;
+	Writer->TotalCharCount += String.Size;
 }
 
 export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator, string JoinChars) {
@@ -3126,6 +3165,10 @@ export_function u32 U32_Hash_Bytes_With_Seed(void* Data, size_t Size, u32 Seed) 
 	return (u32)XXH32(Data, Size, Seed);
 }
 
+export_function u64 U64_Hash_Bytes_With_Seed(void* Data, size_t Size, u64 Seed) {
+	return (u64)XXH64(Data, Size, Seed);
+}
+
 export_function u64 U64_Hash_Bytes(void* Data, size_t Size) {
 	return (u64)XXH64(Data, Size, InitialSeed);
 }
@@ -3166,9 +3209,6 @@ export_function buffer Read_Entire_File(allocator* Allocator, string Path) {
 	OS_Close_File(File);
 	return Result;
 }
-
-#define Read_Entire_File_Str(allocator, path) String_From_Buffer(Read_Entire_File(allocator, path))
-
 
 export_function b32 Write_Entire_File(string Path, buffer Data) {
 	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_WRITE);

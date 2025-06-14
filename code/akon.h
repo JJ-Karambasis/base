@@ -111,8 +111,12 @@ typedef struct {
 } akon_tokenizer;
 
 export_function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode, akon_node_type NodeType);
+export_function akon_node* AKON_Create_Object(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode);
+export_function akon_node_tree* AKON_Allocate_Node_Tree(allocator* Allocator);
 export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content);
 export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name);
+export_function akon_node* AKON_Get_Object(akon_node_tree* NodeTree, akon_node* ParentNode, string Name);
+export_function string AKON_Generate_String(akon_node_tree* NodeTree, allocator* Allocator);
 export_function b32 AKON_Node_Is_String_Var(akon_node* Node);
 export_function b32 AKON_Node_Is_Number_Var(akon_node* Node);
 export_function b32 AKON_Node_Is_Bool_Var(akon_node* Node);

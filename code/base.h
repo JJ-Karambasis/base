@@ -240,6 +240,7 @@ export_function f32 Sqrt_F32(f32 Value);
 export_function f32 Cos_F32(f32 Value);
 export_function f32 Sin_F32(f32 Value);
 export_function f32 Tan_F32(f32 Value);
+export_function f32 ATan2_F32(f32 a, f32 b);
 export_function size_t Align(size_t Value, size_t Alignment);
 export_function u32 Ceil_Pow2_U32(u32 V);
 export_function u64 Ceil_Pow2_U64(u64 V);
@@ -410,6 +411,7 @@ export_function quat Quat(f32 x, f32 y, f32 z, f32 w);
 export_function quat Quat_Identity();
 export_function quat Quat_From_V3_S(v3 v, f32 s);
 export_function quat Quat_From_Euler(v3 Euler);
+export_function v3 	 Euler_From_Quat(quat q);
 export_function quat Quat_Axis_Angle(v3 Axis, f32 Angle);
 export_function quat Quat_RotX(f32 Pitch);
 export_function quat Quat_RotY(f32 Yaw);
@@ -821,6 +823,8 @@ export_function string String_Null_Term(const char* Ptr);
 export_function string String_FormatV(allocator* Allocator, const char* Format, va_list Args);
 export_function string String_Format(allocator* Allocator, const char* Format, ...);
 export_function string String_From_Buffer(buffer Buffer);
+export_function string String_From_Bool(b32 Bool);
+export_function string String_From_F64(allocator* Allocator, f64 Number);
 export_function string String_Copy(allocator* Allocator, string Str);
 export_function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex);
 export_function string_array String_Split(allocator* Allocator, string String, string Substr);
@@ -850,8 +854,8 @@ export_function b32 String_Contains(string String, string Substr);
 export_function size_t String_Find_First(string String, string Substr);
 export_function string String_From_WString(allocator* Allocator, wstring WString);
 export_function b32 Try_Parse_Bool(string String, b32* OutBool);
-export_function b32 Try_Parse_Number(string String, f64* OutNumber);
-export_function b32 Try_Parse_Integer(string String, s64* OutNumber);
+export_function b32 Try_Parse_F64(string String, f64* OutNumber);
+export_function b32 Try_Parse_S64(string String, s64* OutNumber);
 export_function size_t WString_Length(const wchar_t* Ptr);
 export_function wstring Make_WString(const wchar_t* Ptr, size_t Size);
 export_function wstring WString_Null_Term(const wchar_t* Ptr);
@@ -907,6 +911,22 @@ export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Ent
 export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry);
 export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const char* Format, ...);
 export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator, string JoinChars);
+
+function inline void SStream_Writer_Add_Char(sstream_writer* Writer, char Char) {
+	SStream_Writer_Add(Writer, Make_String(&Char, 1));
+}
+
+function inline void SStream_Writer_Add_Newline(sstream_writer* Writer) {
+	SStream_Writer_Add_Char(Writer, '\n');
+}
+
+function inline void SStream_Writer_Add_Tab(sstream_writer* Writer) {
+	SStream_Writer_Add_Char(Writer, '\t');
+}
+
+function inline void SStream_Writer_Add_Space(sstream_writer* Writer) {
+	SStream_Writer_Add_Char(Writer, ' ');
+}
 
 typedef struct {
 	const u8* Start;
@@ -1073,6 +1093,7 @@ export_function b32 Compare_String(void* A, void* B);
 export_function buffer Read_Entire_File(allocator* Allocator, string Path);
 export_function b32 Write_Entire_File(string Path, buffer Data);
 #define Read_Entire_File_Str(allocator, path) String_From_Buffer(Read_Entire_File(allocator, path))
+#define Write_Entire_File_Str(path, content) Write_Entire_File(path, Buffer_From_String(content))
 
 typedef struct {
 	os_tls*   ThreadContextTLS;

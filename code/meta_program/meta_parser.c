@@ -443,7 +443,7 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 				}
 
 				s64 StackUpwardOffset;
-				if (!Try_Parse_Integer(TokenIter->Identifier, &StackUpwardOffset)) {
+				if (!Try_Parse_S64(TokenIter->Identifier, &StackUpwardOffset)) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected an integer value for the upward stack offset");
 					return NULL;
 				}
@@ -622,7 +622,7 @@ function meta_token_iter Meta_Begin_Simple_Token_Iter(meta_token* Token) {
 function meta_token_iter Meta_Begin_Token_Iter(meta_token_list* List) {
 	meta_token_iter Result = { 0 };
 	Result.Token = List->First;
-	Result.PrevToken = List->First->Prev ? List->First->Prev : NULL;
+	Result.PrevToken = (List->First && List->First->Prev) ? List->First->Prev : NULL;
 	Result.Count = List->Count;
 	return Result;
 }
@@ -975,7 +975,7 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 			}
 
 			f64 Value;
-			if (!Try_Parse_Number(Token->Parameters.First->String, &Value) && Value > 0) {
+			if (!Try_Parse_F64(Token->Parameters.First->String, &Value) && Value > 0) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid parameter entry for META_ENTRY_VARIABLE_TYPE. Expected number, got a string '%.*s' instead", Token->Parameters.First->String.Size, Token->Parameters.First->String.Ptr);
 				return false;
 			}

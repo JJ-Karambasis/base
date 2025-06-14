@@ -37,16 +37,25 @@ export_function akon_node* AKON_Create_Node(akon_node_tree* NodeTree, string Ide
 
 	if (!String_Is_Empty(Node->Name)) {
 		Node->Hash = U64_Hash_String_With_Seed(Node->Name, Seed);
-		u64 SlotMask = AKON_NODE_MAX_SLOT_COUNT - 1;
-		u64 SlotIndex = Node->Hash & SlotMask;
-
-		akon_node_slot* Slot = NodeTree->Slots + SlotIndex;
-		DLL_Push_Back_NP(Slot->First, Slot->Last, Node, NextInHash, PrevInHash);
 	} else {
-		Node->Hash = Seed;
+		u64 Random;
+		OS_Get_Entropy(&Random, sizeof(u64));
+		Node->Hash = U64_Hash_Bytes_With_Seed(&Random, sizeof(u64), Seed);
 	}
 
+	u64 SlotMask = AKON_NODE_MAX_SLOT_COUNT - 1;
+	u64 SlotIndex = Node->Hash & SlotMask;
+
+	akon_node_slot* Slot = NodeTree->Slots + SlotIndex;
+	DLL_Push_Back_NP(Slot->First, Slot->Last, Node, NextInHash, PrevInHash);
+
 	return Node;
+}
+
+export_function akon_node* AKON_Create_Object(akon_node_tree* NodeTree, string Identifier, akon_node* ParentNode) {
+	akon_node* VariableNode = AKON_Create_Node(NodeTree, Identifier, ParentNode, AKON_NODE_TYPE_VARIABLE);
+	akon_node* Result = AKON_Create_Node(NodeTree, String_Empty(), VariableNode, AKON_NODE_TYPE_OBJECT);
+	return Result;
 }
 
 export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* ParentNode, string Name) {	
@@ -66,10 +75,17 @@ export_function akon_node* AKON_Get_Node(akon_node_tree* NodeTree, akon_node* Pa
 	return NULL;
 }
 
+export_function akon_node* AKON_Get_Object(akon_node_tree* NodeTree, akon_node* ParentNode, string Name) {
+	akon_node* Node = AKON_Get_Node(NodeTree, ParentNode, Name);
+	if (!Node) return NULL;
+	if (Node->NumChildren != 1 || Node->FirstChild->NodeType != AKON_NODE_TYPE_OBJECT) return NULL;
+	return Node->FirstChild;
+}
+
 function akon_token_iter AKON_Begin_Token_Iter(akon_token_list* List) {
 	akon_token_iter Result = { 0 };
 	Result.Token = List->First;
-	Result.PrevToken = List->First->Prev ? List->First->Prev : NULL;
+	Result.PrevToken = (List->First && List->First->Prev) ? List->First->Prev : NULL;
 	Result.Count = List->Count;
 	return Result;
 }
@@ -105,7 +121,7 @@ function b32 AKON_Parse_Value(akon_token_iter* TokenIter, akon_node_tree* NodeTr
 	if (Try_Parse_Bool(TokenIter->Token->Identifier, &BoolValue)) {
 		Node->ValueType = AKON_VALUE_TYPE_BOOL;
 		Node->Bool = BoolValue;
-	} else if (Try_Parse_Number(TokenIter->Token->Identifier, &NumberValue)) {
+	} else if (Try_Parse_F64(TokenIter->Token->Identifier, &NumberValue)) {
 		Node->ValueType = AKON_VALUE_TYPE_NUMBER;
 		Node->Number = NumberValue;
 	} else {
@@ -346,7 +362,7 @@ function void AKON_Free_Node_Tree(akon_node_tree* NodeTree) {
 	}
 }
 
-function akon_node_tree* AKON_Allocate_Node_Tree(allocator* Allocator) {
+export_function akon_node_tree* AKON_Allocate_Node_Tree(allocator* Allocator) {
 	arena* Arena = Arena_Create_With_Allocator(Allocator);
 	akon_node_tree* NodeTree = Arena_Push_Struct(Arena, akon_node_tree);
 	NodeTree->Arena = Arena;
@@ -365,6 +381,81 @@ export_function akon_node_tree* AKON_Parse(allocator* Allocator, string Content)
 
 	NodeTree->HasErrors = NodeTree->RootNode == NULL;
 	return NodeTree;
+}
+
+function void AKON_Generate_String_For_Node(akon_node_tree* NodeTree, akon_node* Node, sstream_writer* Stream, int Level, arena* Scratch) {
+	Assert(Node->NodeType == AKON_NODE_TYPE_VARIABLE);
+	size_t TabCount = Level;
+
+	for (size_t i = 0; i < TabCount; i++) SStream_Writer_Add_Tab(Stream);
+	SStream_Writer_Add_Format(Stream, "%.*s: ", Node->Name.Size, Node->Name.Ptr);
+
+	akon_node* Child = Node->FirstChild;
+	for (size_t i = 0; i < Node->NumChildren; i++) {
+		switch (Child->NodeType) {
+			case AKON_NODE_TYPE_VALUE: {
+				switch (Child->ValueType) {
+					case AKON_VALUE_TYPE_BOOL: {
+						SStream_Writer_Add(Stream, String_From_Bool(Child->Bool));
+					} break;
+
+					case AKON_VALUE_TYPE_NUMBER: {
+						SStream_Writer_Add(Stream, String_From_F64((allocator*)Scratch, Child->Number));
+					} break;
+
+					case AKON_VALUE_TYPE_STRING: {
+						SStream_Writer_Add(Stream, Child->Str);
+					} break;
+
+					Invalid_Default_Case;
+				}
+
+				SStream_Writer_Add_Space(Stream);
+			} break;
+
+			case AKON_NODE_TYPE_OBJECT: {
+				akon_node* Object = Child;
+				SStream_Writer_Add_Char(Stream, '{');
+
+				if (Object->NumChildren) {
+					SStream_Writer_Add_Newline(Stream);
+
+					akon_node* ObjectEntryNode = Object->FirstChild;
+					for (size_t j = 0; j < Object->NumChildren; j++) {
+						AKON_Generate_String_For_Node(NodeTree, ObjectEntryNode, Stream, Level+1, Scratch);
+						if(j != (Object->NumChildren-1)) SStream_Writer_Add_Newline(Stream);
+						ObjectEntryNode = ObjectEntryNode->NextSibling;
+					}
+
+					SStream_Writer_Add_Newline(Stream);
+					for (size_t i = 0; i < TabCount; i++) SStream_Writer_Add_Tab(Stream);
+				} else {
+				}
+				SStream_Writer_Add_Char(Stream, '}');
+				SStream_Writer_Add_Space(Stream);
+			} break;
+
+			Invalid_Default_Case;
+		}
+
+		Child = Child->NextSibling;
+	}
+}
+
+export_function string AKON_Generate_String(akon_node_tree* NodeTree, allocator* Allocator) {
+	arena* Scratch = Scratch_Get();
+	sstream_writer Stream = Begin_Stream_Writer((allocator*)Scratch);
+
+	akon_node* Node = NodeTree->RootNode->FirstChild;
+	for (size_t i = 0; i < NodeTree->RootNode->NumChildren; i++) {
+		AKON_Generate_String_For_Node(NodeTree, Node, &Stream, 0, Scratch);
+		if(i != (NodeTree->RootNode->NumChildren-1)) SStream_Writer_Add_Newline(&Stream);
+		Node = Node->NextSibling;
+	}
+
+	string Result = SStream_Writer_Join(&Stream, Allocator, String_Empty());
+	Scratch_Release();
+	return Result;
 }
 
 export_function b32 AKON_Node_Is_String_Var(akon_node* Node) {
