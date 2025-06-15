@@ -98,6 +98,19 @@ typedef OS_SEMAPHORE_INCREMENT_DEFINE(os_semaphore_increment_func);
 typedef OS_SEMAPHORE_DECREMENT_DEFINE(os_semaphore_decrement_func);
 typedef OS_SEMAPHORE_ADD_DEFINE(os_semaphore_add_func);
 
+typedef struct os_event os_event;
+#define OS_EVENT_CREATE_DEFINE(name) os_event* name()
+#define OS_EVENT_DELETE_DEFINE(name) void name(os_event* Event)
+#define OS_EVENT_RESET_DEFINE(name) void name(os_event* Event)
+#define OS_EVENT_WAIT_DEFINE(name) void name(os_event* Event)
+#define OS_EVENT_SIGNAL_DEFINE(name) void name(os_event* Event)
+
+typedef OS_EVENT_CREATE_DEFINE(os_event_create_func);
+typedef OS_EVENT_DELETE_DEFINE(os_event_delete_func);
+typedef OS_EVENT_RESET_DEFINE(os_event_reset_func);
+typedef OS_EVENT_WAIT_DEFINE(os_event_wait_func);
+typedef OS_EVENT_SIGNAL_DEFINE(os_event_signal_func);
+
 typedef struct os_hot_reload os_hot_reload;
 #define OS_HOT_RELOAD_CREATE_DEFINE(name) os_hot_reload* name(string FilePath)
 #define OS_HOT_RELOAD_DELETE_DEFINE(name) void name(os_hot_reload* HotReload)
@@ -170,6 +183,12 @@ typedef struct {
 	os_semaphore_decrement_func* SemaphoreDecrementFunc;
 	os_semaphore_add_func* SemaphoreAddFunc;
 
+	os_event_create_func* EventCreateFunc;
+	os_event_delete_func* EventDeleteFunc;
+	os_event_reset_func* EventResetFunc;
+	os_event_wait_func* EventWaitFunc;
+	os_event_signal_func* EventSignalFunc;
+
 	os_hot_reload_create_func* 		 HotReloadCreateFunc;
 	os_hot_reload_delete_func* 		 HotReloadDeleteFunc;
 	os_hot_reload_has_reloaded_func* HotReloadHasReloadedFunc;
@@ -239,6 +258,12 @@ typedef struct {
 #define OS_Semaphore_Increment(semaphore) Base_Get()->OSBase->VTable->SemaphoreIncrementFunc(semaphore)
 #define OS_Semaphore_Decrement(semaphore) Base_Get()->OSBase->VTable->SemaphoreDecrementFunc(semaphore)
 #define OS_Semaphore_Add(semaphore, count) Base_Get()->OSBase->VTable->SemaphoreAddFunc(semaphore, count)
+
+#define OS_Event_Create() Base_Get()->OSBase->VTable->EventCreateFunc()
+#define OS_Event_Delete(event) Base_Get()->OSBase->VTable->EventDeleteFunc(event)
+#define OS_Event_Reset(event) Base_Get()->OSBase->VTable->EventResetFunc(event)
+#define OS_Event_Wait(event) Base_Get()->OSBase->VTable->EventWaitFunc(event)
+#define OS_Event_Signal(event) Base_Get()->OSBase->VTable->EventSignalFunc(event)
 
 #define OS_Hot_Reload_Create(path) Base_Get()->OSBase->VTable->HotReloadCreateFunc(path)
 #define OS_Hot_Reload_Delete(reload) Base_Get()->OSBase->VTable->HotReloadDeleteFunc(reload)

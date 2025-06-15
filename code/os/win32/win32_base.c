@@ -422,6 +422,45 @@ function OS_SEMAPHORE_ADD_DEFINE(Win32_Semaphore_Add) {
 	}
 }
 
+function OS_EVENT_CREATE_DEFINE(Win32_Event_Create) {
+	HANDLE Handle = CreateEventA(NULL, TRUE, FALSE, NULL);
+	if (Handle == NULL) return NULL;
+
+	win32_base* Win32 = Win32_Get();
+	EnterCriticalSection(&Win32->ResourceLock);
+	os_event* Event = Win32->FreeEvents;
+	if (Event) SLL_Pop_Front(Win32->FreeEvents);
+	else Event = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_event);
+	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Memory_Clear(Event, sizeof(os_event));
+	Event->Handle = Handle;
+	return Event;
+}
+
+function OS_EVENT_DELETE_DEFINE(Win32_Event_Delete) {
+	if (Event && Event->Handle != NULL) {
+		CloseHandle(Event->Handle);
+
+		win32_base* Win32 = Win32_Get();
+		EnterCriticalSection(&Win32->ResourceLock);
+		SLL_Push_Front(Win32->FreeEvents, Event);
+		LeaveCriticalSection(&Win32->ResourceLock);
+	}
+}
+
+function OS_EVENT_WAIT_DEFINE(Win32_Event_Wait) {
+	WaitForSingleObject(Event->Handle, INFINITE);
+}
+
+function OS_EVENT_SIGNAL_DEFINE(Win32_Event_Signal) {
+	SetEvent(Event->Handle);
+}
+
+function OS_EVENT_RESET_DEFINE(Win32_Event_Reset) {
+	ResetEvent(Event->Handle);
+}
+
 function OS_HOT_RELOAD_CREATE_DEFINE(Win32_Hot_Reload_Create) {
 	wstring FilePathW = WString_From_String(Default_Allocator_Get(), FilePath);
 	
@@ -565,6 +604,12 @@ global os_base_vtable Win32_Base_VTable = {
 	.SemaphoreIncrementFunc = Win32_Semaphore_Increment,
 	.SemaphoreDecrementFunc = Win32_Semaphore_Decrement,
 	.SemaphoreAddFunc = Win32_Semaphore_Add,
+
+	.EventCreateFunc = Win32_Event_Create,
+	.EventDeleteFunc = Win32_Event_Delete,
+	.EventResetFunc = Win32_Event_Reset,
+	.EventWaitFunc = Win32_Event_Wait,
+	.EventSignalFunc = Win32_Event_Signal,
 
 	.HotReloadCreateFunc = Win32_Hot_Reload_Create,
 	.HotReloadDeleteFunc = Win32_Hot_Reload_Delete,

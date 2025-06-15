@@ -34,6 +34,11 @@ struct os_semaphore {
 	os_semaphore* Next;
 };
 
+struct os_event {
+	HANDLE Handle;
+	os_event* Next;
+};
+
 struct os_hot_reload {
 	wstring 	   FilePath;
 	FILETIME 	   LastWriteTime;
@@ -56,6 +61,7 @@ typedef struct {
 	os_mutex* FreeMutex;
 	os_rw_mutex* FreeRWMutex;
 	os_semaphore* FreeSemaphores;
+	os_event* FreeEvents;
 	os_hot_reload* FreeHotReload;
 	os_library* FreeLibrary;
 } win32_base;

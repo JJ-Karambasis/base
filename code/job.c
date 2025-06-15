@@ -568,13 +568,14 @@ export_function void Job_System_Add_Job(job_system* JobSystem, job_id JobID) {
 }
 
 export_function void Job_System_Wait_For_Job(job_system* JobSystem, job_id JobID) {
-    job* Job = Job_Storage_Get(JobID);
-    while(Job && Atomic_Load_B32(&Job->IsProcessing)) {
+	job* Job = Job_Storage_Get(JobID);
+	while(Job && Atomic_Load_B32(&Job->IsProcessing)) {
         job_system_queue* JobQueue = Job_System_Get_Or_Create_Local_Queue(JobSystem);
 		b32 Result = Job_System_Process_Next_Job(JobSystem, JobQueue);
 		if (!Result) {
 			OS_Sleep(1);
 		}
+		Job = Job_Storage_Get(JobID);
     }
 }
 

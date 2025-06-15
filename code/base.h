@@ -971,6 +971,7 @@ typedef struct {
 
 export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t ValueSize, size_t KeySize, u32 ItemCapacity, key_hash_func* HashFunc, key_comp_func* CompareFunc);
 export_function hashmap Hashmap_Init(allocator* Allocator, size_t ItemSize, size_t KeySize, key_hash_func* HashFunc, key_comp_func* CompareFunc);
+export_function void Hashmap_Delete(hashmap* Hashmap);
 export_function b32 Hashmap_Is_Valid(hashmap* Hashmap);
 export_function void Hashmap_Clear(hashmap* Hashmap);
 export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash);
@@ -994,11 +995,12 @@ typedef struct {
 } slot_id;
 
 typedef struct {
-	u32*   Slots;
-	u32*   FreeIndices;
-	size_t FreeCount;
-	size_t Capacity;
-	size_t Count;
+	allocator* Allocator;
+	u32*   	   Slots;
+	u32*   	   FreeIndices;
+	size_t 	   FreeCount;
+	size_t 	   Capacity;
+	size_t 	   Count;
 } slot_map;
 
 function inline slot_id Slot_Null() {
@@ -1012,6 +1014,7 @@ function inline b32 Slot_Is_Null(slot_id SlotID) {
 
 export_function void Slot_Map_Clear(slot_map* SlotMap);
 export_function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity);
+export_function void Slot_Map_Delete(slot_map* SlotMap);
 export_function slot_id Slot_Map_Allocate(slot_map* SlotMap);
 export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID);
 export_function b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID);

@@ -2639,6 +2639,12 @@ export_function hashmap Hashmap_Init(allocator* Allocator, size_t ItemSize, size
 	return Hashmap_Init_With_Size(Allocator, ItemSize, KeySize, 256, HashFunc, CompareFunc);
 }
 
+export_function void Hashmap_Delete(hashmap* Hashmap) {
+	Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
+	Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
+	Memory_Clear(Hashmap, sizeof(hashmap));
+}
+
 export_function b32 Hashmap_Is_Valid(hashmap* Hashmap) {
 	return Hashmap->Keys != NULL;
 }
@@ -2848,11 +2854,17 @@ export_function void Slot_Map_Clear(slot_map* SlotMap) {
 
 export_function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
 	slot_map Result = { 0 };
+	Result.Allocator = Allocator;
 	Result.Slots = Allocator_Allocate_Array(Allocator, 2 * Capacity, u32);
 	Result.FreeIndices = Result.Slots + Capacity;
 	Result.Capacity = Capacity;
 	Slot_Map_Clear(&Result);
 	return Result;
+}
+
+export_function void Slot_Map_Delete(slot_map* SlotMap) {
+	Allocator_Free_Memory(SlotMap->Allocator, SlotMap->Slots);
+	Memory_Clear(SlotMap, sizeof(slot_map));
 }
 
 export_function slot_id Slot_Map_Allocate(slot_map* SlotMap) {
