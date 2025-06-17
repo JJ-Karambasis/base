@@ -7,6 +7,7 @@ set build_debug=0
 set build_clang=0
 set build_asan=0
 set build_cpp=0
+set build_gdi=1
 
 set base_path=%~dp0
 set code_path=%base_path%\code
@@ -41,12 +42,15 @@ if /i "%~1"=="-cpp" (
 	set build_cpp=1
 )
 
+if /i "%~1"=="-no_gdi" (
+	set build_gdi=0
+)
+
 shift
 goto cmd_line
 :end_cmd_line
 
 set build_meta=1
-set build_gdi=1
 set build_tracy=0
 
 if exist "%tracy_path%" (
@@ -186,6 +190,11 @@ popd
 
 :skip_gdi
 
+set obj_files=win32_base.obj base.obj rpmalloc.obj
+if %build_gdi% == 1 (
+	set obj_files=%obj_files% gdi.obj vk_mem_alloc.obj
+)
+
 pushd "%bin_path%"
-	lib /nologo /out:base.lib win32_base.obj base.obj gdi.obj vk_mem_alloc.obj rpmalloc.obj
+	lib /nologo /out:base.lib %obj_files%
 popd
