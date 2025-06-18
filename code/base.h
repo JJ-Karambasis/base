@@ -33,7 +33,11 @@ extern "C" {
 
 #ifdef OS_WIN32
 #include <windows.h>
+#ifdef __cplusplus
+#define export_function extern "C" __declspec(dllexport)
+#else
 #define export_function __declspec(dllexport)
+#endif
 #else
 #define export_function
 #endif
@@ -304,6 +308,7 @@ export_function v2 Circle_To_Square_Mapping(v2 Circle);
 export_function v2 Square_To_Circle_Mapping(v2 Square);
 export_function v2i V2i(s32 x, s32 y);
 export_function v2i V2i_Zero();
+export_function v2i V2i_Add_V2i(v2i a, v2i b);
 export_function v2i V2i_Sub_V2i(v2i a, v2i b);
 export_function v2i V2i_Div_S32(v2i a, s32 b);
 export_function b32 V2i_Equal(v2i a, v2i b);

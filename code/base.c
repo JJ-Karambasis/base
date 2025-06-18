@@ -378,6 +378,11 @@ export_function v2i V2i_Zero() {
 	return Result;
 }
 
+export_function v2i V2i_Add_V2i(v2i a, v2i b) {
+	v2i Result = { a.x + b.x, a.y + b.y };
+	return Result;
+}
+
 export_function v2i V2i_Sub_V2i(v2i a, v2i b) {
 	v2i Result = { a.x - b.x, a.y - b.y };
 	return Result;
