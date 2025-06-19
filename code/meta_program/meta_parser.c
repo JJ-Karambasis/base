@@ -786,19 +786,29 @@ function meta_token* Meta_Get_Macro_Parameter_Values(meta_parser* Parser, meta_m
 
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	while (TokenIter.Token && TokenIter.Token->Type != ')') {
+		if (Parameter == NULL) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Too many macro parameters");
+			return NULL;
+		}
+
 		string MacroParameterName = Parameter->Name;
 
 		//To parse the parameter values of the macro, we need to loop over all the tokens until we see a 
 		//comma, or until we see a closing parenthesis that matches the first parenthesis.
 		size_t ParenStack = 0;
+		size_t BracketStackIndex = 0;
 
 		meta_token_list ValueTokens = { 0 };
-		ValueTokens.First = TokenIter.Token;
-		ValueTokens.Count++;
-
-		Meta_Token_Iter_Move_Next(&TokenIter);
 
 		while (TokenIter.Token) {	
+			if (TokenIter.Token->Type == '{') {
+				BracketStackIndex++;
+			}
+
+			if (TokenIter.Token->Type == '}') {
+				BracketStackIndex--;
+			}
+
 			if (TokenIter.Token->Type == '(') {
 				ParenStack++;
 			}
@@ -811,9 +821,13 @@ function meta_token* Meta_Get_Macro_Parameter_Values(meta_parser* Parser, meta_m
 			}
 
 			if (TokenIter.Token->Type == ',') {
-				if (ParenStack == 0) {
+				if (ParenStack == 0 && BracketStackIndex == 0) {
 					break;
 				}
+			}
+
+			if (!ValueTokens.First) {
+				ValueTokens.First = TokenIter.Token;
 			}
 
 			ValueTokens.Count++;

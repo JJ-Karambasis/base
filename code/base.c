@@ -144,8 +144,20 @@ export_function f32 Ceil_F32(f32 Value) {
 	return ceilf(Value);
 }
 
+export_function u32 Floor_U32(f32 Value) {
+	return (u32)floorf(Value);
+}
+
 export_function f32 Floor_F32(f32 Value) {
 	return floorf(Value);
+}
+
+export_function u32 Round_U32(f32 Value) {
+	return (u32)roundf(Value);
+}
+
+export_function f32 Round_F32(f32 Value) {
+	return roundf(Value);
 }
 
 export_function f32 FMod_F32(f32 X, f32 Y) {
@@ -273,6 +285,11 @@ export_function v2 V2_Mul_S(v2 A, f32 B) {
 	return Result;
 }
 
+export_function v2 V2_Div_S(v2 A, f32 B) {
+	v2 Result = V2(A.x / B, A.y / B);
+	return Result;
+}
+
 export_function v2 V2_Mul_V2(v2 A, v2 B) {
 	v2 Result = V2(A.x * B.x, A.y * B.y);
 	return Result;
@@ -385,6 +402,11 @@ export_function v2i V2i_Add_V2i(v2i a, v2i b) {
 
 export_function v2i V2i_Sub_V2i(v2i a, v2i b) {
 	v2i Result = { a.x - b.x, a.y - b.y };
+	return Result;
+}
+
+export_function v2i V2i_Mul_S(v2i a, s32 b) {
+	v2i Result = { a.x * b, a.y * b };
 	return Result;
 }
 
