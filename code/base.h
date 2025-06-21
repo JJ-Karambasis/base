@@ -210,7 +210,7 @@ First = Node; \
 } \
 Node->Next = Target; \
 Target->Prev = Node; \
-} while(0)
+} while (0)
 
 #define DLL_Remove_Back(First, Last) DLL_Remove_Back_NP(First, Last, Next, Prev)
 #define DLL_Remove_Front(First, Last) DLL_Remove_Front_NP(First, Last, Next, Prev)
@@ -218,6 +218,16 @@ Target->Prev = Node; \
 #define DLL_Push_Back(First, Last, Node) DLL_Push_Back_NP(First, Last, Node, Next, Prev)
 #define DLL_Remove(First, Last, Node) DLL_Remove_NP(First, Last, Node, Next, Prev)
 #define DLL_Push_Front_Only(First, Node) DLL_Push_Front_Only_NP(First, Node, Next, Prev)
+
+//C++ macros only (uses c++20 features)
+#ifdef __cplusplus
+#define Swap(a, b) \
+do { \
+	auto _temp_ = a; \
+	a = b; \
+	b = _temp_; \
+} while(0)
+#endif
 
 typedef int8_t   s8;
 typedef int16_t  s16;
