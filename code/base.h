@@ -417,6 +417,10 @@ export_function v4 V4_All(f32 v);
 export_function v4 V4_Zero();
 export_function v4 V4_From_V3(v3 xyz, f32 w);
 export_function f32 V4_Dot(v4 a, v4 b);
+export_function v4 V4_Mul_V4(v4 A, v4 B);
+
+export_function v4 V4_Color_From_U32(u32 Color);
+export_function u32 U32_Color_From_V4(v4 Color);
 
 typedef struct {
 	union {
@@ -1040,6 +1044,53 @@ export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID);
 export_function b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID);
 export_function b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index);
 export_function slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index);
+
+typedef struct {
+	union {
+		u64 ID;
+		struct {
+			u32 Generation;
+			union {
+				u32 Index;
+				u32 NextIndex;
+			};
+		};
+	};
+} pool_id;
+
+#define INVALID_POOL_INDEX ((u32)-1)
+typedef struct {
+	size_t 	   	   ItemSize;
+	u32 	   	   MaxUsed;
+	u32 		   Count;
+	u32 		   FirstFreeIndex;
+	memory_reserve Reserve;
+	void* 		   Data;
+} pool;
+
+inline pool_id Empty_Pool_ID() {
+	pool_id Result;
+	Memory_Clear(&Result, sizeof(pool_id));
+	return Result;
+}
+
+inline b32 Pool_ID_Equal(pool_id A, pool_id B) {
+	return A.Index == B.Index && A.Generation == B.Generation;
+}
+
+inline b32 Pool_ID_Null(pool_id ID) {
+	return ID.ID == 0;
+}
+
+export_function pool Pool_Init_With_Size(size_t ItemSize, size_t ReserveSize);
+export_function pool Pool_Init(size_t ItemSize);
+export_function void Pool_Delete(pool* Pool);
+export_function pool_id Pool_Allocate(pool* Pool);
+export_function void Pool_Free(pool* Pool, pool_id ID);
+export_function void* Pool_Get(pool* Pool, pool_id ID);
+export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID);
+export_function void Pool_Clear(pool* Pool);
+export_function pool_id Pool_Get_ID(pool* Pool, void* Data);
 
 #define BINARY_HEAP_COMPARE_FUNC(name) b32 name(void* A, void* B)
 typedef BINARY_HEAP_COMPARE_FUNC(binary_heap_compare_func);

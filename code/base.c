@@ -570,6 +570,28 @@ export_function f32 V4_Dot(v4 a, v4 b) {
 	return Result;
 }
 
+export_function v4 V4_Mul_V4(v4 A, v4 B) {
+	v4 Result = { A.x * B.x, A.y * B.y, A.z * B.z, A.w * B.w };
+	return Result;
+}
+
+export_function v4 V4_Color_From_U32(u32 Color) {
+	v4 Result = V4((f32)(Color & 0xFF) / 255.0f,
+				   (f32)((Color >> 8) & 0xFF) / 255.0f,
+				   (f32)((Color >> 16) & 0xFF) / 255.0f,
+				   (f32)((Color >> 24) & 0xFF) / 255.0f);
+	return Result;
+}
+
+export_function u32 U32_Color_From_V4(v4 Color) {
+	u32 Result = 
+		(((u32)(Color.x * 255.0f)) |
+		((u32)(Color.y * 255.0f) << 8) |
+		((u32)(Color.z * 255.0f) << 16) |
+		((u32)(Color.w * 255.0f) << 24));
+	return Result;
+}
+
 export_function quat Quat(f32 x, f32 y, f32 z, f32 w) {
 	quat Result = { x, y, z, w };
 	return Result;
@@ -2945,6 +2967,102 @@ export_function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) 
 	Assert(Index < SlotMap->Capacity);
 	slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
 	return Result;
+}
+
+#define Pool_Entry_Size(entry) (sizeof(pool_id)+(entry)->ItemSize)
+#define Pool_Get_Internal_ID(entry, index) ((pool_id*)Offset_Pointer((entry)->Data, (index)*Pool_Entry_Size(entry)))
+
+export_function pool Pool_Init_With_Size(size_t ItemSize, size_t ReserveSize) {
+	pool Result;
+	Memory_Clear(&Result, sizeof(pool));
+	Result.ItemSize = ItemSize;
+	Result.Reserve = Make_Memory_Reserve(ReserveSize);
+	Result.Data = Result.Reserve.BaseAddress;
+	Pool_Clear(&Result);
+	return Result;
+}
+
+export_function pool Pool_Init(size_t ItemSize) {
+	pool Result = Pool_Init_With_Size(ItemSize, GB(1));
+	return Result;
+}
+
+export_function void Pool_Delete(pool* Pool) {
+	if (Pool && Pool->Reserve.BaseAddress) {
+		Delete_Memory_Reserve(&Pool->Reserve);
+		Memory_Clear(Pool, sizeof(pool));
+	}
+}
+
+export_function pool_id Pool_Allocate(pool* Pool) {
+	u32 Index;
+	if (Pool->FirstFreeIndex != INVALID_POOL_INDEX) {
+		Index = Pool->FirstFreeIndex;
+		Pool->FirstFreeIndex = Pool_Get_Internal_ID(Pool, Index)->NextIndex;
+	} else {
+		Index = Pool->MaxUsed++;
+		if (Pool->MaxUsed * Pool_Entry_Size(Pool) > Pool->Reserve.CommitSize) {
+			if (!Commit_New_Size(&Pool->Reserve, Pool->MaxUsed * Pool_Entry_Size(Pool))) {
+				Debug_Log("Failed to commit more memory for the pool");
+				return Empty_Pool_ID();
+			}
+
+			size_t Iter = Index;
+			while (Iter*Pool_Entry_Size(Pool) < Pool->Reserve.CommitSize) {
+				pool_id* PoolID = Pool_Get_Internal_ID(Pool, Iter);
+				PoolID->Generation = 1;
+				PoolID->Index = INVALID_POOL_INDEX;
+				Iter++;
+			}
+		}
+	}
+
+	pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
+	PoolID->Index = Index;
+
+	return *PoolID;
+}
+
+export_function void Pool_Free(pool* Pool, pool_id ID) {
+	if (!Pool_ID_Null(ID)) {
+		pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+		if (Pool_ID_Equal(ID, *PoolID)) {
+			PoolID->Generation++;
+			PoolID->NextIndex = Pool->FirstFreeIndex;
+			Pool->FirstFreeIndex = ID.Index;
+			Memory_Clear(PoolID + 1, Pool->ItemSize);
+		}
+	}
+}
+
+export_function void* Pool_Get(pool* Pool, pool_id ID) {
+	if (Pool_ID_Null(ID)) return NULL;
+	pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+	if (!Pool_ID_Equal(ID, *PoolID)) return NULL;
+	return PoolID + 1;
+}
+
+export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID) {
+	if (Pool_ID_Null(ID)) return false;
+	pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+	return Pool_ID_Equal(ID, *PoolID);
+}
+
+export_function void Pool_Clear(pool* Pool) {
+	for (size_t i = 0; i < Pool->MaxUsed; i++) {
+		pool_id* PoolID = Pool_Get_Internal_ID(Pool, i);
+		PoolID->Generation = 1;
+		PoolID->Index = INVALID_POOL_INDEX;
+	}
+	Pool->Count = 0;
+	Pool->MaxUsed = 0;
+	Pool->FirstFreeIndex = INVALID_POOL_INDEX;
+}
+
+export_function pool_id Pool_Get_ID(pool* Pool, void* Data) {
+	Assert(Data >= Pool->Data && Data <= Offset_Pointer(Pool->Data, Pool->MaxUsed * Pool_Entry_Size(Pool)));
+	pool_id* ID = ((pool_id*)Data)-1;
+	return *ID;
 }
 
 #define Binary_Heap_Parent(i) ((i - 1) / 2)
