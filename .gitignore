@@ -16,5 +16,7 @@
 *.pdb
 *.rdi
 *.exe
+*.o
+bin/
 
 meta/

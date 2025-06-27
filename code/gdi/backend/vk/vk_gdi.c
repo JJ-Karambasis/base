@@ -2936,4 +2936,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	return (gdi*)GDI;
 }
 
+//todo: Does this need to even be here anymore?
+#ifdef OS_WIN32
 #pragma comment(lib, "base.lib")
+#endif

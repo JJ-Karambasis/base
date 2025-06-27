@@ -98,7 +98,7 @@ if %build_debug% == 0 (
 set clang_dll=-shared
 set clang_compile_only=-c
 set clang_warnings=-Wall -Werror -Wno-missing-braces -Wno-switch -Wno-unused-function -Wno-unused-const-variable -Wno-nullability-completeness -Wno-unused-variable -Wno-microsoft-cast
-set clang_flags=-g -gcodeview -O0 %clang_optimized_flag%
+set clang_flags=-g -gcodeview %clang_optimized_flag%
 set clang_out=-o 
 set clang_link=
 

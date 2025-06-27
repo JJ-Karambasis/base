@@ -23,6 +23,19 @@ extern "C" {
 #define USE_32_BIT
 #endif
 
+#elif defined(__APPLE__)
+#include <TargetConditionals.h>
+
+#if TARGET_OS_OSX
+#define OS_OSX
+#else
+#error "Not Implemented!"
+#endif
+
+#else
+
+#error "Not Implemented!"
+
 #endif
 
 #if defined(__clang__)
@@ -797,9 +810,9 @@ export_function void Scratch_Release();
 
 #ifdef DEBUG_BUILD
 export_function void Thread_Context_Validate_();
-#define Thread_Context_Validate Thread_Context_Validate_
+#define Thread_Context_Validate() Thread_Context_Validate_
 #else
-#define Thread_Context_Validate
+#define Thread_Context_Validate()
 #endif
 
 

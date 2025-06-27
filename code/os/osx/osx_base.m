@@ -9,7 +9,8 @@
 #include "../../base.h"
 #include "osx_base.h"
 
-#include "../../base.c"
+Array_Implement(string, String);
+Dynamic_Array_Implement_Type(string, String);
 
 global osx_base* G_OSX;
 function osx_base* OSX_Get() {
@@ -279,12 +280,10 @@ function OS_TLS_DELETE_DEFINE(OSX_TLS_Delete) {
 }
 
 function OS_TLS_GET_DEFINE(OSX_TLS_Get) {
-    osx_base* OSX = OSX_Get();
     return pthread_getspecific(TLS->Key);
 }
 
 function OS_TLS_SET_DEFINE(OSX_TLS_Set) {
-    osx_base* OSX = OSX_Get();
     pthread_setspecific(TLS->Key, Data);
 }
 
