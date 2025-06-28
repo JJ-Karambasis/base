@@ -1,5 +1,9 @@
 #include "base.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define STB_SPRINTF_STATIC
 #define STB_SPRINTF_IMPLEMENTATION
 #include "third_party/stb/stb_sprintf.h"
@@ -2072,12 +2076,12 @@ export_function string String_Directory_Concat(allocator* Allocator, string Stri
 	return String;
 }
 
-export_function inline b32 String_Starts_With_Char(string String, char Character) {
+export_function b32 String_Starts_With_Char(string String, char Character) {
 	if (!String.Size) return false;
 	return String.Ptr[0] == Character;
 }
 
-export_function inline b32 String_Ends_With_Char(string String, char Character) {
+export_function b32 String_Ends_With_Char(string String, char Character) {
 	if (!String.Size) return false;
 	return String.Ptr[String.Size - 1] == Character;
 }
@@ -3379,3 +3383,7 @@ export_function b32 Write_Entire_File(string Path, buffer Data) {
 #include "akon.c"
 #include "job.c"
 #include "profiler.c"
+
+#ifdef __cplusplus
+}
+#endif

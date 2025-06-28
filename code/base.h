@@ -52,7 +52,11 @@ extern "C" {
 #define export_function __declspec(dllexport)
 #endif
 #else
+#ifdef __cplusplus
+#define export_function extern "C"
+#else
 #define export_function
+#endif
 #endif
 
 #if defined(COMPILER_MSVC)
@@ -257,7 +261,15 @@ typedef s64 	 b64;
 typedef float    f32;
 typedef double   f64;
 
+#ifdef __cplusplus
+}
+#endif
+
 #include "atomic/atomic.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon);
 export_function b32 Equal_Zero_Eps_F32(f32 Value);

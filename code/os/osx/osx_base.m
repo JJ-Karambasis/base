@@ -12,6 +12,16 @@
 Array_Implement(string, String);
 Dynamic_Array_Implement_Type(string, String);
 
+function NSString* OSX_String(string String) {
+    if (String_Is_Empty(String)) {
+        return nil;
+    }
+    
+    return [[NSString alloc] initWithBytes:String.Ptr 
+                                    length:String.Size 
+                                  encoding:NSUTF8StringEncoding];
+}
+
 global osx_base* G_OSX;
 function osx_base* OSX_Get() {
 	return G_OSX;
@@ -247,6 +257,33 @@ function OS_MAKE_DIRECTORY_DEFINE(OSX_Make_Directory) {
     Scratch_Release();
 
     return Result;
+}
+
+function OS_COPY_FILE_DEFINE(OSX_Copy_File) {
+    NSFileManager* FileManager = [NSFileManager defaultManager];
+    
+    NSString* SrcString = OSX_String(SrcFile);
+    NSString* DstString = OSX_String(DstFile);
+
+    NSURL* SrcURL = [NSURL fileURLWithPath:SrcString];
+    NSURL* DstURL = [NSURL fileURLWithPath:DstString];
+
+    NSError* Error;
+    if ([FileManager fileExistsAtPath:DstURL.path]) {
+        // Atomic replacement
+        NSURL* ResultingURL;
+        return [FileManager replaceItemAtURL:DstURL 
+                               withItemAtURL:SrcURL 
+                              backupItemName:nil 
+                                     options:0 
+                            resultingItemURL:&ResultingURL 
+                                       error:&Error];
+    } else {
+        // If destination doesn't exist, just copy
+        return [FileManager copyItemAtURL:SrcURL 
+                                    toURL:DstURL 
+                                    error:&Error];
+    }
 }
 
 function OS_TLS_CREATE_DEFINE(OSX_TLS_Create) {
@@ -583,6 +620,7 @@ global os_base_vtable OSX_Base_VTable = {
 	.IsDirectoryPathFunc = OSX_Is_Directory_Path,
 	.IsFilePathFunc = OSX_Is_File_Path,
 	.MakeDirectoryFunc = OSX_Make_Directory,
+    .CopyFileFunc = OSX_Copy_File,
 
 	.TLSCreateFunc = OSX_TLS_Create,
 	.TLSDeleteFunc = OSX_TLS_Delete,
