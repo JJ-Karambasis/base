@@ -85,7 +85,7 @@ if [ $build_debug -eq 1 ]; then
 fi
 
 clang_optimized_flag="-O0"
-if [ $build_debug -eq 1 ]; then
+if [ $build_debug -eq 0 ]; then
     clang_optimized_flag="-O3"
 fi
 
@@ -133,7 +133,7 @@ fi
 if [ $build_meta -eq 1 ]; then
 
     pushd "$bin_path"
-        $compiler $compile_flags $compile_warnings $app_defines $app_includes $frameworks "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o osx_base.o base.o $compile_out meta_program
+        $compiler $compile_flags $compile_warnings $app_defines $app_includes $frameworks "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o osx_base.o $compile_out meta_program
     popd
 
 fi
@@ -152,5 +152,5 @@ if [ $build_gdi -eq 1 ]; then
 fi
 
 pushd "$bin_path"
-    ar rcs base.a $obj_files
+    ar rcs libbase.a $obj_files
 popd

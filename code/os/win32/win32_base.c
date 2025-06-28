@@ -223,6 +223,12 @@ function OS_MAKE_DIRECTORY_DEFINE(Win32_Make_Directory) {
 	return Result;
 }
 
+function OS_COPY_FILE_DEFINE(Win32_Copy_File) {
+	wstring SrcFileW = WString_From_String(SrcFile);
+	wstring DstFileW = WString_From_String(DstFile);
+	return CopyFileW(SrcFileW.Ptr, DstFileW.Ptr, FALSE);
+}
+
 function OS_TLS_CREATE_DEFINE(Win32_TLS_Create) {
 	win32_base* Win32 = Win32_Get();
 
@@ -576,6 +582,7 @@ global os_base_vtable Win32_Base_VTable = {
 	.IsDirectoryPathFunc = Win32_Is_Directory_Path,
 	.IsFilePathFunc = Win32_Is_File_Path,
 	.MakeDirectoryFunc = Win32_Make_Directory,
+	.CopyFileFunc = Win32_Copy_File,
 
 	.TLSCreateFunc = Win32_TLS_Create,
 	.TLSDeleteFunc = Win32_TLS_Delete,

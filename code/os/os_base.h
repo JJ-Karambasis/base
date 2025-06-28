@@ -23,6 +23,7 @@ typedef OS_QUERY_PERFORMANCE_DEFINE(os_query_performance_func);
 #define OS_GET_ALL_FILES_DEFINE(name) string_array name(allocator* Allocator, string Path, b32 Recursive)
 #define OS_IS_PATH_DEFINE(name) b32 name(string Path)
 #define OS_MAKE_DIRECTORY_DEFINE(name) b32 name(string Directory)
+#define OS_COPY_FILE_DEFINE(name) b32 name(string SrcFile, string DstFile)
 
 enum {
 	OS_FILE_ATTRIBUTE_NONE,
@@ -41,6 +42,7 @@ typedef OS_CLOSE_FILE_DEFINE(os_close_file_func);
 typedef OS_GET_ALL_FILES_DEFINE(os_get_all_files_func);
 typedef OS_IS_PATH_DEFINE(os_is_path_func);
 typedef OS_MAKE_DIRECTORY_DEFINE(os_make_directory_func);
+typedef OS_COPY_FILE_DEFINE(os_copy_file_func);
 
 typedef struct os_tls os_tls;
 #define OS_TLS_CREATE_DEFINE(name) os_tls* name()
@@ -150,10 +152,11 @@ typedef struct {
 	os_write_file_func* WriteFileFunc;
 	os_close_file_func* CloseFileFunc;
 
-	os_get_all_files_func*     GetAllFilesFunc;
-	os_is_path_func*           IsDirectoryPathFunc;
-	os_is_path_func*           IsFilePathFunc;
-	os_make_directory_func*    MakeDirectoryFunc;
+	os_get_all_files_func*  GetAllFilesFunc;
+	os_is_path_func*        IsDirectoryPathFunc;
+	os_is_path_func*        IsFilePathFunc;
+	os_make_directory_func* MakeDirectoryFunc;
+	os_copy_file_func*      CopyFileFunc;
 
 	os_tls_create_func* TLSCreateFunc;
 	os_tls_delete_func* TLSDeleteFunc;
@@ -230,6 +233,7 @@ typedef struct {
 #define OS_Is_Directory_Path(path) Base_Get()->OSBase->VTable->IsDirectoryPathFunc(path)
 #define OS_Is_File_Path(path) Base_Get()->OSBase->VTable->IsFilePathFunc(path)
 #define OS_Make_Directory(path) Base_Get()->OSBase->VTable->MakeDirectoryFunc(path)
+#define OS_Copy_File(src_file, dst_file) Base_Get()->OSBase->VTable->CopyFileFunc(src_file, dst_file)
 
 #define OS_TLS_Create() Base_Get()->OSBase->VTable->TLSCreateFunc()
 #define OS_TLS_Delete(tls) Base_Get()->OSBase->VTable->TLSDeleteFunc(tls)
