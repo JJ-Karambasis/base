@@ -121,19 +121,16 @@ pushd "$bin_path"
     $compiler $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/base.$c_ext"
 popd
 
-frameworks=
 if [ $build_type == "osx" ]; then
-    frameworks="-framework Foundation"
-
     pushd "$bin_path"
-        $compiler_c $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/os/osx/osx_base.m"
+        $compiler_c $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/os/osx/osx_base.c"
     popd
 fi
 
 if [ $build_meta -eq 1 ]; then
 
     pushd "$bin_path"
-        $compiler $compile_flags $compile_warnings $app_defines $app_includes $frameworks "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o osx_base.o $compile_out meta_program
+        $compiler $compile_flags $compile_warnings $app_defines $app_includes "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o osx_base.o $compile_out meta_program
     popd
 
 fi

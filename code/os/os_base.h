@@ -23,7 +23,7 @@ typedef OS_QUERY_PERFORMANCE_DEFINE(os_query_performance_func);
 #define OS_GET_ALL_FILES_DEFINE(name) string_array name(allocator* Allocator, string Path, b32 Recursive)
 #define OS_IS_PATH_DEFINE(name) b32 name(string Path)
 #define OS_MAKE_DIRECTORY_DEFINE(name) b32 name(string Directory)
-#define OS_COPY_FILE_DEFINE(name) b32 name(string SrcFile, string DstFile)
+#define OS_COPY_FILE_DEFINE(name) b32 name(string SrcFilePath, string DstFilePath)
 
 enum {
 	OS_FILE_ATTRIBUTE_NONE,

@@ -1,26 +1,20 @@
 #include <pthread.h>
 #include <sys/mman.h>
-#import <Foundation/Foundation.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <dlfcn.h>
-#include <semaphore.h>
+#include <mach/mach.h>
+#include <mach/semaphore.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+
 
 #include "../../base.h"
 #include "osx_base.h"
 
 Array_Implement(string, String);
 Dynamic_Array_Implement_Type(string, String);
-
-function NSString* OSX_String(string String) {
-    if (String_Is_Empty(String)) {
-        return nil;
-    }
-    
-    return [[NSString alloc] initWithBytes:String.Ptr 
-                                    length:String.Size 
-                                  encoding:NSUTF8StringEncoding];
-}
 
 global osx_base* G_OSX;
 function osx_base* OSX_Get() {
@@ -259,31 +253,30 @@ function OS_MAKE_DIRECTORY_DEFINE(OSX_Make_Directory) {
     return Result;
 }
 
-function OS_COPY_FILE_DEFINE(OSX_Copy_File) {
-    NSFileManager* FileManager = [NSFileManager defaultManager];
-    
-    NSString* SrcString = OSX_String(SrcFile);
-    NSString* DstString = OSX_String(DstFile);
+function OS_COPY_FILE_DEFINE(OSX_Copy_File) {    
+    os_file* SrcFile = OSX_Open_File(SrcFilePath, OS_FILE_ATTRIBUTE_READ);
+    os_file* DstFile = OSX_Open_File(DstFilePath, OS_FILE_ATTRIBUTE_WRITE);
 
-    NSURL* SrcURL = [NSURL fileURLWithPath:SrcString];
-    NSURL* DstURL = [NSURL fileURLWithPath:DstString];
+    b32 Result = false;
+    if(SrcFile && DstFile) {
+        //Right now we do not support copies larger than
+        //4GB
+        u64 FileSize = OSX_Get_File_Size(SrcFile);
+        if(FileSize < 0xFFFFFFFF) {
+            arena* Scratch = Scratch_Get();
+            void* CopyData = Arena_Push(Scratch, FileSize);
+            if(OSX_Read_File(SrcFile, CopyData, (u32)FileSize)) {
+                Result = OSX_Write_File(DstFile, CopyData, (u32)FileSize);
+            }
 
-    NSError* Error;
-    if ([FileManager fileExistsAtPath:DstURL.path]) {
-        // Atomic replacement
-        NSURL* ResultingURL;
-        return [FileManager replaceItemAtURL:DstURL 
-                               withItemAtURL:SrcURL 
-                              backupItemName:nil 
-                                     options:0 
-                            resultingItemURL:&ResultingURL 
-                                       error:&Error];
-    } else {
-        // If destination doesn't exist, just copy
-        return [FileManager copyItemAtURL:SrcURL 
-                                    toURL:DstURL 
-                                    error:&Error];
+            Scratch_Release();
+        }
     }
+
+    if(SrcFile) OSX_Close_File(SrcFile);
+    if(DstFile) OSX_Close_File(DstFile);
+
+    return Result;
 }
 
 function OS_TLS_CREATE_DEFINE(OSX_TLS_Create) {
@@ -562,7 +555,7 @@ function OS_HOT_RELOAD_HAS_RELOADED_DEFINE(OSX_Hot_Reload_Has_Reloaded) {
 }
 
 function OS_LIBRARY_CREATE_DEFINE(OSX_Library_Create) {
-    void* Library = dlopen(LibraryPath.Ptr, RTLD_NOW);
+    void* Library = dlopen(LibraryPath.Ptr, RTLD_NOW|RTLD_GLOBAL);
     if(!Library) {
         return NULL;
     }
@@ -583,7 +576,8 @@ function OS_LIBRARY_CREATE_DEFINE(OSX_Library_Create) {
 
 function OS_LIBRARY_DELETE_DEFINE(OSX_Library_Delete) {
     if(Library) {
-        dlclose(Library->Library);
+        int Status = dlclose(Library->Library);
+        Assert(Status == 0);
 
         osx_base* OSX = OSX_Get();
         pthread_mutex_lock(&OSX->ResourceLock);
@@ -599,6 +593,27 @@ function OS_LIBRARY_GET_FUNCTION_DEFINE(OSX_Library_Get_Function) {
 
 function OS_GET_ENTROPY_DEFINE(OSX_Get_Entropy) {
     arc4random_buf(Buffer, Size);
+}
+
+function OS_SLEEP_DEFINE(OSX_Sleep) {
+	if (Nanoseconds > 0) {
+        struct timespec req, rem;
+    
+        // Convert nanoseconds to seconds and nanoseconds
+        req.tv_sec = Nanoseconds / 1000000000ULL;
+        req.tv_nsec = Nanoseconds % 1000000000ULL;
+    
+        // Handle interruptions by signals (EINTR)
+        while (nanosleep(&req, &rem) == -1) {
+            if (errno == EINTR) {
+                // Sleep was interrupted, continue with remaining time
+                req = rem;
+            } else {
+                // Some other error occurred, break out
+                break;
+            }
+        }
+	}
 }
 
 global os_base_vtable OSX_Base_VTable = {
@@ -658,30 +673,28 @@ global os_base_vtable OSX_Base_VTable = {
 	.LibraryDeleteFunc = OSX_Library_Delete,
 	.LibraryGetFunctionFunc = OSX_Library_Get_Function,
 
-    .GetEntropyFunc = OSX_Get_Entropy
+    .GetEntropyFunc = OSX_Get_Entropy,
+    .SleepFunc = OSX_Sleep
 };
 
 function string OSX_Get_Executable_Path(allocator* Allocator) {
-    @autoreleasepool {
-        NSBundle* Bundle = [NSBundle mainBundle];
-        const char* BaseType = [[[Bundle infoDictionary] objectForKey:@"SDL_FILESYSTEM_BASE_DIR_TYPE"] UTF8String];
-        const char* Base = NULL;
-
-        if (BaseType == NULL) {
-            BaseType = "resource";
+    uint32_t Size = 0;
+    
+    string Result = String_Empty();
+    if (_NSGetExecutablePath(NULL, &Size) == -1) {
+        arena* Scratch = Scratch_Get();
+        char* Buffer = Arena_Push(Scratch, Size+1);
+        Buffer[Size] = 0;
+        
+        if (_NSGetExecutablePath(Buffer, &Size) == 0) {
+            char* Resolved = Arena_Push(Scratch, Size+1);
+            realpath(Buffer, Resolved);
+            Result = String_Copy(Allocator, String_Null_Term(Resolved));
         }
 
-        if (strcasecmp(BaseType, "bundle") == 0) {
-            Base = [[Bundle bundlePath] fileSystemRepresentation];
-        } else if (strcasecmp(BaseType, "parent") == 0) {
-            Base = [[[Bundle bundlePath] stringByDeletingLastPathComponent] fileSystemRepresentation];
-        } else {
-            // this returns the exedir for non-bundled  and the resourceDir for bundled apps
-            Base = [[Bundle resourcePath] fileSystemRepresentation];
-        }
-
-        return String_Concat(Allocator, String_Null_Term(Base), String_Lit("/"));
+        Scratch_Release();
     }
+    return Result;    
 }
 
 void OS_Base_Init(base* Base) {
