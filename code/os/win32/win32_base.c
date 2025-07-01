@@ -1,4 +1,9 @@
 #include "../../base.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif 
+
 #include "win32_base.h"
 #include "../../third_party/rpmalloc/rpmalloc.h"
 
@@ -203,7 +208,7 @@ function OS_IS_PATH_DEFINE(Win32_Is_File_Path) {
 	DWORD Attributes = GetFileAttributesW(PathW.Ptr);
 	Scratch_Release();
 	return ((Attributes != INVALID_FILE_ATTRIBUTES) && 
-			!(Attributes & FILE_ATTRIBUTE_DIRECTORY));
+		!(Attributes & FILE_ATTRIBUTE_DIRECTORY));
 }
 
 function OS_IS_PATH_DEFINE(Win32_Is_Directory_Path) {
@@ -224,9 +229,12 @@ function OS_MAKE_DIRECTORY_DEFINE(Win32_Make_Directory) {
 }
 
 function OS_COPY_FILE_DEFINE(Win32_Copy_File) {
-	wstring SrcFileW = WString_From_String(SrcFile);
-	wstring DstFileW = WString_From_String(DstFile);
-	return CopyFileW(SrcFileW.Ptr, DstFileW.Ptr, FALSE);
+	arena* Scratch = Scratch_Get();
+	wstring SrcFileW = WString_From_String((allocator*)Scratch, SrcFilePath);
+	wstring DstFileW = WString_From_String((allocator*)Scratch, DstFilePath);
+	BOOL Result = CopyFileW(SrcFileW.Ptr, DstFileW.Ptr, FALSE);
+	Scratch_Release();
+	return Result;
 }
 
 function OS_TLS_CREATE_DEFINE(Win32_TLS_Create) {
@@ -714,3 +722,7 @@ void OS_Base_Init(base* Base) {
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "advapi32.lib")
+
+#ifdef __cplusplus
+}
+#endif 

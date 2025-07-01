@@ -853,7 +853,7 @@ function inline s32 Random32_Range(s32 Min, s32 Max) {
 
 #ifdef DEBUG_BUILD
 export_function void Thread_Context_Validate_();
-#define Thread_Context_Validate() Thread_Context_Validate_
+#define Thread_Context_Validate() Thread_Context_Validate_()
 #else
 #define Thread_Context_Validate()
 #endif
