@@ -790,6 +790,10 @@ Array->Count += Count; \
 } \
 function void Dynamic_##name##_Array_Clear(dynamic_##container_name##_array* Array) { \
 Array->Count = 0; \
+} \
+function void Dynamic_##name##_Array_Remove_Index(dynamic_##container_name##_array* Array, size_t Index) { \
+Array->Ptr[Index] = Array->Ptr[Array->Count - 1]; \
+Array->Count--; \
 }
 
 #define Dynamic_Array_Define_Type(type) Dynamic_Array_Define(type, type)
@@ -819,6 +823,33 @@ typedef struct {
 export_function thread_context* Thread_Context_Get();
 export_function arena* Scratch_Get();
 export_function void Scratch_Release();
+
+export_function u32 Random32_XOrShift(random32_xor_shift* Random);
+
+function inline f32 Random32_XOrShift_UNorm(random32_xor_shift* Random) {
+	f32 Result = (f32)Random32_XOrShift(Random) / (f32)UINT32_MAX;
+	return Result;
+}
+
+function inline f32 Random32_XOrShift_SNorm(random32_xor_shift* Random) {
+	f32 Result = -1.0f + 2.0f * Random32_XOrShift_UNorm(Random);
+	return Result;
+}
+
+function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min, s32 Max) {
+	s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
+	return Result;
+}
+
+function inline u32 Random32() {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift(Random);
+}
+
+function inline s32 Random32_Range(s32 Min, s32 Max) {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift_Range(Random, Min, Max);
+}
 
 #ifdef DEBUG_BUILD
 export_function void Thread_Context_Validate_();
@@ -1093,6 +1124,13 @@ typedef struct {
 	void* 		   Data;
 } pool;
 
+typedef struct {
+	pool* Pool;
+	u32   Index;
+	b32   IsValid;
+	void* Data;
+} pool_iter;
+
 inline pool_id Empty_Pool_ID() {
 	pool_id Result;
 	Memory_Clear(&Result, sizeof(pool_id));
@@ -1116,6 +1154,9 @@ export_function void* Pool_Get(pool* Pool, pool_id ID);
 export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID);
 export_function void Pool_Clear(pool* Pool);
 export_function pool_id Pool_Get_ID(pool* Pool, void* Data);
+
+export_function pool_iter Pool_Begin_Iter(pool* Pool);
+export_function void Pool_Iter_Next(pool_iter* Iter);
 
 #define BINARY_HEAP_COMPARE_FUNC(name) b32 name(void* A, void* B)
 typedef BINARY_HEAP_COMPARE_FUNC(binary_heap_compare_func);

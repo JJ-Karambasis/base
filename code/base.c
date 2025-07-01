@@ -1675,7 +1675,7 @@ function random32_xor_shift Random32_XOrShift_Init() {
 	return Result;
 }
 
-function inline u32 Random32_XOrShift(random32_xor_shift* Random) {
+export_function u32 Random32_XOrShift(random32_xor_shift* Random) {
 	u32 x = Random->State;
 
 	x ^= x << 13;
@@ -1685,31 +1685,6 @@ function inline u32 Random32_XOrShift(random32_xor_shift* Random) {
 	Random->State = x;
 
 	return x;
-}
-
-function inline f32 Random32_XOrShift_UNorm(random32_xor_shift* Random) {
-	f32 Result = (f32)Random32_XOrShift(Random) / (f32)UINT32_MAX;
-	return Result;
-}
-
-function inline f32 Random32_XOrShift_SNorm(random32_xor_shift* Random) {
-	f32 Result = -1.0f + 2.0f * Random32_XOrShift_UNorm(Random);
-	return Result;
-}
-
-function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min, s32 Max) {
-	s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
-	return Result;
-}
-
-function inline u32 Random32() {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift(Random);
-}
-
-function inline s32 Random32_Range(s32 Min, s32 Max) {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift_Range(Random, Min, Max);
 }
 
 Array_Implement(char, Char);
@@ -3067,6 +3042,37 @@ export_function pool_id Pool_Get_ID(pool* Pool, void* Data) {
 	Assert(Data >= Pool->Data && Data <= Offset_Pointer(Pool->Data, Pool->MaxUsed * Pool_Entry_Size(Pool)));
 	pool_id* ID = ((pool_id*)Data)-1;
 	return *ID;
+}
+
+export_function pool_iter Pool_Begin_Iter(pool* Pool) {
+	pool_iter Result = {
+		.Pool = Pool
+	};
+
+	for (u32 i = 0; i < Pool->MaxUsed; i++) {
+		pool_id* PoolID = Pool_Get_Internal_ID(Result.Pool, i);
+		if (i == Pool_Get_Internal_ID(Pool, i)->Index) {
+			Result.Index = i;
+			Result.IsValid = true;
+			Result.Data = (PoolID + 1);
+			return Result;
+		}
+	}
+
+	return Result;
+}
+
+export_function void Pool_Iter_Next(pool_iter* Iter) {
+	Iter->IsValid = false;
+	for (u32 i = Iter->Index+1; i < Iter->Pool->MaxUsed; i++) {
+		pool_id* PoolID = Pool_Get_Internal_ID(Iter->Pool, i);
+		if (i == PoolID->Index) {
+			Iter->Index = i;
+			Iter->IsValid = true;
+			Iter->Data = (PoolID + 1);
+			return;
+		}
+	}
 }
 
 #define Binary_Heap_Parent(i) ((i - 1) / 2)
