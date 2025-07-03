@@ -704,6 +704,8 @@ export_function void* Heap_Alloc(heap* Heap, size_t Size);
 export_function void  Heap_Free(heap* Heap, void* Memory);
 export_function void  Heap_Clear(heap* Heap);
 
+#define Heap_Alloc_Struct(heap, type) (type*)Heap_Alloc(heap, sizeof(type))
+
 #define Array_Define(type) \
 typedef struct { \
 type*  Ptr; \
@@ -1058,8 +1060,11 @@ export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash);
 export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash);
 export_function u32 Hashmap_Hash(hashmap* Hashmap, void* Key);
 export_function void Hashmap_Add(hashmap* Hashmap, void* Key, void* Value);
+export_function void* Hashmap_Find_By_Hash_Ptr(hashmap* Hashmap, void* Key, u32 Hash);
+export_function void* Hashmap_Find_Ptr(hashmap* Hashmap, void* Key);
 export_function b32 Hashmap_Find_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash);
 export_function b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value);
+export_function void* Hashmap_Get_Value_Ptr(hashmap* Hashmap, size_t Index);
 export_function b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value);
 export_function b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key);
 export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* Key, void* Value);
@@ -1220,6 +1225,9 @@ export_function u32  Async_Stack_Index32_Pop(async_stack_index32* StackIndex);
 #include "os/os_base.h"
 
 export_function void Debug_Log(const char* Format, ...);
+export_function u32 U32_Hash_U32_With_Seed(u32 Value, u32 Seed);
+export_function u32 U32_Hash_U32(u32 Value);
+export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed);
 export_function u32 U32_Hash_U64(u64 Value);
 export_function u32 U32_Hash_String(string String);
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed);

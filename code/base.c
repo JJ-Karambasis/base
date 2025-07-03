@@ -2788,7 +2788,6 @@ export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Valu
     while (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT) 
         Slot = (Slot + 1) & SlotMask;
 
-	Assert(Hashmap->ItemCount < Hashmap->ItemCapacity);
 	if (Hashmap->ItemCount == Hashmap->ItemCapacity) {
 		size_t NewItemCapacity = Hashmap->ItemCapacity * 2;
 		size_t TotalKeySize = Hashmap->KeySize * NewItemCapacity;
@@ -2810,6 +2809,7 @@ export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Valu
 		Hashmap->Values = Values;
 		Hashmap->ItemSlots = ItemSlots;
 	}
+	Assert(Hashmap->ItemCount < Hashmap->ItemCapacity);
 
 	u32 Index = Hashmap->ItemCount++;
 
@@ -2833,13 +2833,29 @@ export_function void Hashmap_Add(hashmap* Hashmap, void* Key, void* Value) {
 	Hashmap_Add_By_Hash(Hashmap, Key, Value, Hash);
 }
 
-export_function b32 Hashmap_Find_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash) {
+export_function void* Hashmap_Find_By_Hash_Ptr(hashmap* Hashmap, void* Key, u32 Hash) {
 	Assert(Hashmap_Is_Valid(Hashmap));
 	u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
-	if (Slot == HASH_INVALID_SLOT) return false;
+	if (Slot == HASH_INVALID_SLOT) return NULL;
 	u32 ItemIndex = Hashmap->Slots[Slot].ItemIndex;
-	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (ItemIndex * Hashmap->ValueSize)), Hashmap->ValueSize);
-	return true;
+	return Offset_Pointer(Hashmap->Values, (ItemIndex * Hashmap->ValueSize));
+}
+
+export_function void* Hashmap_Find_Ptr(hashmap* Hashmap, void* Key) {
+	Assert(Hashmap_Is_Valid(Hashmap));
+	u32 Hash = Hashmap_Hash(Hashmap, Key);
+	void* Result = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
+	return Result;
+}
+
+export_function b32 Hashmap_Find_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash) {
+	void* ValuePtr = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
+	b32 Result = false;
+	if (ValuePtr) {
+		Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
+		Result = true;
+	}
+	return Result;
 }
 
 export_function b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
@@ -2849,11 +2865,20 @@ export_function b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
 	return Result;
 }
 
-export_function b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
+export_function void* Hashmap_Get_Value_Ptr(hashmap* Hashmap, size_t Index) {
 	Assert(Hashmap_Is_Valid(Hashmap));
-	if (Index >= Hashmap->ItemCount) return false;
-	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
-	return true;
+	if (Index >= Hashmap->ItemCount) return NULL;
+	return Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize));
+}
+
+export_function b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
+	void* ValuePtr = Hashmap_Get_Value_Ptr(Hashmap, Index);
+	b32 Result = false;
+	if (ValuePtr) {
+		Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
+		Result = true;
+	}
+	return Result;
 }
 
 export_function b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key) {
@@ -3311,6 +3336,22 @@ export_function void Debug_Log(const char* Format, ...) {
 
 //Hash functions
 global const XXH32_hash_t InitialSeed = 1234567890;
+
+export_function u32 U32_Hash_U32_With_Seed(u32 Value, u32 Seed) {
+	u32 Result = (u32)XXH32(&Value, sizeof(u32), Seed);
+	return Result;
+}
+
+export_function u32 U32_Hash_U32(u32 Value) {
+	u32 Result = (u32)XXH32(&Value, sizeof(u32), InitialSeed);
+	return Result;
+}
+
+export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed) {
+	u32 Result = (u32)XXH32(&Value, sizeof(u64), Seed);
+	return Result;
+}
+
 export_function u32 U32_Hash_U64(u64 Value) {
 	u32 Result = (u32)XXH32(&Value, sizeof(u64), InitialSeed);
 	return Result;
