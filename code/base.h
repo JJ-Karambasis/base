@@ -385,6 +385,7 @@ export_function v3 V3_Add_V3(v3 a, v3 b);
 export_function v3 V3_Sub_V3(v3 a, v3 b);
 export_function v3 V3_Mul_S(v3 v, f32 s);
 export_function v3 V3_Mul_V3(v3 a, v3 b);
+export_function v3 V3_Div_S(v3 v, f32 s);
 export_function f32 V3_Dot(v3 a, v3 b);
 export_function size_t V3_Largest_Index(v3 v);
 export_function f32 V3_Largest(v3 v);
@@ -537,6 +538,7 @@ export_function m4 M4_Look_At(v3 Position, v3 Target);
 export_function m4 M4_Transpose(const m4* M);
 export_function m4 M4_Mul_M4(const m4* A, const m4* B);
 export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar);
+export_function v4 V4_Mul_M4(v4 A, const m4* B);
 
 typedef struct {
 	union {
@@ -579,6 +581,7 @@ export_function m4_affine M4_Affine_Identity();
 export_function m4_affine_transposed M4_Affine_Transpose(const m4_affine* M);
 export_function v3 V4_Mul_M4_Affine(v4 A, const m4_affine* B);
 export_function m4_affine M4_Affine_Mul_M4_Affine(const m4_affine* A, const m4_affine* B);
+export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B);
 export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M);
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q);
@@ -875,7 +878,13 @@ export_function buffer Make_Buffer(void* Data, size_t Size);
 export_function buffer Buffer_From_String(string String);
 export_function buffer Buffer_Empty();
 export_function buffer Buffer_Alloc(allocator* Allocator, size_t Size);
+export_function buffer Buffer_Copy(allocator* Allocator, buffer Buffer);
 export_function b32 Buffer_Is_Empty(buffer Buffer);
+
+export_function u32 UTF8_Read(const char* Str, u32* OutLength);
+export_function u32 UTF8_Write(char* Str, u32 Codepoint);
+export_function u32 UTF16_Read(const wchar_t* Str, u32* OutLength);
+export_function u32 UTF16_Write(wchar_t* Str, u32 Codepoint);
 
 typedef struct string_entry string_entry;
 struct string_entry {
@@ -1230,6 +1239,7 @@ export_function u32 U32_Hash_U32(u32 Value);
 export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed);
 export_function u32 U32_Hash_U64(u64 Value);
 export_function u32 U32_Hash_String(string String);
+export_function u64 U64_Hash_String(string String);
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed);
 export_function u32 U32_Hash_Bytes(void* Data, size_t Size);
 export_function u32 U32_Hash_Bytes_With_Seed(void* Data, size_t Size, u32 Seed);
@@ -1249,6 +1259,7 @@ typedef struct {
 	os_base*  OSBase;
 	allocator_vtable* ArenaVTable;
 	allocator_vtable* HeapVTable;
+	os_thread_callback_func* JobSystemThreadCallback;
 } base;
 
 export_function void Base_Set(base* Base);

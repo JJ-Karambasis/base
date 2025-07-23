@@ -428,9 +428,19 @@ function b32 VK_Create_Swapchain(vk_gdi* GDI) {
 	VkSurfaceFormatKHR* SurfaceFormats = Arena_Push_Array(Scratch, SurfaceFormatCount, VkSurfaceFormatKHR);
 	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, SurfaceFormats);
 
-	//Just choose the first avaiable surface format for now. We may update this later
-	//todo: Actually decide if we want to update this or if this is fine
-	VkSurfaceFormatKHR SurfaceFormat = SurfaceFormats[0];
+	VkSurfaceFormatKHR SurfaceFormat;
+	Memory_Clear(&SurfaceFormat, sizeof(VkSurfaceFormatKHR));
+
+	for (u32 i = 0; i < SurfaceFormatCount; i++) {
+		if (SurfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB ||
+			SurfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB) {
+			SurfaceFormat = SurfaceFormats[i];
+		}
+	}
+
+	if (SurfaceFormat.format == VK_FORMAT_UNDEFINED) {
+		VkSurfaceFormatKHR SurfaceFormat = SurfaceFormats[0];
+	}
 
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -1375,18 +1385,6 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					vk_texture* Texture = Cmd->Texture;
 					Assert(Texture->QueuedBarrier);
 					VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-					
-					VkImageMemoryBarrier2KHR PostBarrier = {
-						.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-						.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-						.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-						.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-						.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-						.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-						.image = Texture->Image,
-						.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-					};
 
 					if (Cmd->IsTransfer) {
 						VkImageMemoryBarrier2KHR PreBarrier = {
@@ -1421,7 +1419,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
 							.srcAccessMask = 0,
-							.dstStageMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
+							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
 							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
 							.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1818,7 +1816,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 								}
 																	
 								//First transition
-								PreBarrier.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+								PreBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 								PreBarrier.srcAccessMask = 0;
 								PreBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 

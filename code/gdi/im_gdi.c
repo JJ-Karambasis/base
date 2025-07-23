@@ -82,17 +82,11 @@ export_function void IM_Push_Vtx(const void* Vtx, size_t Size) {
 	IM_Push_Idx(Idx);
 }
 
-typedef struct {
-	v2 P;
-	v2 UV;
-	v4 C;
-} im_vtx_v2_uv2_c;
-
-export_function void IM_Push_Rect(v2 Min, v2 Max, v4 Color) {
-	im_vtx_v2_uv2_c v0 = { .P = Min, .UV = V2(0.0f, 0.0f), .C = Color };
-	im_vtx_v2_uv2_c v1 = { .P = V2(Min.x, Max.y), .UV = V2(0.0f, 1.0f), .C = Color };
-	im_vtx_v2_uv2_c v2 = { .P = Max, .UV = V2(1.0f, 1.0f), .C = Color };
-	im_vtx_v2_uv2_c v3 = { .P = V2(Max.x, Min.y), .UV = V2(1.0f, 0.0f), .C = Color };
+export_function void IM_Push_Rect2D_UV(v2 Min, v2 Max, v2 UVMin, v2 UVMax, v4 Color) {
+	im_vtx_v2_uv2_c v0 = { .P = Min, .UV = UVMin, .C = Color };
+	im_vtx_v2_uv2_c v1 = { .P = V2(Min.x, Max.y), .UV = V2(UVMin.x, UVMax.y), .C = Color };
+	im_vtx_v2_uv2_c v2 = { .P = Max, .UV = UVMax, .C = Color };
+	im_vtx_v2_uv2_c v3 = { .P = V2(Max.x, Min.y), .UV = V2(UVMax.x, UVMin.y), .C = Color };
 
 	u32 i0 = IM_Push(&v0, sizeof(im_vtx_v2_uv2_c));
 	u32 i1 = IM_Push(&v1, sizeof(im_vtx_v2_uv2_c));
@@ -106,4 +100,28 @@ export_function void IM_Push_Rect(v2 Min, v2 Max, v4 Color) {
 	IM_Push_Idx(i2);
 	IM_Push_Idx(i3);
 	IM_Push_Idx(i0);
+}
+
+export_function void IM_Push_Rect2D_UV_Norm(v2 Min, v2 Max, v4 Color) {
+	IM_Push_Rect2D_UV(Min, Max, V2_Zero(), V2_All(1.0f), Color);
+}
+
+export_function void IM_Push_Triangle2D(v2 P0, v2 P1, v2 P2, v4 Color) {
+	im_vtx_v2_c v0 = { .P = P0, .C = Color };
+	im_vtx_v2_c v1 = { .P = P1, .C = Color };
+	im_vtx_v2_c v2 = { .P = P2, .C = Color };
+
+	IM_Push_Vtx(&v0, sizeof(im_vtx_v2_c));
+	IM_Push_Vtx(&v1, sizeof(im_vtx_v2_c));
+	IM_Push_Vtx(&v2, sizeof(im_vtx_v2_c));
+}
+
+export_function void IM_Push_Triangle3D(v3 P0, v3 P1, v3 P2, v4 Color) {
+	im_vtx_v3_c v0 = { .P = P0, .C = Color };
+	im_vtx_v3_c v1 = { .P = P1, .C = Color };
+	im_vtx_v3_c v2 = { .P = P2, .C = Color };
+
+	IM_Push_Vtx(&v0, sizeof(im_vtx_v3_c));
+	IM_Push_Vtx(&v1, sizeof(im_vtx_v3_c));
+	IM_Push_Vtx(&v2, sizeof(im_vtx_v3_c));
 }

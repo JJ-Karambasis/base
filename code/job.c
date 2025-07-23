@@ -481,7 +481,7 @@ export_function job_system* Job_System_Create(u32 MaxJobCount, u32 ThreadCount, 
     for(i = 0; i < JobSystem->ThreadCount; i++) {
         job_system_thread* Thread = JobSystem->Threads + i;
         Thread->JobSystem = JobSystem;
-		Thread->Thread = OS_Thread_Create(Job_System_Thread_Callback, Thread);
+		Thread->Thread = OS_Thread_Create(Base_Get()->JobSystemThreadCallback, Thread);
 		if(!Thread->Thread) {
             /*todo: cleanup resources*/
             return NULL;

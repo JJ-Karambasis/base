@@ -16,6 +16,7 @@ extern "C" {
 #include "third_party/rpmalloc/rpmalloc.h"
 
 #include "atomic/atomic.c"
+#include "job.c"
 
 global base* G_Base;
 
@@ -68,6 +69,7 @@ export_function base* Base_Init() {
 	Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
 	Base.ArenaVTable = &Arena_VTable;
 	Base.HeapVTable = &Heap_VTable;
+	Base.JobSystemThreadCallback = Job_System_Thread_Callback;
 
 	Base_Set(&Base);
 	OS_Base_Init(&Base);
@@ -466,6 +468,11 @@ export_function v3 V3_Mul_S(v3 v, f32 s) {
 
 export_function v3 V3_Mul_V3(v3 a, v3 b) {
 	v3 Result = V3(a.x * b.x, a.y * b.y, a.z * b.z);
+	return Result;
+}
+
+export_function v3 V3_Div_S(v3 v, f32 s) {
+	v3 Result = V3(v.x / s, v.y / s, v.z / s);
 	return Result;
 }
 
@@ -872,7 +879,6 @@ export_function m3 M3_Basis(v3 Direction) {
 	return M3_XYZ(X, Y, Z);
 }
 
-
 export_function v3 V3_Mul_M3(v3 A, const m3* B) {
 	m3 BTransposed = M3_Transpose(B);
 
@@ -1030,6 +1036,17 @@ export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar)
 	return M4_F32(Data);
 }
 
+export_function v4 V4_Mul_M4(v4 A, const m4* B) {
+	m4 BTransposed = M4_Transpose(B);
+
+	v4 Result;
+	Result.x = V4_Dot(A, BTransposed.Rows[0]);
+	Result.y = V4_Dot(A, BTransposed.Rows[1]);
+	Result.z = V4_Dot(A, BTransposed.Rows[2]);
+	Result.w = V4_Dot(A, BTransposed.Rows[3]);
+	return Result;
+}
+
 export_function m4_affine M4_Affine_F32(const f32* Matrix) {
 	m4_affine Result;
 	Memory_Copy(&Result, Matrix, sizeof(m4_affine));
@@ -1120,6 +1137,34 @@ export_function m4_affine M4_Affine_Mul_M4_Affine(const m4_affine* A, const m4_a
 		.m30 = V3_Dot(A->Rows[3], BTransposed.Rows[0].xyz) + BTransposed.Rows[0].w,
 		.m31 = V3_Dot(A->Rows[3], BTransposed.Rows[1].xyz) + BTransposed.Rows[1].w,
 		.m32 = V3_Dot(A->Rows[3], BTransposed.Rows[2].xyz) + BTransposed.Rows[2].w,
+	};
+
+	return Result;
+}
+
+export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B) {
+	m4 BTransposed = M4_Transpose(B);
+
+	m4 Result = {
+		.m00 = V3_Dot(A->Rows[0], BTransposed.Rows[0].xyz),
+		.m01 = V3_Dot(A->Rows[0], BTransposed.Rows[1].xyz),
+		.m02 = V3_Dot(A->Rows[0], BTransposed.Rows[2].xyz),
+		.m03 = V3_Dot(A->Rows[0], BTransposed.Rows[3].xyz),
+
+		.m10 = V3_Dot(A->Rows[1], BTransposed.Rows[0].xyz),
+		.m11 = V3_Dot(A->Rows[1], BTransposed.Rows[1].xyz),
+		.m12 = V3_Dot(A->Rows[1], BTransposed.Rows[2].xyz),
+		.m13 = V3_Dot(A->Rows[1], BTransposed.Rows[3].xyz),
+
+		.m20 = V3_Dot(A->Rows[2], BTransposed.Rows[0].xyz),
+		.m21 = V3_Dot(A->Rows[2], BTransposed.Rows[1].xyz),
+		.m22 = V3_Dot(A->Rows[2], BTransposed.Rows[2].xyz),
+		.m23 = V3_Dot(A->Rows[2], BTransposed.Rows[3].xyz),
+
+		.m30 = V3_Dot(A->Rows[3], BTransposed.Rows[0].xyz) + BTransposed.Rows[0].w,
+		.m31 = V3_Dot(A->Rows[3], BTransposed.Rows[1].xyz) + BTransposed.Rows[1].w,
+		.m32 = V3_Dot(A->Rows[3], BTransposed.Rows[2].xyz) + BTransposed.Rows[2].w,
+		.m33 = V3_Dot(A->Rows[3], BTransposed.Rows[3].xyz) + BTransposed.Rows[3].w,
 	};
 
 	return Result;
@@ -1358,6 +1403,12 @@ export_function buffer Buffer_Empty() {
 export_function buffer Buffer_Alloc(allocator* Allocator, size_t Size) {
 	u8* Ptr = (u8*)Allocator_Allocate_Memory(Allocator, Size);
 	return Make_Buffer(Ptr, Size);
+}
+
+export_function buffer Buffer_Copy(allocator* Allocator, buffer Buffer) {
+	u8* Ptr = (u8*)Allocator_Allocate_Memory(Allocator, Buffer.Size);
+	Memory_Copy(Ptr, Buffer.Ptr, Buffer.Size);
+	return Make_Buffer(Ptr, Buffer.Size);
 }
 
 export_function b32 Buffer_Is_Empty(buffer Buffer) {
@@ -1698,7 +1749,7 @@ global const u8 G_ClassUTF8[32] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,2,2,2,2,3,3,4,5,
 };
 
-function u32 UTF8_Read(const char* Str, u32* OutLength) {
+export_function u32 UTF8_Read(const char* Str, u32* OutLength) {
     u32 Result = 0xFFFFFFFF;
     
     u8 Byte = (u8)Str[0];
@@ -1757,7 +1808,7 @@ function u32 UTF8_Read(const char* Str, u32* OutLength) {
     return Result;
 }
 
-function u32 UTF8_Write(char* Str, u32 Codepoint) {
+export_function u32 UTF8_Write(char* Str, u32 Codepoint) {
     local const u32 BIT_8 = 0x00000080;
     local const u32 BITMASK_2 = 0x00000003;
     local const u32 BITMASK_3 = 0x00000007;
@@ -1801,7 +1852,7 @@ function u32 UTF8_Write(char* Str, u32 Codepoint) {
     return Result;
 }
 
-function u32 UTF16_Read(const wchar_t* Str, u32* OutLength) {
+export_function u32 UTF16_Read(const wchar_t* Str, u32* OutLength) {
     u32 Offset = 1;
     u32 Result = *Str;
     if (0xD800 <= Str[0] && Str[0] < 0xDC00 && 0xDC00 <= Str[1] && Str[1] < 0xE000)
@@ -1813,7 +1864,7 @@ function u32 UTF16_Read(const wchar_t* Str, u32* OutLength) {
     return Result;
 }
 
-function u32 UTF16_Write(wchar_t* Str, u32 Codepoint) {
+export_function u32 UTF16_Write(wchar_t* Str, u32 Codepoint) {
     local const u32 BITMASK_10 = 0x000003ff;
     
     u32 Result = 0;
@@ -3361,6 +3412,10 @@ export_function u32 U32_Hash_String(string String) {
 	return (u32)XXH32(String.Ptr, String.Size, InitialSeed);
 }
 
+export_function u64 U64_Hash_String(string String) {
+	return (u64)XXH64(String.Ptr, String.Size, InitialSeed);
+}
+
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed) {
 	return (u64)XXH64(String.Ptr, String.Size, (XXH64_hash_t)Seed);
 }
@@ -3428,7 +3483,6 @@ export_function b32 Write_Entire_File(string Path, buffer Data) {
 }
 
 #include "akon.c"
-#include "job.c"
 #include "profiler.c"
 
 #ifdef __cplusplus
