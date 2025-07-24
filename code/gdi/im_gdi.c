@@ -82,7 +82,7 @@ export_function void IM_Push_Vtx(const void* Vtx, size_t Size) {
 	IM_Push_Idx(Idx);
 }
 
-export_function void IM_Push_Rect2D_UV(v2 Min, v2 Max, v2 UVMin, v2 UVMax, v4 Color) {
+export_function void IM_Push_Rect2D_Color_UV(v2 Min, v2 Max, v2 UVMin, v2 UVMax, v4 Color) {
 	im_vtx_v2_uv2_c v0 = { .P = Min, .UV = UVMin, .C = Color };
 	im_vtx_v2_uv2_c v1 = { .P = V2(Min.x, Max.y), .UV = V2(UVMin.x, UVMax.y), .C = Color };
 	im_vtx_v2_uv2_c v2 = { .P = Max, .UV = UVMax, .C = Color };
@@ -102,11 +102,22 @@ export_function void IM_Push_Rect2D_UV(v2 Min, v2 Max, v2 UVMin, v2 UVMax, v4 Co
 	IM_Push_Idx(i0);
 }
 
-export_function void IM_Push_Rect2D_UV_Norm(v2 Min, v2 Max, v4 Color) {
-	IM_Push_Rect2D_UV(Min, Max, V2_Zero(), V2_All(1.0f), Color);
+export_function void IM_Push_Rect2D_Color_UV_Norm(v2 Min, v2 Max, v4 Color) {
+	IM_Push_Rect2D_Color_UV(Min, Max, V2_Zero(), V2_All(1.0f), Color);
 }
 
-export_function void IM_Push_Triangle2D(v2 P0, v2 P1, v2 P2, v4 Color) {
+export_function void IM_Push_Line3D(v3 P0, v3 P1) {
+	IM_Push_Vtx(&P0, sizeof(v3));
+	IM_Push_Vtx(&P1, sizeof(v3));
+}
+
+export_function void IM_Push_Triangle3D(v3 P0, v3 P1, v3 P2) {
+	IM_Push_Vtx(&P0, sizeof(v3));
+	IM_Push_Vtx(&P1, sizeof(v3));
+	IM_Push_Vtx(&P2, sizeof(v3));
+}
+
+export_function void IM_Push_Triangle2D_Color(v2 P0, v2 P1, v2 P2, v4 Color) {
 	im_vtx_v2_c v0 = { .P = P0, .C = Color };
 	im_vtx_v2_c v1 = { .P = P1, .C = Color };
 	im_vtx_v2_c v2 = { .P = P2, .C = Color };
@@ -116,7 +127,7 @@ export_function void IM_Push_Triangle2D(v2 P0, v2 P1, v2 P2, v4 Color) {
 	IM_Push_Vtx(&v2, sizeof(im_vtx_v2_c));
 }
 
-export_function void IM_Push_Triangle3D(v3 P0, v3 P1, v3 P2, v4 Color) {
+export_function void IM_Push_Triangle3D_Color(v3 P0, v3 P1, v3 P2, v4 Color) {
 	im_vtx_v3_c v0 = { .P = P0, .C = Color };
 	im_vtx_v3_c v1 = { .P = P1, .C = Color };
 	im_vtx_v3_c v2 = { .P = P2, .C = Color };

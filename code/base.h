@@ -809,6 +809,7 @@ Array->Count--; \
 
 Array_Define(char);
 Array_Define(u32);
+Array_Define(v3);
 
 Dynamic_Array_Define_Type(char);
 Dynamic_Array_Define(char*, char_ptr);
