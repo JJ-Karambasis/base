@@ -575,6 +575,8 @@ typedef struct {
 
 export_function m4_affine M4_Affine_F32(const f32* Matrix);
 export_function m4_affine M4_Affine_F64(const f64* Matrix);
+export_function m4_affine M4_Affine_Transform(v3 t, const m3* M, v3 s);
+export_function m4_affine M4_Affine_Transform_Quat(v3 T, quat Q, v3 S);
 export_function m4_affine M4_Affine_Transform_No_Scale(v3 t, const m3* M);
 export_function m4_affine M4_Affine_Transform_Quat_No_Scale(v3 T, quat Q);
 export_function m4_affine M4_Affine_Identity();

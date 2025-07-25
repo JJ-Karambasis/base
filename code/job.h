@@ -123,6 +123,7 @@ export_function job_id      Job_System_Alloc_Empty_Job(job_system* JobSystem, jo
 export_function void        Job_System_Free_Job(job_system* JobSystem, job_id JobID);
 export_function void        Job_System_Add_Job(job_system* JobSystem, job_id JobID);
 export_function void        Job_System_Wait_For_Job(job_system* JobSystem, job_id JobID);
+export_function b32 		Job_System_Process_One_Job(job_system* JobSystem);
 export_function void 		Job_System_Process_One_Job_And_Yield(job_system* JobSystem);
 export_function void        Job_System_Add_Dependency(job_system* JobSystem, job_id Job, job_id DependencyJob);
 

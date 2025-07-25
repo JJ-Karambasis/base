@@ -1065,6 +1065,26 @@ export_function m4_affine M4_Affine_F64(const f64* Matrix) {
 	return Result;
 }
 
+export_function m4_affine M4_Affine_Transform(v3 t, const m3* M, v3 s) {
+	v3 x = V3_Mul_S(M->x, s.x);
+	v3 y = V3_Mul_S(M->y, s.y);
+	v3 z = V3_Mul_S(M->z, s.z);
+	m4_affine Result = {
+		.Data = {
+			x.x, x.y, x.z, 
+			y.x, y.y, y.z,
+			z.x, z.y, z.z,
+			t.x, t.y, t.z
+		}
+	};
+	return Result;
+}
+
+export_function m4_affine M4_Affine_Transform_Quat(v3 T, quat Q, v3 S) {
+	m3 Orientation = M3_From_Quat(Q);
+	return M4_Affine_Transform(T, &Orientation, S);
+}
+
 export_function m4_affine M4_Affine_Transform_No_Scale(v3 t, const m3* M) {
 	m4_affine Result;
 	Result.M = *M;

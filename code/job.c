@@ -579,9 +579,13 @@ export_function void Job_System_Wait_For_Job(job_system* JobSystem, job_id JobID
     }
 }
 
-export_function void Job_System_Process_One_Job_And_Yield(job_system* JobSystem) {
+export_function b32 Job_System_Process_One_Job(job_system* JobSystem) {
 	job_system_queue* JobQueue = Job_System_Get_Or_Create_Local_Queue(JobSystem);
-	if (!Job_System_Process_Next_Job(JobSystem, JobQueue)) {
+	return Job_System_Process_Next_Job(JobSystem, JobQueue);
+}
+
+export_function void Job_System_Process_One_Job_And_Yield(job_system* JobSystem) {
+	if (!Job_System_Process_One_Job(JobSystem)) {
 		OS_Sleep(1);
 	}
 }
