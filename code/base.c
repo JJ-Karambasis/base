@@ -2892,8 +2892,9 @@ export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Valu
     }
     
     Slot = FirstFree;
-    while (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT) 
+    while (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT)  {
         Slot = (Slot + 1) & SlotMask;
+	}
 
 	if (Hashmap->ItemCount == Hashmap->ItemCapacity) {
 		size_t NewItemCapacity = Hashmap->ItemCapacity * 2;

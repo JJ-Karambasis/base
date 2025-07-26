@@ -459,7 +459,7 @@ function b32 VK_Create_Swapchain(vk_gdi* GDI) {
 	}
 
 	if (SurfaceFormat.format == VK_FORMAT_UNDEFINED) {
-		VkSurfaceFormatKHR SurfaceFormat = SurfaceFormats[0];
+		SurfaceFormat = SurfaceFormats[0];
 	}
 
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
