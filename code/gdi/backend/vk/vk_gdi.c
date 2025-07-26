@@ -46,6 +46,8 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME),
 	String_Expand(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
 	String_Expand(VK_KHR_SWAPCHAIN_EXTENSION_NAME),
+	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
+	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME)
 	#ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 		#endif
@@ -273,23 +275,36 @@ function void VK_Delete_Bind_Group_Resources(vk_gdi* GDI, vk_bind_group* BindGro
 }
 
 function void VK_Delete_Shader_Resources(vk_gdi* GDI, vk_shader* Shader) {
-	Not_Implemented;
+	vkDestroyPipeline(GDI->Device, Shader->Pipeline, VK_NULL_HANDLE);
+
+	vkDestroyPipelineLayout(GDI->Device, Shader->Layout, VK_NULL_HANDLE);
+
+	if (Shader->WritableLayout) {
+		vkDestroyDescriptorSetLayout(GDI->Device, Shader->WritableLayout, VK_NULL_HANDLE);
+	}
+
+	if (!GDI_Bind_Group_Binding_Array_Is_Empty(Shader->WritableBindings)) {
+		Allocator_Free_Memory(Default_Allocator_Get(), Shader->WritableBindings.Ptr);
+	}
 }
 
 function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice) {
 	VkPhysicalDeviceProperties DeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
 
+	VkPhysicalDeviceDescriptorIndexingFeaturesEXT* DescriptorIndexingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDescriptorIndexingFeaturesEXT);
 	VkPhysicalDeviceRobustness2FeaturesEXT* Robustness2Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceRobustness2FeaturesEXT);
 	VkPhysicalDeviceSynchronization2FeaturesKHR* Synchronization2Feature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceSynchronization2FeaturesKHR);
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR* DynamicRenderingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDynamicRenderingFeaturesKHR);
 	VkPhysicalDeviceFeatures2KHR* Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceFeatures2KHR);
 
+	DescriptorIndexingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
 	Robustness2Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	Synchronization2Feature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
 	DynamicRenderingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
 	Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
 
+	Robustness2Features->pNext = DescriptorIndexingFeature;
 	Synchronization2Feature->pNext = Robustness2Features;
 	DynamicRenderingFeature->pNext = Synchronization2Feature;
 	Features->pNext = DynamicRenderingFeature;
@@ -297,6 +312,11 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	vkGetPhysicalDeviceFeatures2KHR(PhysicalDevice, Features);
 
 	b32 HasFeatures = true;
+	if (!DescriptorIndexingFeature->descriptorBindingSampledImageUpdateAfterBind) {
+		Debug_Log("Missing vulkan feature 'Descriptor Indexing' for device '%s'", DeviceProperties.deviceName);
+		HasFeatures = false;
+	}
+
 	if (!Robustness2Features->nullDescriptor) {
 		Debug_Log("Missing vulkan feature 'Null Descriptor' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
@@ -814,7 +834,9 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	arena* Scratch = Scratch_Get();
 
 	VkDescriptorSetLayoutBinding* Bindings = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorSetLayoutBinding);
+	VkDescriptorBindingFlagsEXT* BindingFlags = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorBindingFlagsEXT);
 	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
+
 		VkDescriptorSetLayoutBinding Binding = {
 			.binding = (u32)i,
 			.descriptorType = VK_Get_Descriptor_Type(BindGroupLayoutInfo->Bindings.Ptr[i].Type),
@@ -823,10 +845,19 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 		};
 
 		Bindings[i] = Binding;
+		BindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
 	}
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfoEXT BindingFlagsInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT,
+		.bindingCount = (u32)BindGroupLayoutInfo->Bindings.Count,
+		.pBindingFlags = BindingFlags
+	};
 
 	VkDescriptorSetLayoutCreateInfo CreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = &BindingFlagsInfo,
+		.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
 		.bindingCount = (u32)BindGroupLayoutInfo->Bindings.Count,
 		.pBindings = Bindings
 	};
@@ -884,85 +915,170 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, Result);
 
 	BindGroup->Set = Set;
+	BindGroup->Layout = BindGroupInfo->Layout;
 
-	size_t SamplerIndex = 0;
-	size_t TextureIndex = 0;
-	size_t BufferIndex = 0;
+	if (BindGroupInfo->Buffers.Count || BindGroupInfo->TextureViews.Count || BindGroupInfo->Samplers.Count) {
 
-	arena* Scratch = Scratch_Get();
+		size_t SamplerIndex = 0;
+		size_t TextureIndex = 0;
+		size_t BufferIndex = 0;
 
-	dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+		arena* Scratch = Scratch_Get();
 
-	for (size_t i = 0; i < Layout->Bindings.Count; i++) {
-		gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + i;
+		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+		for (size_t i = 0; i < Layout->Bindings.Count; i++) {
+			gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + i;
 
-		VkWriteDescriptorSet WriteDescriptorSet = {
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstSet = Set,
-			.dstBinding = (u32)i,
-			.dstArrayElement = 0,
-			.descriptorCount = Binding->Count,
-			.descriptorType = VK_Get_Descriptor_Type(Binding->Type)
-		};
+			VkWriteDescriptorSet WriteDescriptorSet = {
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Set,
+				.dstBinding = (u32)i,
+				.dstArrayElement = 0,
+				.descriptorCount = Binding->Count,
+				.descriptorType = VK_Get_Descriptor_Type(Binding->Type)
+			};
 
-		switch (Binding->Type) {
-			case GDI_BIND_GROUP_TYPE_SAMPLER: {
-				VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
-				for (size_t i = 0; i < Binding->Count; i++) {
-					Assert(SamplerIndex < BindGroupInfo->Samplers.Count);
-					gdi_handle Handle = BindGroupInfo->Samplers.Ptr[SamplerIndex++];
-					vk_sampler* Sampler = VK_Sampler_Pool_Get(&VkGDI->ResourcePool, Handle);
-					Assert(Sampler);
-					ImageInfo[i].sampler = Sampler->Sampler;
-				}
+			switch (Binding->Type) {
+				case GDI_BIND_GROUP_TYPE_SAMPLER: {
+					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
+					for (size_t i = 0; i < Binding->Count; i++) {
+						Assert(SamplerIndex < BindGroupInfo->Samplers.Count);
+						gdi_handle Handle = BindGroupInfo->Samplers.Ptr[SamplerIndex++];
+						vk_sampler* Sampler = VK_Sampler_Pool_Get(&VkGDI->ResourcePool, Handle);
+						Assert(Sampler);
+						ImageInfo[i].sampler = Sampler->Sampler;
+					}
 
-				WriteDescriptorSet.pImageInfo = ImageInfo;
-			} break;
+					WriteDescriptorSet.pImageInfo = ImageInfo;
+				} break;
 
-			case GDI_BIND_GROUP_TYPE_TEXTURE: {
-				VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
+				case GDI_BIND_GROUP_TYPE_TEXTURE: {
+					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
 
-				for (size_t i = 0; i < Binding->Count; i++) {
-					Assert(TextureIndex < BindGroupInfo->TextureViews.Count);
-					gdi_handle Handle = BindGroupInfo->TextureViews.Ptr[TextureIndex++];
-					vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, Handle);
+					for (size_t i = 0; i < Binding->Count; i++) {
+						Assert(TextureIndex < BindGroupInfo->TextureViews.Count);
+						gdi_handle Handle = BindGroupInfo->TextureViews.Ptr[TextureIndex++];
+						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, Handle);
 
-					ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
-					ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				}
+						ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
+						ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					}
 
-				WriteDescriptorSet.pImageInfo = ImageInfo;
-			} break;
+					WriteDescriptorSet.pImageInfo = ImageInfo;
+				} break;
 
-			case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: {
-				VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorBufferInfo);
+				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: {
+					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorBufferInfo);
 
-				for (size_t i = 0; i < Binding->Count; i++) {
-					Assert(BufferIndex < BindGroupInfo->Buffers.Count);
-					gdi_bind_group_buffer BindGroupBuffer = BindGroupInfo->Buffers.Ptr[BufferIndex++];
-					vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, BindGroupBuffer.Buffer);
-					Assert(Buffer);
+					for (size_t i = 0; i < Binding->Count; i++) {
+						Assert(BufferIndex < BindGroupInfo->Buffers.Count);
+						gdi_bind_group_buffer BindGroupBuffer = BindGroupInfo->Buffers.Ptr[BufferIndex++];
+						vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, BindGroupBuffer.Buffer);
+						Assert(Buffer);
 
-					BufferInfo[i].buffer = Buffer->Buffer;
-					BufferInfo[i].offset = BindGroupBuffer.Offset;
-					BufferInfo[i].range  = BindGroupBuffer.Size == 0 ? VK_WHOLE_SIZE : BindGroupBuffer.Size;
-				}
+						BufferInfo[i].buffer = Buffer->Buffer;
+						BufferInfo[i].offset = BindGroupBuffer.Offset;
+						BufferInfo[i].range = BindGroupBuffer.Size == 0 ? VK_WHOLE_SIZE : BindGroupBuffer.Size;
+					}
 
-				WriteDescriptorSet.pBufferInfo = BufferInfo;
-			} break;
+					WriteDescriptorSet.pBufferInfo = BufferInfo;
+				} break;
+			}
+
+			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
 		}
 
-		Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
+		vkUpdateDescriptorSets(VkGDI->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
+		Scratch_Release();
 	}
-
-	vkUpdateDescriptorSets(VkGDI->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
-	Scratch_Release();
 
 	return Result;
 }
 
 function GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(VK_Delete_Bind_Group) {
 	VK_Bind_Group_Add_To_Delete_Queue((vk_gdi*)GDI, BindGroup);
+}
+
+function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
+	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, BindGroupHandle);
+	if (BindGroup) {
+		vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&VkGDI->ResourcePool, BindGroup->Layout);
+		Assert(Layout);
+		
+		arena* Scratch = Scratch_Get();
+		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+
+		for (size_t i = 0; i < BindGroupWriteInfo->Writes.Count; i++) {
+			gdi_bind_group_write* Write = BindGroupWriteInfo->Writes.Ptr + i;
+			
+			Assert(Write->Binding < Layout->Bindings.Count);
+			gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + Write->Binding;
+
+			VkWriteDescriptorSet WriteDescriptorSet = {
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = BindGroup->Set,
+				.dstBinding = Write->Binding,
+				.dstArrayElement = Write->Index,
+				.descriptorType = VK_Get_Descriptor_Type(Binding->Type)
+			};
+
+			switch (Binding->Type) {
+				case GDI_BIND_GROUP_TYPE_SAMPLER: {
+					WriteDescriptorSet.descriptorCount = (u32)Write->Samplers.Count;
+					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Write->Samplers.Count, VkDescriptorImageInfo);
+					for (size_t i = 0; i < Write->Samplers.Count; i++) {
+						gdi_handle Handle = Write->Samplers.Ptr[i];
+						vk_sampler* Sampler = VK_Sampler_Pool_Get(&VkGDI->ResourcePool, Handle);
+						Assert(Sampler);
+						ImageInfo[i].sampler = Sampler->Sampler;
+					}
+					WriteDescriptorSet.pImageInfo = ImageInfo;
+				} break;
+
+				case GDI_BIND_GROUP_TYPE_TEXTURE: {
+					WriteDescriptorSet.descriptorCount = (u32)Write->TextureViews.Count;
+					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Write->TextureViews.Count, VkDescriptorImageInfo);
+
+					for (size_t i = 0; i < Write->TextureViews.Count; i++) {
+						gdi_handle Handle = Write->TextureViews.Ptr[i];
+						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, Handle);
+
+						ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
+						ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					}
+
+					WriteDescriptorSet.pImageInfo = ImageInfo;
+				} break;
+
+				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: {
+					WriteDescriptorSet.descriptorCount = (u32)Write->Buffers.Count;
+					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Write->Buffers.Count, VkDescriptorBufferInfo);
+
+					for (size_t i = 0; i < Write->Buffers.Count; i++) {
+						gdi_bind_group_buffer BindGroupBuffer = Write->Buffers.Ptr[i];
+						vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, BindGroupBuffer.Buffer);
+						Assert(Buffer);
+
+						BufferInfo[i].buffer = Buffer->Buffer;
+						BufferInfo[i].offset = BindGroupBuffer.Offset;
+						BufferInfo[i].range  = BindGroupBuffer.Size == 0 ? VK_WHOLE_SIZE : BindGroupBuffer.Size;
+					}
+
+					WriteDescriptorSet.pBufferInfo = BufferInfo;
+				} break;
+
+				Invalid_Default_Case;
+			}
+
+			Assert(WriteDescriptorSet.dstArrayElement + WriteDescriptorSet.descriptorCount <= Binding->Count);
+
+			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
+		}
+
+		vkUpdateDescriptorSets(VkGDI->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
+		Scratch_Release();
+	}
 }
  
 function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
@@ -2464,6 +2580,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 
 	.CreateBindGroupFunc = VK_Create_Bind_Group,
 	.DeleteBindGroupFunc = VK_Delete_Bind_Group,
+	.WriteBindGroupFunc = VK_Write_Bind_Group,
 	
 	.CreateShaderFunc = VK_Create_Shader,
 	.DeleteShaderFunc = VK_Delete_Shader,
@@ -2807,7 +2924,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	VkDescriptorPoolCreateInfo DescriptorPoolInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT|VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT,
 		.maxSets = EntryCount,
 		.poolSizeCount = Array_Count(DescriptorPoolSizes),
 		.pPoolSizes = DescriptorPoolSizes

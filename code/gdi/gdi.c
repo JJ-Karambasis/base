@@ -138,6 +138,13 @@ export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup) {
 	}
 }
 
+export_function void GDI_Write_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_write_info* WriteInfo) {
+	Assert(GDI_Is_Type(BindGroup, BIND_GROUP));
+	if (!GDI_Is_Null(BindGroup)) {
+		GDI_Backend_Write_Bind_Group(BindGroup, WriteInfo);
+	}
+}
+
 export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo) {
 	Assert(CreateInfo->PushConstantCount <= GDI_MAX_PUSH_CONSTANT_COUNT);
 	gdi_handle Result = GDI_Backend_Create_Shader(CreateInfo);

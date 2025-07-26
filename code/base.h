@@ -752,6 +752,9 @@ function type##_array name##_Array_Empty() { \
 type##_array Result = { 0 }; \
 return Result; \
 } \
+function b32 name##_Array_Is_Empty(type##_array Array) { \
+return !Array.Ptr || !Array.Count; \
+} \
 
 #define Dynamic_Array_Implement(container_name, type, name) \
 function void Dynamic_##name##_Array_Reserve(dynamic_##container_name##_array* Array, size_t NewCapacity) { \

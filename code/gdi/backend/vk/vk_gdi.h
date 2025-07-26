@@ -76,6 +76,7 @@ typedef struct {
 
 typedef struct {
 	VkDescriptorSet Set;
+	gdi_handle      Layout;
 } vk_bind_group;
 
 typedef struct {
