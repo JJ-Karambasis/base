@@ -573,8 +573,11 @@ typedef struct {
 
 } m4_affine_transposed;
 
+Static_Assert(sizeof(m4_affine) == sizeof(m4_affine_transposed));
+
 export_function m4_affine M4_Affine_F32(const f32* Matrix);
 export_function m4_affine M4_Affine_F64(const f64* Matrix);
+export_function m4_affine M4_Affine_From_M3(const m3* M);
 export_function m4_affine M4_Affine_Transform(v3 t, const m3* M, v3 s);
 export_function m4_affine M4_Affine_Transform_Quat(v3 T, quat Q, v3 S);
 export_function m4_affine M4_Affine_Transform_No_Scale(v3 t, const m3* M);
@@ -584,6 +587,7 @@ export_function m4_affine_transposed M4_Affine_Transpose(const m4_affine* M);
 export_function v3 V4_Mul_M4_Affine(v4 A, const m4_affine* B);
 export_function m4_affine M4_Affine_Mul_M4_Affine(const m4_affine* A, const m4_affine* B);
 export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B);
+export_function m4_affine M4_Affine_Inverse(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M);
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q);
@@ -1279,5 +1283,7 @@ export_function base* Base_Init();
 #ifdef __cplusplus
 }
 #endif
+
+#include "base.inl"
 
 #endif

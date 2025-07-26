@@ -566,6 +566,7 @@ function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
 }
 
 export_function gdi_format GDI_Get_SRGB_Format(gdi_format Format);
+export_function size_t GDI_Get_Format_Size(gdi_format);
 export_function gdi* GDI_Get();
 export_function void GDI_Set(gdi* GDI);
 

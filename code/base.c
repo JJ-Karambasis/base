@@ -1065,6 +1065,13 @@ export_function m4_affine M4_Affine_F64(const f64* Matrix) {
 	return Result;
 }
 
+export_function m4_affine M4_Affine_From_M3(const m3* M) {
+	m4_affine Result = {
+		.M = *M
+	};
+	return Result;
+}
+
 export_function m4_affine M4_Affine_Transform(v3 t, const m3* M, v3 s) {
 	v3 x = V3_Mul_S(M->x, s.x);
 	v3 y = V3_Mul_S(M->y, s.y);
@@ -1185,6 +1192,35 @@ export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B) {
 		.m31 = V3_Dot(A->Rows[3], BTransposed.Rows[1].xyz) + BTransposed.Rows[1].w,
 		.m32 = V3_Dot(A->Rows[3], BTransposed.Rows[2].xyz) + BTransposed.Rows[2].w,
 		.m33 = V3_Dot(A->Rows[3], BTransposed.Rows[3].xyz) + BTransposed.Rows[3].w,
+	};
+
+	return Result;
+}
+
+export_function m4_affine M4_Affine_Inverse(const m4_affine* M) {
+	f32 xSq = V3_Sq_Mag(M->x);
+	f32 ySq = V3_Sq_Mag(M->y);
+	f32 zSq = V3_Sq_Mag(M->z);
+
+	f32 sx = Equal_Zero_Eps_Sq_F32(xSq) ? 0.0f : 1.0f/xSq;
+	f32 sy = Equal_Zero_Eps_Sq_F32(ySq) ? 0.0f : 1.0f/ySq;
+	f32 sz = Equal_Zero_Eps_Sq_F32(zSq) ? 0.0f : 1.0f/zSq;
+
+	v3 NewX = V3_Mul_S(M->x, sx);
+	v3 NewY = V3_Mul_S(M->y, sy);
+	v3 NewZ = V3_Mul_S(M->z, sz);
+
+	f32 tx = -V3_Dot(M->t, NewX);
+	f32 ty = -V3_Dot(M->t, NewY);
+	f32 tz = -V3_Dot(M->t, NewZ);
+
+	m4_affine Result = {
+		.Data = {
+			NewX.x, NewY.x, NewZ.x,
+			NewX.y, NewY.y, NewZ.y,
+			NewX.z, NewY.z, NewZ.z,
+			tx,     ty,     tz
+		}
 	};
 
 	return Result;
