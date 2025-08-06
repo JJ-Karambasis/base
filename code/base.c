@@ -114,6 +114,10 @@ export_function f32 ATan2_F32(f32 a, f32 b) {
 	return atan2f(a, b);
 }
 
+export_function f32 ACos_F32(f32 V) {
+	return acosf(V);
+}
+
 export_function size_t Align(size_t Value, size_t Alignment) {
     size_t Remainder = Value % Alignment;
     return Remainder ? Value + (Alignment-Remainder) : Value;
@@ -225,6 +229,11 @@ export_function b32 Is_Nan(f32 V) {
 	return isnan(V);
 }
 
+export_function b32 Is_Close(f32 A, f32 B, f32 ToleranceSq) {
+	b32 Result = Abs(B-A) <= ToleranceSq;
+	return Result;
+}
+
 export_function s64 Pack_S64(v2i Data) {
 	s64 PackedX = ((s64)Data.x) & 0xFFFFFFFFLL;
     s64 PackedY = ((s64)Data.y) & 0xFFFFFFFFLL;
@@ -322,7 +331,7 @@ export_function v2 V2_Saturate(v2 V) {
 }
 
 export_function size_t V2_Largest_Index(v2 v) {
-	return v.Data[0] > v.Data[1] ? 0 : 1;
+	return Abs(v.Data[0]) > Abs(v.Data[1]) ? 0 : 1;
 }
 
 export_function f32 V2_Dot(v2 A, v2 B) {
@@ -483,7 +492,7 @@ export_function f32 V3_Dot(v3 a, v3 b) {
 
 export_function size_t V3_Largest_Index(v3 v) {
 	size_t LargestIndex = V2_Largest_Index(v.xy);
-	return v.Data[LargestIndex] > v.Data[2] ? LargestIndex : 2;
+	return Abs(v.Data[LargestIndex]) > Abs(v.Data[2]) ? LargestIndex : 2;
 }
 
 export_function f32 V3_Largest(v3 v) {
@@ -549,6 +558,12 @@ export_function v3 V3_Get_Perp(v3 Direction) {
 
 	v3 Result = V3_Negate(V3_Norm(V3_Cross(Z, Up)));
 	return Result;
+}
+
+export_function f32 V3_Angle_Between(v3 V1, v3 V2) {
+	f32 Dot = V3_Dot(V1, V2);
+	f32 Length = V3_Mag(V1)*V3_Mag(V2);
+	return ACos_F32(Saturate(Dot / Length));
 }
 
 export_function v3i V3i(s32 x, s32 y, s32 z) {

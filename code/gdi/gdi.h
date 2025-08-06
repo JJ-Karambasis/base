@@ -265,14 +265,23 @@ typedef union {
 
 typedef struct {
 	b32 ShouldClear;
-	gdi_clear ClearColor[GDI_MAX_RENDER_TARGET_COUNT];
-	f32 ClearDepth;
-} gdi_clear_state;
+	union {
+		f32 F32[4];
+		u32 U32[4];
+		s32 S32[4];
+	};
+} gdi_clear_color;
+
+typedef struct {
+	b32 ShouldClear;
+	f32 Depth;
+} gdi_clear_depth;
 
 typedef struct {
 	gdi_handle RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
 	gdi_handle DepthBufferView;
-	gdi_clear_state ClearState;
+	gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
+	gdi_clear_depth ClearDepth;
 } gdi_render_pass_begin_info;
 
 #define GDI_MAX_PUSH_CONSTANT_COUNT 32

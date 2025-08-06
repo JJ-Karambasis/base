@@ -600,3 +600,10 @@ export_function void Job_System_Add_Dependency(job_system* JobSystem, job_id Job
 
     Job_Add_Dependency(&JobSystem->Dependencies, Job, DependencyJob);
 }
+
+export_function void Job_System_Add_Parent(job_system* JobSystem, job_id JobID, job_id ParentJobID) {
+	job* Job = Job_Storage_Get(JobID);
+	Assert(Job && !Atomic_Load_B32(&Job->IsProcessing));
+	job* ParentJob = Job_Storage_Get(ParentJobID);
+	Job->ParentJob = ParentJob;
+}

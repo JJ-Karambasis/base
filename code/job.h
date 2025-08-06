@@ -126,5 +126,8 @@ export_function void        Job_System_Wait_For_Job(job_system* JobSystem, job_i
 export_function b32 		Job_System_Process_One_Job(job_system* JobSystem);
 export_function void 		Job_System_Process_One_Job_And_Yield(job_system* JobSystem);
 export_function void        Job_System_Add_Dependency(job_system* JobSystem, job_id Job, job_id DependencyJob);
+export_function void 		Job_System_Add_Parent(job_system* JobSystem, job_id Job, job_id ParentJob);
+
+#define Job_System_Capacity(job_system) ((job_system)->JobStorage.FreeJobIndices.Capacity)
 
 #endif

@@ -1880,13 +1880,13 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkRenderingAttachmentInfoKHR DepthAttachment;
 					Memory_Clear(&DepthAttachment, sizeof(DepthAttachment));
 
-					gdi_clear_state* ClearState = &RenderPass->ClearState;
-
 					for (size_t i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
 						vk_texture_view* View = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, RenderPass->RenderTargetViews[i]);
 						if (View) {
 							vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, View->Texture);
 							Assert(Texture);
+
+							gdi_clear_color* ClearState = RenderPass->ClearColors+i;
 
 							VkRenderingAttachmentInfoKHR AttachmentInfo = {
 								.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
@@ -1897,7 +1897,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 							};
 
 							if (ClearState->ShouldClear) {
-								Memory_Copy(AttachmentInfo.clearValue.color.float32, ClearState->ClearColor[i].F32, sizeof(ClearState->ClearColor[i]));
+								Memory_Copy(AttachmentInfo.clearValue.color.float32, ClearState->F32, sizeof(ClearState->F32));
 							}
 
 							ColorAttachments[ColorAttachmentCount++] = AttachmentInfo;
@@ -1949,6 +1949,8 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, RenderPass->DepthBufferView);
 					if (DepthView) {
 						vk_texture* DepthTexture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, DepthView->Texture);
+						gdi_clear_depth* ClearState = &RenderPass->ClearDepth;
+
 						VkImageMemoryBarrier2KHR PreBarrier = {
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 							.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
@@ -1995,7 +1997,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						};
 
 						if (ClearState->ShouldClear) {
-							DepthAttachmentInfo.clearValue.depthStencil.depth = ClearState->ClearDepth;
+							DepthAttachmentInfo.clearValue.depthStencil.depth = ClearState->Depth;
 						}
 						DepthAttachment = DepthAttachmentInfo;
 					}
@@ -2391,7 +2393,8 @@ function GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(VK_Begin_Render_Pass) {
 		vkAllocateCommandBuffers(VkGDI->Device, &CmdBufferInfo, &RenderPass->CmdBuffer);
 	}
 	
-	RenderPass->ClearState = BeginInfo->ClearState;
+	Memory_Copy(RenderPass->ClearColors, BeginInfo->ClearColors, sizeof(BeginInfo->ClearColors));
+	RenderPass->ClearDepth = BeginInfo->ClearDepth;
 	RenderPass->Dim = RenderPassDim;
 	Memory_Copy(RenderPass->RenderTargetViews, BeginInfo->RenderTargetViews, sizeof(BeginInfo->RenderTargetViews));
 	RenderPass->DepthBufferView = BeginInfo->DepthBufferView;

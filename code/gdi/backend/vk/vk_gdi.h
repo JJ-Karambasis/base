@@ -101,7 +101,8 @@ struct vk_render_pass {
 	gdi_handle      RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
 	gdi_handle 		DepthBufferView;
 	v2i 			Dim;
-	gdi_clear_state ClearState;
+	gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
+	gdi_clear_depth ClearDepth;
 	VkCommandBuffer CmdBuffer;
 	vk_render_pass* Next;
 };

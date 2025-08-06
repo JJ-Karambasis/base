@@ -104,6 +104,10 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 
 #define Radians_Const 0.0174533f
 #define To_Radians(degrees) ((degrees)*Radians_Const)
+
+#define Degrees_Const 57.295779513f
+#define To_Degrees(radians) ((radians)*Degrees_Const)
+
 #define Abs(v) (((v) < 0) ? -(v) : (v))
 #define Sq(v) ((v)*(v))
 
@@ -280,6 +284,7 @@ export_function f32 Cos_F32(f32 Value);
 export_function f32 Sin_F32(f32 Value);
 export_function f32 Tan_F32(f32 Value);
 export_function f32 ATan2_F32(f32 a, f32 b);
+export_function f32 ACos_F32(f32 V);
 export_function size_t Align(size_t Value, size_t Alignment);
 export_function u32 Ceil_Pow2_U32(u32 V);
 export_function u64 Ceil_Pow2_U64(u64 V);
@@ -302,7 +307,8 @@ export_function b32 Is_Whitespace(char Char);
 export_function char To_Lower(char Char);
 export_function char To_Upper(char Char);
 export_function b32 Is_Finite(f32 V);
-export_function b32 Is_Nan(f32 V);
+export_function b32 Is_Nan(f32 V);\
+export_function b32 Is_Close(f32 A, f32 B, f32 ToleranceSq);
 
 typedef struct {
 	union {
