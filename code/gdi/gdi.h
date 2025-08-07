@@ -606,6 +606,9 @@ export_function void GDI_Render(const gdi_render_params* RenderParams);
 /* Render Pass */
 export_function gdi_render_pass* GDI_Begin_Render_Pass(const gdi_render_pass_begin_info* BeginInfo);
 export_function void GDI_End_Render_Pass(gdi_render_pass* RenderPass);
+
+export_function gdi_handle Render_Get_Shader(gdi_render_pass* RenderPass);
+
 export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_handle Shader);
 export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_handle* BindGroups, size_t Count);
 export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_handle BindGroup);

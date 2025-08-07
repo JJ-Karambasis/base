@@ -80,6 +80,7 @@ typedef struct {
 } vk_bind_group;
 
 typedef struct {
+	u32 			 BindGroupCount;
 	VkPipelineLayout Layout;
 	VkPipeline Pipeline;
 	gdi_bind_group_binding_array WritableBindings;

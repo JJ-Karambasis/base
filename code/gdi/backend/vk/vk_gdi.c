@@ -1360,6 +1360,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			if (vkCreateGraphicsPipelines(VkGDI->Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, VK_NULL_HANDLE, &Pipeline) == VK_SUCCESS) {
 				Result = VK_Shader_Pool_Allocate(&VkGDI->ResourcePool);
 				vk_shader* Shader = VK_Shader_Pool_Get(&VkGDI->ResourcePool, Result);
+				Shader->BindGroupCount = (u32)ShaderInfo->BindGroupLayouts.Count;
 				Shader->Layout = PipelineLayout;
 				Shader->Pipeline = Pipeline;
 
@@ -2462,6 +2463,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	u32 CurrentIdxOffset = 0;
 	u32 CurrentVtxOffset = 0;
 	u32 PushConstantCount = 0;
+	vk_bind_group* BindGroups[GDI_MAX_BIND_GROUP_COUNT] = {0};
 
 	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
 	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
@@ -2477,13 +2479,25 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			CurrentShader = VK_Shader_Pool_Get(&VkGDI->ResourcePool, Handle);
 			Assert(CurrentShader->DEBUGType == GDI_PASS_TYPE_RENDER);
 			vkCmdBindPipeline(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Pipeline);
+			
+
 		}
 
 		for (size_t i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
+			vk_bind_group* BindGroup = NULL;
 			if (DirtyFlag & (GDI_RENDER_PASS_BIND_GROUP_BIT << i)) {
 				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
-				vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, Handle);
+				BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, Handle);
+			} else {
+				//If the shader changed make sure to update the bind group to the last one bound
+				if ((DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) && (i < CurrentShader->BindGroupCount)) {
+					BindGroup = BindGroups[i];
+				}
+			}
+
+			if (BindGroup) {
 				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, 0, NULL);
+				BindGroups[i] = BindGroup;
 			}
 		}
 

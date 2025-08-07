@@ -211,6 +211,10 @@ export_function void GDI_End_Render_Pass(gdi_render_pass* RenderPass) {
 	GDI_Backend_End_Render_Pass(RenderPass);
 }
 
+export_function gdi_handle Render_Get_Shader(gdi_render_pass* RenderPass) {
+	return RenderPass->CurrentState.Shader;
+}
+
 export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_handle Shader) {
 	Assert(GDI_Is_Type(Shader, SHADER));
 	RenderPass->CurrentState.Shader = Shader;

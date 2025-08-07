@@ -2,6 +2,7 @@
 #define BASE_INL_H
 
 #ifdef __cplusplus
+
 #include <initializer_list>
 template <typename type>
 struct span {
