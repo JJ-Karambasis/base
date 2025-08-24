@@ -47,7 +47,7 @@ typedef struct {
 	v2i 	   	  	  		   Dim;
 	u32 	   	  	  		   MipCount;
 	gdi_texture_usage 		   Usage;
-	b32 	   	  	  		   IsSwapchainManaged;
+	gdi_handle 				   Swapchain;
 	b32 			  		   QueuedBarrier;
 } vk_texture;
 
@@ -91,7 +91,42 @@ typedef struct {
 #endif
 } vk_shader;
 
+typedef struct {
+	gdi_handle 		   Handle;
+	VkSurfaceKHR   	   Surface;
+	VkSwapchainKHR 	   Swapchain;
+	u32 		   	   ImageCount;
+	VkImage* 	   	   Images;
+	gdi_handle*    	   Textures;
+	gdi_handle*    	   TextureViews;
+	VkSemaphore* 	   Locks;
+	VkSurfaceFormatKHR SurfaceFormat;
+	gdi_format 		   Format;
+	v2i 			   Dim;
+	u32 			   ImageIndex;
+} vk_swapchain;
+
 typedef struct vk_delete_thread_context vk_delete_thread_context;
+
+Meta()
+typedef enum {
+	VK_RESOURCE_STATE_NONE Tags(stage: VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, access: 0, layout: VK_IMAGE_LAYOUT_UNDEFINED),
+	VK_RESOURCE_STATE_TRANSFER_WRITE Tags(stage: VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR, access: VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
+	VK_RESOURCE_STATE_TRANSFER_READ Tags(stage: VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR, access: VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL), 
+	VK_RESOURCE_STATE_SHADER_READ Tags(stage: VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR, access: VK_ACCESS_2_SHADER_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+	VK_RESOURCE_STATE_DEPTH Tags(stage: VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, access:VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL), 
+	VK_RESOURCE_STATE_MEMORY_READ Tags(stage: VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, access: VK_ACCESS_2_MEMORY_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_GENERAL),
+	VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE Tags(stage: VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, access: VK_ACCESS_2_SHADER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_GENERAL),
+	VK_RESOURCE_STATE_RENDER_TARGET Tags(stage: VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, access: VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, layout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+} vk_resource_state;
+
+
+Dynamic_Array_Define(VkImageMemoryBarrier, vk_image_memory_barrier);
+Dynamic_Array_Define(VkImageMemoryBarrier2KHR, vk_image_memory_barrier2);
+typedef struct {
+	dynamic_vk_image_memory_barrier2_array Barriers;
+	VkCommandBuffer CmdBuffer;
+} vk_barriers;
 
 #include "meta/vk_meta.h"
 
@@ -163,12 +198,12 @@ Array_Define(vk_buffer_readback);
 typedef struct {
 	arena* 			 Arena;
 	VkFence 		 Fence;
-	VkSemaphore      SwapchainLock;
 	VkSemaphore      RenderLock;
 	VkSemaphore 	 TransferLock;
 	VkCommandPool    CmdPool;
 	VkCommandBuffer  CmdBuffer;
 	vk_cpu_buffer 	 ReadbackBuffer;
+	u32 			 Index;
 
 	vk_texture_readback_array TextureReadbacks;
 	vk_buffer_readback_array BufferReadbacks;
@@ -185,6 +220,7 @@ struct vk_delete_thread_context {
 	vk_bind_group_layout_delete_queue Bind_Group_LayoutDeleteQueue Tags(name: Bind_Group_Layout);
 	vk_bind_group_delete_queue 		  Bind_GroupDeleteQueue Tags(name: Bind_Group);
 	vk_shader_delete_queue 			  ShaderDeleteQueue Tags(name: Shader);
+	vk_swapchain_delete_queue 		  SwapchainDeleteQueue Tags(name: Swapchain);
 	vk_delete_thread_context* 		  Next Tags(NoIteration);
 };
 
@@ -193,8 +229,6 @@ typedef struct {
 	atomic_ptr TopThread;
 } vk_delete_queue;
 
-Dynamic_Array_Define(VkImageMemoryBarrier, vk_image_memory_barrier);
-Dynamic_Array_Define(VkImageMemoryBarrier2KHR, vk_image_memory_barrier2);
 Dynamic_Array_Define(VkWriteDescriptorSet, vk_write_descriptor_set);
 
 typedef struct {
@@ -213,7 +247,6 @@ struct vk_gdi {
 	//Instance handles
 	os_library*  			 Library;
 	VkInstance   			 Instance;
-	VkSurfaceKHR 			 Surface;
 	VkDebugUtilsMessengerEXT DebugUtils;
 
 	//Devices
@@ -224,14 +257,6 @@ struct vk_gdi {
 	VkQueue  GraphicsQueue;
 	VkQueue  PresentQueue;
 	VkQueue  TransferQueue;
-	
-	//Swapchain
-	VkSwapchainKHR Swapchain;
-	u32 		   SwapchainImageCount;
-	VkImage* 	   SwapchainImages;
-	gdi_handle*    SwapchainTextures;
-	gdi_handle*    SwapchainTextureViews;
-	u32 		   SwapchainImageIndex;
 
 	//Resources
 	VmaAllocator 	 GPUAllocator;

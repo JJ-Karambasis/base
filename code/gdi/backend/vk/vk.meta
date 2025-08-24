@@ -229,6 +229,7 @@ META_STRUCT(vk_resource_pool) {
 	VK_Resource(bind_group_layout);
 	VK_Resource(bind_group);
 	VK_Resource(shader);
+	VK_Resource(swapchain);
 }
 
 META_FUNCTION(VK_Resource_Pool_Init, vk_resource_pool* Pool, arena* Arena) -> void {
@@ -301,4 +302,34 @@ META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_gdi* GDI, vk_delete_thread_c
 	}
 
 	Arena_Set_Marker(DeleteContext->Arena, DeleteContext->ArenaMarker);
+}
+
+META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlags2KHR {
+	static const VkPipelineStageFlags2KHR Entries[] = {
+		META_FOR(vk_resource_state, flags: NoBraces) {
+			${META_GET_TAG_VALUE(stage):upper},
+		}
+	};
+	Assert((size_t)State < Array_Count(Entries));
+	return Entries[State];
+}
+
+META_FUNCTION(VK_Get_Access_Mask, vk_resource_state State) -> VkAccessFlags2KHR {
+	static const VkAccessFlags2KHR Entries[] = {
+		META_FOR(vk_resource_state, flags: NoBraces) {
+			${META_GET_TAG_VALUE(access):upper},
+		}
+	};
+	Assert((size_t)State < Array_Count(Entries));
+	return Entries[State];
+}
+
+META_FUNCTION(VK_Get_Image_Layout, vk_resource_state State) -> VkImageLayout {
+	static const VkImageLayout Entries[] = {
+		META_FOR(vk_resource_state, flags: NoBraces) {
+			${META_GET_TAG_VALUE(layout):upper},
+		}
+	};
+	Assert((size_t)State < Array_Count(Entries));
+	return Entries[State];
 }

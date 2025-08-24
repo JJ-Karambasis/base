@@ -121,7 +121,8 @@ typedef enum {
 	GDI_OBJECT_TYPE_SAMPLER,
 	GDI_OBJECT_TYPE_BIND_GROUP_LAYOUT,
 	GDI_OBJECT_TYPE_BIND_GROUP,
-	GDI_OBJECT_TYPE_SHADER
+	GDI_OBJECT_TYPE_SHADER,
+	GDI_OBJECT_TYPE_SWAPCHAIN
 } gdi_object_type;
 #endif
 
@@ -257,6 +258,30 @@ typedef struct {
 	string 		  DebugName;
 } gdi_shader_create_info;
 
+#if defined(OS_OSX)
+#ifdef __OBJC__
+@class CAMetalLayer;
+#else
+typedef void CAMetalLayer;
+#endif
+#endif
+
+typedef struct {
+#if defined(OS_WIN32)
+	HWND 	  Window;
+	HINSTANCE Instance;
+#elif defined(OS_OSX)
+	CAMetalLayer* Layer
+#endif
+	gdi_format Format;
+	string DebugName;
+} gdi_swapchain_create_info;
+
+typedef struct {
+	gdi_format Format;
+	v2i 	   Dim;
+} gdi_swapchain_info;
+
 typedef union {
 	f32 F32[4];
 	u32 U32[4];
@@ -380,6 +405,7 @@ Array_Define(gdi_buffer_readback);
 typedef struct {
 	gdi_texture_readback_array TextureReadbacks;
 	gdi_buffer_readback_array  BufferReadbacks;
+	gdi_handle_array 		   Swapchains;
 } gdi_render_params;
 
 typedef struct gdi gdi;
@@ -406,6 +432,11 @@ typedef struct gdi gdi;
 
 #define GDI_BACKEND_CREATE_SHADER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_shader_create_info* ShaderInfo)
 #define GDI_BACKEND_DELETE_SHADER_DEFINE(name) void name(gdi* GDI, gdi_handle Shader)
+
+#define GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_swapchain_create_info* SwapchainInfo)
+#define GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_handle Swapchain)
+#define GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, gdi_handle SwapchainHandle)
+#define GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(name) gdi_swapchain_info name(gdi* GDI, gdi_handle SwapchainHandle)
 
 #define GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(name) gdi_render_pass* name(gdi* GDI, const gdi_render_pass_begin_info* BeginInfo)
 #define GDI_BACKEND_END_RENDER_PASS_DEFINE(name) void name(gdi* GDI, gdi_render_pass* RenderPass)
@@ -435,6 +466,11 @@ typedef GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(gdi_backend_write_bind_group_func);
 
 typedef GDI_BACKEND_CREATE_SHADER_DEFINE(gdi_backend_create_shader_func);
 typedef GDI_BACKEND_DELETE_SHADER_DEFINE(gdi_backend_delete_shader_func);
+
+typedef GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(gdi_backend_create_swapchain_func);
+typedef GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(gdi_backend_delete_swapchain_func);
+typedef GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(gdi_backend_get_swapchain_view_func);
+typedef GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(gdi_backend_get_swapchain_info_func);
 
 typedef GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(gdi_backend_begin_render_pass_func);
 typedef GDI_BACKEND_END_RENDER_PASS_DEFINE(gdi_backend_end_render_pass_func);
@@ -466,6 +502,11 @@ typedef struct {
 	gdi_backend_create_shader_func* CreateShaderFunc;
 	gdi_backend_delete_shader_func* DeleteShaderFunc;
 
+	gdi_backend_create_swapchain_func* CreateSwapchainFunc;
+	gdi_backend_delete_swapchain_func* DeleteSwapchainFunc;
+	gdi_backend_get_swapchain_view_func* GetSwapchainViewFunc;
+	gdi_backend_get_swapchain_info_func* GetSwapchainInfoFunc;
+
 	gdi_backend_begin_render_pass_func* BeginRenderPassFunc;
 	gdi_backend_end_render_pass_func* EndRenderPassFunc;
 
@@ -478,10 +519,6 @@ struct gdi {
 	arena* 				FrameArena;
 
 	string DeviceName;
-	
-	gdi_handle View;
-	gdi_format ViewFormat;
-	v2i 	   ViewDim;
 	
 	size_t ConstantBufferAlignment;
 
@@ -516,6 +553,11 @@ struct gdi {
 #define GDI_Backend_Create_Shader(info) GDI_Get()->Backend->CreateShaderFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Shader(shader) GDI_Get()->Backend->DeleteShaderFunc(GDI_Get(), shader)
 
+#define GDI_Backend_Create_Swapchain(info) GDI_Get()->Backend->CreateSwapchainFunc(GDI_Get(), info)
+#define GDI_Backend_Delete_Swapchain(swapchain) GDI_Get()->Backend->DeleteSwapchainFunc(GDI_Get(), swapchain)
+#define GDI_Backend_Get_Swapchain_View(swapchain) GDI_Get()->Backend->GetSwapchainViewFunc(GDI_Get(), swapchain)
+#define GDI_Backend_Get_Swapchain_Info(swapchain) GDI_Get()->Backend->GetSwapchainInfoFunc(GDI_Get(), swapchain)
+
 #define GDI_Backend_Begin_Render_Pass(begin_info) GDI_Get()->Backend->BeginRenderPassFunc(GDI_Get(), begin_info)
 #define GDI_Backend_End_Render_Pass(render_pass) GDI_Get()->Backend->EndRenderPassFunc(GDI_Get(), render_pass)
 
@@ -528,23 +570,8 @@ struct gdi {
 
 /* Others */
 
-#if defined(OS_WIN32)
-#define GDI_INIT_DEFINE(name) gdi* name(base* Base, HWND Window, HINSTANCE Instance)
+#define GDI_INIT_DEFINE(name) gdi* name(base* Base)
 export_function GDI_INIT_DEFINE(GDI_Init);
-#elif defined(OS_OSX)
-
-#ifdef __OBJC__
-@class CAMetalLayer;
-#else
-typedef void CAMetalLayer;
-#endif
-
-#define GDI_INIT_DEFINE(name) gdi* name(base* Base, CAMetalLayer* Layer)
-export_function GDI_INIT_DEFINE(GDI_Init);
-#else
-#error "Not Implemented!"
-#endif
-
 
 /*Quick access helper lookups*/
 function inline gdi_id GDI_Null_ID() {
@@ -597,6 +624,10 @@ export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup);
 export_function void GDI_Write_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_write_info* BindGroupWriteInfo);
 export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
 export_function void GDI_Delete_Shader(gdi_handle Shader);
+export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);
+export_function void GDI_Delete_Swapchain(gdi_handle Swapchain);
+export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain);
+export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain);
 
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);

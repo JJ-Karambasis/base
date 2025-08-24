@@ -26,14 +26,14 @@ Array_Implement(vk_buffer_readback, VK_Buffer_Readback);
 global string G_RequiredInstanceExtensions[] = {
 	String_Expand(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME),
 	String_Expand(VK_KHR_SURFACE_EXTENSION_NAME),
-	#if defined(VK_USE_PLATFORM_WIN32_KHR)
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
 	String_Expand(VK_KHR_WIN32_SURFACE_EXTENSION_NAME)
-		#elif defined(VK_USE_PLATFORM_METAL_EXT)
-		String_Expand(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME),
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+	String_Expand(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME),
 	String_Expand(VK_EXT_METAL_SURFACE_EXTENSION_NAME)
-		#else
-		#error "Not Implemented!"
-		#endif
+#else
+#error "Not Implemented!"
+#endif
 };
 
 global string G_RequiredDeviceExtensions[] = {
@@ -48,10 +48,170 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_SWAPCHAIN_EXTENSION_NAME),
 	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
 	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME)
-	#ifdef VK_USE_PLATFORM_METAL_EXT
+#ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
-		#endif
+#endif
 };
+
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
+
+typedef struct {
+	HWND Window;
+	VkSurfaceKHR Surface;
+} vk_tmp_surface;
+
+VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, HWND Window, HINSTANCE Instance) {
+	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)vkGetInstanceProcAddr(GDI->Instance, "vkCreateWin32SurfaceKHR");
+	
+	VkWin32SurfaceCreateInfoKHR SurfaceCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+		.hinstance = Instance,
+		.hwnd = Window
+	};
+
+	VkSurfaceKHR Surface;
+	VkResult Status = vkCreateWin32SurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
+	if (Status != VK_SUCCESS) {
+		Debug_Log("vkCreateWin32SurfaceKHR failed!");
+		return VK_NULL_HANDLE;
+	}
+
+	return Surface;
+}
+
+function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
+	vk_tmp_surface Result;
+	Memory_Clear(&Result, sizeof(vk_tmp_surface));
+
+	// Create a minimal window class
+    WNDCLASSA WindowClass = {
+		.lpfnWndProc = DefWindowProcA,
+		.hInstance = GetModuleHandle(NULL),
+		.lpszClassName = "GDI_DummyVulkanWindow"
+	};
+    
+    if (!RegisterClassA(&WindowClass)) {
+		Debug_Log("Failed to register window class");
+		return Result;
+    }
+
+	HWND Window = CreateWindowA(WindowClass.lpszClassName, "Dummy", 
+                              	   WS_POPUP, 0, 0, 1, 1, 
+								   NULL, NULL, WindowClass.hInstance, NULL);
+    
+    if (!Window) {
+        Debug_Log("Failed to create window");
+        return Result;
+    }
+
+	VkSurfaceKHR Surface = VK_Create_Surface(GDI, Window, WindowClass.hInstance);
+	if (Surface != VK_NULL_HANDLE) {
+		Result.Window = Window;
+		Result.Surface = Surface;
+	}
+
+	return Result;
+}
+
+function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
+	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
+	DestroyWindow(Surface->Window);
+	UnregisterClassA("GDI_DummyVulkanWindow", GetModuleHandle(NULL));
+}
+
+#else
+#error "Not Implemented!"
+#endif
+
+function inline vk_barriers VK_Barriers_Init(arena* Arena, VkCommandBuffer CmdBuffer) {
+	vk_barriers Result = {
+		.Barriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Arena),
+		.CmdBuffer = CmdBuffer
+	};
+	return Result;
+}
+
+function void VK_Add_Texture_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState, vk_resource_state NewState) {
+	VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldState),
+		.srcAccessMask = VK_Get_Access_Mask(OldState),
+		.dstStageMask = VK_Get_Stage_Mask(NewState),
+		.dstAccessMask = VK_Get_Access_Mask(NewState),
+		.oldLayout = VK_Get_Image_Layout(OldState),
+		.newLayout = VK_Get_Image_Layout(NewState),
+		.image = Texture->Image,
+		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
+	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
+function void VK_Add_Pre_Swapchain_Barrier(vk_barriers* Barriers, vk_texture* Texture, VkPipelineStageFlags2KHR OldStage, vk_resource_state NewState) {
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = OldStage,
+		.srcAccessMask = 0,
+		.dstStageMask = VK_Get_Stage_Mask(NewState),
+		.dstAccessMask = VK_Get_Access_Mask(NewState),
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_Get_Image_Layout(NewState),
+		.image = Texture->Image,
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, Texture->MipCount, 0, 1 }
+	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
+function void VK_Add_Post_Swapchain_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState) {
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldState),
+		.srcAccessMask = VK_Get_Access_Mask(OldState),
+		.dstStageMask = VK_PIPELINE_STAGE_2_NONE_KHR,
+		.dstAccessMask = 0,
+		.oldLayout = VK_Get_Image_Layout(OldState),
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.image = Texture->Image,
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, Texture->MipCount, 0, 1 }
+	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
+function void VK_Submit_Memory_Barriers(vk_barriers* Barriers, vk_resource_state OldMemoryState, vk_resource_state NewMemoryState) {
+	VkMemoryBarrier2KHR MemoryBarrier = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldMemoryState),
+		.srcAccessMask = VK_Get_Access_Mask(OldMemoryState),
+		.dstStageMask = VK_Get_Stage_Mask(NewMemoryState),
+		.dstAccessMask = VK_Get_Access_Mask(NewMemoryState)
+	};
+
+	VkDependencyInfoKHR DependencyInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+		.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &MemoryBarrier,
+		.imageMemoryBarrierCount = (u32)Barriers->Barriers.Count,
+		.pImageMemoryBarriers = Barriers->Barriers.Count ? Barriers->Barriers.Ptr : NULL
+	};
+	vkCmdPipelineBarrier2KHR(Barriers->CmdBuffer, &DependencyInfo);
+}
+
+function void VK_Submit_Barriers(vk_barriers* Barriers) {
+	if (Barriers->Barriers.Count) {
+		VkDependencyInfoKHR DependencyInfo = {
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+			.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+			.imageMemoryBarrierCount = (u32)Barriers->Barriers.Count,
+			.pImageMemoryBarriers = Barriers->Barriers.Ptr
+		};
+		vkCmdPipelineBarrier2KHR(Barriers->CmdBuffer, &DependencyInfo);
+	}
+}
+
+function void VK_Barriers_Clear(vk_barriers* Barriers) {
+	Dynamic_VK_Image_Memory_Barrier2_Array_Clear(&Barriers->Barriers);
+}
 
 function inline vk_cpu_buffer VK_CPU_Buffer_Init(vk_gdi* GDI, arena* Arena, vk_cpu_buffer_type Type) {
 	vk_cpu_buffer Result = {
@@ -288,7 +448,11 @@ function void VK_Delete_Shader_Resources(vk_gdi* GDI, vk_shader* Shader) {
 	}
 }
 
-function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice) {
+function void VK_Delete_Swapchain_Resources(vk_gdi* GDI, vk_swapchain* Swapchain) {
+	Not_Implemented;
+}
+
+function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice, VkSurfaceKHR Surface) {
 	VkPhysicalDeviceProperties DeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
 
@@ -382,7 +546,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				
 			//First, check if the graphics queue family can support presentation
 			VkBool32 Supported = VK_FALSE;
-			vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, GraphicsQueueFamilyIndex, GDI->Surface, &Supported);
+			vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, GraphicsQueueFamilyIndex, Surface, &Supported);
 
 			if (Supported) {
 				PresentQueueFamilyIndex = GraphicsQueueFamilyIndex;
@@ -390,7 +554,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				//Other, find the first queue family that supports presentation 
 				for (u32 j = 0; j < QueueFamilyPropertyCount; j++) {
 					if (j != GraphicsQueueFamilyIndex) {
-						vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, j, GDI->Surface, &Supported);
+						vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, j, Surface, &Supported);
 						if (Supported) {
 							PresentQueueFamilyIndex = j;
 							break;
@@ -424,50 +588,21 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 }
 
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
-function b32 VK_Create_Swapchain(vk_gdi* GDI) {
-	//Delete the current texture views 
-	for (size_t i = 0; i < GDI->SwapchainImageCount; i++) {
-		VK_Texture_Pool_Free(&GDI->ResourcePool, GDI->SwapchainTextures[i]);
-		VK_Texture_View_Add_To_Delete_Queue(GDI, GDI->SwapchainTextureViews[i]);
+function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		VK_Texture_Pool_Free(&GDI->ResourcePool, Swapchain->Textures[i]);
+		VK_Texture_View_Add_To_Delete_Queue(GDI, Swapchain->TextureViews[i]);
 	}
 
 	VkSurfaceCapabilitiesKHR SurfaceCaps;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceCaps);
-
-	u32 ImageCount = GDI->SwapchainImageCount ? GDI->SwapchainImageCount : 2;
-	if (SurfaceCaps.maxImageCount < ImageCount) {
-		Debug_Log("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
-		return false;
-	}
-
-	arena* Scratch = Scratch_Get();
-
-	u32 SurfaceFormatCount = 0;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, VK_NULL_HANDLE);
-
-	VkSurfaceFormatKHR* SurfaceFormats = Arena_Push_Array(Scratch, SurfaceFormatCount, VkSurfaceFormatKHR);
-	vkGetPhysicalDeviceSurfaceFormatsKHR(GDI->TargetGPU->PhysicalDevice, GDI->Surface, &SurfaceFormatCount, SurfaceFormats);
-
-	VkSurfaceFormatKHR SurfaceFormat;
-	Memory_Clear(&SurfaceFormat, sizeof(VkSurfaceFormatKHR));
-
-	for (u32 i = 0; i < SurfaceFormatCount; i++) {
-		if (SurfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB ||
-			SurfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB) {
-			SurfaceFormat = SurfaceFormats[i];
-		}
-	}
-
-	if (SurfaceFormat.format == VK_FORMAT_UNDEFINED) {
-		SurfaceFormat = SurfaceFormats[0];
-	}
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
 
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface = GDI->Surface,
-		.minImageCount = ImageCount,
-		.imageFormat = SurfaceFormat.format,
-		.imageColorSpace = SurfaceFormat.colorSpace,
+		.surface = Swapchain->Surface,
+		.minImageCount = Swapchain->ImageCount,
+		.imageFormat = Swapchain->SurfaceFormat.format,
+		.imageColorSpace = Swapchain->SurfaceFormat.colorSpace,
 		.imageExtent = SurfaceCaps.currentExtent,
 		.imageArrayLayers = 1,
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
@@ -475,43 +610,41 @@ function b32 VK_Create_Swapchain(vk_gdi* GDI) {
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR, 
-		.oldSwapchain = GDI->Swapchain
+		.oldSwapchain = Swapchain->Swapchain
 	};
 
-	VkResult Status = vkCreateSwapchainKHR(GDI->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &GDI->Swapchain);
-	Scratch_Release();
+	VkResult Status = vkCreateSwapchainKHR(GDI->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &Swapchain->Swapchain);
 
 	if (Status != VK_SUCCESS) {
 		Debug_Log("vkCreateSwapchainKHR failed!");
 		return false;
 	}
 
-	if (!GDI->SwapchainImageCount) {
-		vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, VK_NULL_HANDLE);
-		GDI->SwapchainImages = Arena_Push_Array(GDI->Base.Arena, ImageCount, VkImage);
-		GDI->SwapchainTextures = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
-		GDI->SwapchainTextureViews = Arena_Push_Array(GDI->Base.Arena, ImageCount, gdi_handle);
-	}
+	vkGetSwapchainImagesKHR(GDI->Device, Swapchain->Swapchain, &Swapchain->ImageCount, Swapchain->Images);
+	
+	Swapchain->Dim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
 
-	vkGetSwapchainImagesKHR(GDI->Device, GDI->Swapchain, &GDI->SwapchainImageCount, GDI->SwapchainImages);
+	for (u32 i = 0; i < Swapchain->ImageCount; i++) {
+		Swapchain->Textures[i] = VK_Texture_Pool_Allocate(&GDI->ResourcePool);
 
-	GDI->Base.ViewFormat = VK_Get_GDI_Format(SurfaceFormat.format);
-	GDI->Base.ViewDim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
-
-	for (u32 i = 0; i < GDI->SwapchainImageCount; i++) {
-		GDI->SwapchainTextures[i] = VK_Texture_Pool_Allocate(&GDI->ResourcePool);
-
-		vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, GDI->SwapchainTextures[i]);
-		Texture->Image = GDI->SwapchainImages[i];
-		Texture->Dim = GDI->Base.ViewDim;
-		Texture->Format = GDI->Base.ViewFormat;
+		vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, Swapchain->Textures[i]);
+		Texture->Image = Swapchain->Images[i];
+		Texture->Dim = Swapchain->Dim;
+		Texture->Format = Swapchain->Format;
 		Texture->MipCount = 1;
-		Texture->IsSwapchainManaged = true;
+		Texture->Swapchain = Swapchain->Handle;
 
 		gdi_texture_view_create_info TextureViewCreateInfo = {
-			.Texture = GDI->SwapchainTextures[i]
+			.Texture = Swapchain->Textures[i]
 		};
-		GDI->SwapchainTextureViews[i] = VK_Create_Texture_View((gdi*)GDI, &TextureViewCreateInfo);
+		Swapchain->TextureViews[i] = VK_Create_Texture_View((gdi*)GDI, &TextureViewCreateInfo);
+	}
+
+	Status = vkAcquireNextImageKHR(GDI->Device, Swapchain->Swapchain, UINT64_MAX, 
+								   Swapchain->Locks[GDI->CurrentFrame->Index], VK_NULL_HANDLE, &Swapchain->ImageIndex);
+	if (Status != VK_SUCCESS) {
+		Debug_Log("vkAcquireNextImageKHR failed");
+		return false;
 	}
 
 	return true;
@@ -595,7 +728,6 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	Texture->MipCount = TextureInfo->MipCount;
 	Texture->Dim = TextureInfo->Dim;
 	Texture->Usage = TextureInfo->Usage;
-
 	
 	OS_RW_Mutex_Read_Lock(VkGDI->TransferLock);
 	vk_transfer_context* Transfer = VkGDI->CurrentTransfer;
@@ -1442,6 +1574,138 @@ function GDI_BACKEND_DELETE_SHADER_DEFINE(VK_Delete_Shader) {
 	VK_Shader_Add_To_Delete_Queue((vk_gdi*)GDI, Shader);
 }
 
+function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
+	gdi_handle Result = VK_Swapchain_Pool_Allocate(&VkGDI->ResourcePool);
+	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, Result);
+	Swapchain->Handle = Result;
+
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
+	Swapchain->Surface = VK_Create_Surface(VkGDI, SwapchainInfo->Window, SwapchainInfo->Instance);
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+	PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT = (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(VkGDI->Instance, "vkCreateMetalSurfaceEXT");
+	VkMetalSurfaceCreateInfoEXT SurfaceCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+		.pLayer = SwapchainInfo->Layer
+	};
+
+	VkResult Status = vkCreateMetalSurfaceEXT(VkGDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Swapchain->Surface);
+	if(Status != VK_SUCCESS) {
+		Debug_Log("vkCreateMetalSurfaceEXT failed!");
+		goto error;
+	}
+#else
+#error "Not Implemented!"
+#endif
+
+	if (!Swapchain->Surface) {
+		goto error;
+	}
+
+	VkSurfaceCapabilitiesKHR SurfaceCaps;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkGDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
+
+	if (SurfaceCaps.minImageCount < 2) {
+		Debug_Log("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
+		goto error;
+	}
+
+	{
+		Swapchain->ImageCount = SurfaceCaps.minImageCount;
+		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle) + sizeof(VkSemaphore));
+		Swapchain->Images = (VkImage*)Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
+		Swapchain->Textures = (gdi_handle*)(Swapchain->Images + Swapchain->ImageCount);
+		Swapchain->TextureViews = (gdi_handle*)(Swapchain->Textures + Swapchain->ImageCount);
+		Swapchain->Locks = (VkSemaphore*)(Swapchain->TextureViews + Swapchain->ImageCount);
+
+		arena* Scratch = Scratch_Get();
+
+		VkFormat TargetFormat = VK_Get_Format(SwapchainInfo->Format);
+
+		u32 SurfaceFormatCount = 0;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(VkGDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceFormatCount, VK_NULL_HANDLE);
+
+		VkSurfaceFormatKHR* SurfaceFormats = Arena_Push_Array(Scratch, SurfaceFormatCount, VkSurfaceFormatKHR);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(VkGDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceFormatCount, SurfaceFormats);
+
+		VkSurfaceFormatKHR SurfaceFormat;
+		Memory_Clear(&SurfaceFormat, sizeof(VkSurfaceFormatKHR));
+
+		if (TargetFormat != VK_FORMAT_UNDEFINED) {
+			for (u32 i = 0; i < SurfaceFormatCount; i++) {
+				if (SurfaceFormats[i].format == TargetFormat) {
+					SurfaceFormat = SurfaceFormats[i];
+					break;
+				}
+			}
+		}
+
+		if (SurfaceFormat.format == VK_FORMAT_UNDEFINED) {
+			SurfaceFormat = SurfaceFormats[0];
+		}
+
+		
+		VK_Set_Debug_Name(VK_OBJECT_TYPE_SURFACE_KHR, "surface", Swapchain->Surface, String_Concat((allocator*)Scratch, SwapchainInfo->DebugName, String_Lit(" Surface")));
+
+		Scratch_Release();
+
+		Swapchain->SurfaceFormat = SurfaceFormat;
+		Swapchain->Format = VK_Get_GDI_Format(SurfaceFormat.format);
+	}
+
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		VkSemaphoreCreateInfo SemaphoreLockInfo = {
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+		};
+		VkResult Status = vkCreateSemaphore(VkGDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i]);
+		if (Status != VK_SUCCESS) {
+			Debug_Log("vkCreateSemaphore failed!");
+			goto error;
+		}
+	}
+
+	if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) {
+		goto error;
+	}
+
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, "swapchain", Swapchain->Surface, SwapchainInfo->DebugName);
+
+	return Result;
+
+error:
+	VK_Delete_Swapchain_Resources(VkGDI, Swapchain);
+	VK_Swapchain_Pool_Free(&VkGDI->ResourcePool, Result);
+	return GDI_Null_Handle();
+}
+
+function GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(VK_Delete_Swapchain) {
+	VK_Swapchain_Add_To_Delete_Queue((vk_gdi*)GDI, Swapchain);
+}
+
+function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
+	gdi_handle Result = GDI_Null_Handle();
+	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, SwapchainHandle);
+	if (Swapchain) {
+		Result = Swapchain->TextureViews[Swapchain->ImageIndex];
+	}
+	return Result;
+}
+
+function GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(VK_Get_Swapchain_Info) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
+
+	gdi_swapchain_info Result;
+	Memory_Clear(&Result, sizeof(gdi_swapchain_info));
+
+	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, SwapchainHandle);
+	if (Swapchain) {
+		Result.Format = Swapchain->Format;
+		Result.Dim = Swapchain->Dim;
+	}
+	return Result;
+}
+
 function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	vk_gdi* VkGDI = (vk_gdi*)GDI;
 
@@ -1472,7 +1736,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	}
 
 	vk_frame_context* Frame = VkGDI->CurrentFrame;
-
+   
 	//Transfer commands
 	{
 		VkResult Status = vkResetCommandPool(VkGDI->Device, TransferContext->CmdPool, 0);
@@ -1493,9 +1757,10 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		}
 
 		arena* Scratch = Scratch_Get();
-		dynamic_vk_image_memory_barrier2_array PrePassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
-		dynamic_vk_image_memory_barrier2_array PostPassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
 
+		//Accumulate barriers
+		vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, TransferContext->CmdBuffer);
+		vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, TransferContext->CmdBuffer);
 		for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
 			if (!Thread->NeedsReset) {
 				for (vk_texture_barrier_cmd* Cmd = Thread->FirstTextureBarrierCmd; Cmd; Cmd = Cmd->Next) {
@@ -1504,112 +1769,28 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
 					if (Cmd->IsTransfer) {
-						VkImageMemoryBarrier2KHR PreBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
-							.srcAccessMask = 0,
-							.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-							.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-							.image = Texture->Image,
-							.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-						};
-
-						VkImageMemoryBarrier2KHR PostBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-							.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.image = Texture->Image,
-							.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-						};
-
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PrePassBarriers, PreBarrier);
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);
-
+						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 					} else {
-						VkImageMemoryBarrier2KHR PostBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR,
-							.srcAccessMask = 0,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.image = Texture->Image,
-							.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-						};
-
-						if (!(Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
-							if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
-								PostBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR| VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR;
-								PostBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR;
-								PostBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-							} else {
-								Not_Implemented;
-							}
+						if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
+							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_SHADER_READ);
+						} else if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
+							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_DEPTH);
 						}
-
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);
 					}
 					Texture->QueuedBarrier = false;
 				}
 			}
 		}
 
-		//Pre barriers
-		{
-			VkMemoryBarrier2KHR MemoryBarrier = {
-				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-				.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-				.srcAccessMask = 0,
-				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT
-			};
-
-			VkDependencyInfoKHR DependencyInfo = {
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-				.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-				.memoryBarrierCount = 1,
-				.pMemoryBarriers = &MemoryBarrier,
-				.imageMemoryBarrierCount = (u32)PrePassBarriers.Count,
-				.pImageMemoryBarriers = PrePassBarriers.Ptr
-			};
-
-			vkCmdPipelineBarrier2KHR(TransferContext->CmdBuffer, &DependencyInfo);
-		}
-
+		//Submit barriers and execute transfer cmds
+		VK_Submit_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
 		for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
 			if (!Thread->NeedsReset) {
 				vkCmdExecuteCommands(TransferContext->CmdBuffer, 1, &Thread->CmdBuffer);
 			}
 		}
-
-		//Post barriers
-		{
-			VkMemoryBarrier2KHR MemoryBarrier = {
-				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-				.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-				.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
-			};
-
-			VkDependencyInfoKHR DependencyInfo = {
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-				.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-				.memoryBarrierCount = 1,
-				.pMemoryBarriers = &MemoryBarrier,
-				.imageMemoryBarrierCount = (u32)PostPassBarriers.Count,
-				.pImageMemoryBarriers = PostPassBarriers.Ptr
-			};
-
-			vkCmdPipelineBarrier2KHR(TransferContext->CmdBuffer, &DependencyInfo);
-		}
+		VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_MEMORY_READ);
 
 		Status = vkEndCommandBuffer(TransferContext->CmdBuffer);
 		Scratch_Release();
@@ -1664,40 +1845,26 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		}
 
 		arena* Scratch = Scratch_Get();
-		dynamic_vk_image_memory_barrier2_array PrePassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
-		dynamic_vk_image_memory_barrier2_array PostPassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
-		VkPipelineStageFlags WaitStageFlag = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
+		vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
+		
+		VkPipelineStageFlags* WaitStageFlags = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count + 1, VkPipelineStageFlags);
+		VkSemaphore* WaitSemaphores = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count + 1, VkSemaphore);
+
+		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+			WaitSemaphores[i] = Swapchain->Locks[Frame->Index];
+		}
 
 		for (gdi_pass* Pass = GDI->FirstPass; Pass; Pass = Pass->Next) {
-			Dynamic_VK_Image_Memory_Barrier2_Array_Clear(&PrePassBarriers);
-			Dynamic_VK_Image_Memory_Barrier2_Array_Clear(&PostPassBarriers);
+			VK_Barriers_Clear(&PrePassBarriers);
+			VK_Barriers_Clear(&PostPassBarriers);
 
 			switch (Pass->Type) {
 				case GDI_PASS_TYPE_COMPUTE: {
 
 					gdi_compute_pass* ComputePass = &Pass->ComputePass;
 
-					//Memory barriers are sufficient for buffers
-					VkMemoryBarrier2 PreMemoryBarrier = {
-						.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-						.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-						.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-						.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR
-					};
-
-					VkMemoryBarrier2 PostMemoryBarrier = {
-						.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-						.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-						.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
-						.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-						.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR
-					};
-
-					u32 MemoryBarrierCount = 0;
-					if (ComputePass->BufferWrites.Count) {
-						MemoryBarrierCount = 1;
-					}
 
 					//Image memory barriers
 					for (size_t i = 0; i < ComputePass->TextureWrites.Count; i++) {
@@ -1706,59 +1873,32 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, TextureView->Texture);
 						Assert(Texture);
 
-						VkImageMemoryBarrier2KHR PreBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.newLayout = VK_IMAGE_LAYOUT_GENERAL,
-							.image = Texture->Image,
-							.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-						};
+						if (!GDI_Is_Null(Texture->Swapchain)) {
+							size_t Index = (size_t)-1;
+							for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+								if (GDI_Is_Equal(RenderParams->Swapchains.Ptr[i], Texture->Swapchain)) {
+									Index = i;
+									break;
+								}
+							}
+							Assert(Index != (size_t)-1); //Swapchain is not used
 
-						VkImageMemoryBarrier2KHR PostBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.image = Texture->Image,
-							.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-						};
-
-						if (Texture->IsSwapchainManaged) {
-							if (WaitStageFlag == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-								WaitStageFlag = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+							if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+								WaitStageFlags[i] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 							}
 
-							PreBarrier.srcStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-							PreBarrier.srcAccessMask = 0;
-							PreBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-							PostBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-							PostBarrier.dstAccessMask = 0;
-							PostBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+							VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_SHADER_READ);
+							VK_Add_Post_Swapchain_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ);
+						} else {
+							VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 						}
-
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PrePassBarriers, PreBarrier);
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);
 					}
 
-					if (PrePassBarriers.Count || MemoryBarrierCount) {
-						VkDependencyInfoKHR DependencyInfo = {
-							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-							.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-							.memoryBarrierCount = MemoryBarrierCount,
-							.pMemoryBarriers = MemoryBarrierCount ? &PreMemoryBarrier : VK_NULL_HANDLE,
-							.imageMemoryBarrierCount = (u32)PrePassBarriers.Count,
-							.pImageMemoryBarriers = PrePassBarriers.Ptr
-						};
-
-						vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
+					if (ComputePass->BufferWrites.Count) {
+						VK_Submit_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_MEMORY_READ, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+					} else {
+						VK_Submit_Barriers(&PrePassBarriers);
 					}
 
 					vk_shader* CurrentShader = VK_NULL_HANDLE;
@@ -1853,17 +1993,10 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						vkCmdDispatch(Frame->CmdBuffer, Dispatch->ThreadGroupCount.x, Dispatch->ThreadGroupCount.y, Dispatch->ThreadGroupCount.z);
 					}
 
-					if (PostPassBarriers.Count || MemoryBarrierCount) {
-						VkDependencyInfoKHR DependencyInfo = {
-							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-							.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-							.memoryBarrierCount = MemoryBarrierCount,
-							.pMemoryBarriers = MemoryBarrierCount ? &PostMemoryBarrier : VK_NULL_HANDLE,
-							.imageMemoryBarrierCount = (u32)PostPassBarriers.Count,
-							.pImageMemoryBarriers = PostPassBarriers.Ptr
-						};
-
-						vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
+					if (ComputePass->BufferWrites.Count) {
+						VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_MEMORY_READ);
+					} else {
+						VK_Submit_Barriers(&PostPassBarriers);
 					}
 				} break;
 
@@ -1902,48 +2035,27 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 							}
 
 							ColorAttachments[ColorAttachmentCount++] = AttachmentInfo;
-			
-							VkImageMemoryBarrier2KHR PreBarrier = {
-								.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-								.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-								.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-								.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-								.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR|VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-								.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-								.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-								.image = Texture->Image,
-								.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-							};
 
-							VkImageMemoryBarrier2KHR PostBarrier = {
-								.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-								.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-								.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR,
-								.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-								.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-								.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-								.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-								.image = Texture->Image,
-								.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-							};
+							if (!GDI_Is_Null(Texture->Swapchain)) {
+								size_t Index = (size_t)-1;
+								for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+									if (GDI_Is_Equal(RenderParams->Swapchains.Ptr[i], Texture->Swapchain)) {
+										Index = i;
+										break;
+									}
+								}
+								Assert(Index != (size_t)-1); //Swapchain is not used
 
-							if (Texture->IsSwapchainManaged) {
-								if (WaitStageFlag == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-									WaitStageFlag = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+								if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+									WaitStageFlags[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 								}
 																	
-								//First transition
-								PreBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-								PreBarrier.srcAccessMask = 0;
-								PreBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-								PostBarrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-								PostBarrier.dstAccessMask = 0;
-								PostBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+								VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);
+								VK_Add_Post_Swapchain_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET);
+							} else {
+								VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_RENDER_TARGET);
+								VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_SHADER_READ);
 							}
-
-							Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PrePassBarriers, PreBarrier);
-							Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);
 						}
 					}
 
@@ -1952,42 +2064,13 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						vk_texture* DepthTexture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, DepthView->Texture);
 						gdi_clear_depth* ClearState = &RenderPass->ClearDepth;
 
-						VkImageMemoryBarrier2KHR PreBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-							.image = DepthTexture->Image,
-							.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
-						};
-
-						VkImageMemoryBarrier2KHR PostBarrier = {
-							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-							.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR,
-							.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR,
-							.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-							.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-							.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-							.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-							.image = DepthTexture->Image,
-							.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
-						};
-
 						if (!(DepthTexture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
-							PreBarrier.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR;
-							PreBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR;
-							PreBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-							PostBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR;
-							PostBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR|VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR;
-							PostBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+							VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_DEPTH);
+							VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_DEPTH);
+						} else {
+							VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_DEPTH);
+							VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_SHADER_READ);
 						}
-
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PrePassBarriers, PreBarrier);			
-						Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);			
 
 						VkRenderingAttachmentInfoKHR DepthAttachmentInfo = {
 							.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
@@ -2013,31 +2096,11 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						.pDepthAttachment = DepthView ? &DepthAttachment : NULL
 					};
 
-					if (PrePassBarriers.Count) {
-						VkDependencyInfoKHR DependencyInfo = {
-							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-							.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-							.imageMemoryBarrierCount = (u32)PrePassBarriers.Count,
-							.pImageMemoryBarriers = PrePassBarriers.Ptr
-						};
-
-						vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
-					}
-
+					VK_Submit_Barriers(&PrePassBarriers);
 					vkCmdBeginRenderingKHR(Frame->CmdBuffer, &RenderingInfo);
 					vkCmdExecuteCommands(Frame->CmdBuffer, 1, &PassCmdBuffer);
 					vkCmdEndRenderingKHR(Frame->CmdBuffer);
-
-					if (PostPassBarriers.Count) {
-						VkDependencyInfoKHR DependencyInfo = {
-							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-							.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-							.imageMemoryBarrierCount = (u32)PostPassBarriers.Count,
-							.pImageMemoryBarriers = PostPassBarriers.Ptr
-						};
-
-						vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
-					}
+					VK_Submit_Barriers(&PostPassBarriers);
 				} break;
 			}
 		}
@@ -2046,89 +2109,25 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			Frame->TextureReadbacks = VK_Texture_Readback_Array_Alloc((allocator*)Frame->Arena, RenderParams->TextureReadbacks.Count);
 			Frame->BufferReadbacks = VK_Buffer_Readback_Array_Alloc((allocator*)Frame->Arena, RenderParams->BufferReadbacks.Count);
 
-			dynamic_vk_image_memory_barrier2_array PrePassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
-			dynamic_vk_image_memory_barrier2_array PostPassBarriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Scratch);
-
-			//Memory barriers are sufficient for buffers
-			VkMemoryBarrier2KHR PreMemoryBarrier = {
-				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-				.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-				.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR,
-				.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT
-			};
-
-			VkMemoryBarrier2KHR PostMemoryBarrier = {
-				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
-				.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-				.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT_KHR
-			};
-
-			u32 MemoryBarrierCount = 0;
-			if (RenderParams->BufferReadbacks.Count) {
-				MemoryBarrierCount++;
-			}
-
+			vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
+			vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
+		
 			for (size_t i = 0; i < RenderParams->TextureReadbacks.Count; i++) {
 				const gdi_texture_readback* Readback = RenderParams->TextureReadbacks.Ptr + i;
 				vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, Readback->Texture);
-				VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-
-				VkImageMemoryBarrier2KHR PreBarrier = {
-					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-					.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-					.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-					.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-					.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT_KHR,
-					.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-					.image = Texture->Image,
-					.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-				};
-
-				VkImageMemoryBarrier2KHR PostBarrier = {
-					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-					.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
-					.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT_KHR,
-					.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-					.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR,
-					.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-					.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					.image = Texture->Image,
-					.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
-				};
-
-				if (!(Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
-					if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
-						PreBarrier.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR;
-						PreBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR;
-						PreBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-						PostBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR;
-						PostBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR;
-						PostBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-					} else {
-						Not_Implemented;
-					}
-				}
-
-				Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PrePassBarriers, PreBarrier);
-				Dynamic_VK_Image_Memory_Barrier2_Array_Add(&PostPassBarriers, PostBarrier);
+				if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
+					VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_READ);
+					VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_READ, VK_RESOURCE_STATE_SHADER_READ);
+				} else if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
+					VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_TRANSFER_READ);
+					VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_READ, VK_RESOURCE_STATE_DEPTH);
+				} Invalid_Else;
 			}
 
-			if (PrePassBarriers.Count || MemoryBarrierCount) {
-				VkDependencyInfoKHR DependencyInfo = {
-					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-					.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-					.memoryBarrierCount = MemoryBarrierCount,
-					.pMemoryBarriers = MemoryBarrierCount ? &PreMemoryBarrier : VK_NULL_HANDLE,
-					.imageMemoryBarrierCount = (u32)PrePassBarriers.Count,
-					.pImageMemoryBarriers = PrePassBarriers.Ptr
-				};
-
-				vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
+			if (RenderParams->BufferReadbacks.Count) {
+				VK_Submit_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_MEMORY_READ, VK_RESOURCE_STATE_TRANSFER_READ);
+			} else {
+				VK_Submit_Barriers(&PrePassBarriers);
 			}
 
 			for (size_t i = 0; i < RenderParams->TextureReadbacks.Count; i++) {
@@ -2202,17 +2201,10 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				Frame->BufferReadbacks.Ptr[i] = VkReadback;
 			}
 
-			if (PostPassBarriers.Count || MemoryBarrierCount) {
-				VkDependencyInfoKHR DependencyInfo = {
-					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-					.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-					.memoryBarrierCount = MemoryBarrierCount,
-					.pMemoryBarriers = MemoryBarrierCount ? &PostMemoryBarrier : VK_NULL_HANDLE,
-					.imageMemoryBarrierCount = (u32)PostPassBarriers.Count,
-					.pImageMemoryBarriers = PostPassBarriers.Ptr
-				};
-
-				vkCmdPipelineBarrier2KHR(Frame->CmdBuffer, &DependencyInfo);
+			if (RenderParams->BufferReadbacks.Count) {
+				VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_READ, VK_RESOURCE_STATE_MEMORY_READ);
+			} else {
+				VK_Submit_Barriers(&PostPassBarriers);
 			}
 		}
 
@@ -2224,17 +2216,17 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			return;
 		}
 
-
 		{
+			
 			VkCommandBuffer CmdBuffers[] = { Frame->CmdBuffer };
 			VkSemaphore SignalSemaphores[] = { Frame->RenderLock };
-			VkSemaphore WaitSemaphores[] = { Frame->SwapchainLock, Frame->TransferLock };
-			VkPipelineStageFlags WaitStageFlags[] = { WaitStageFlag, VK_PIPELINE_STAGE_TRANSFER_BIT };
-			Static_Assert(Array_Count(WaitSemaphores) == Array_Count(WaitStageFlags));
+			
+			WaitSemaphores[RenderParams->Swapchains.Count] = Frame->TransferLock;
+			WaitStageFlags[RenderParams->Swapchains.Count] = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	
 			VkSubmitInfo SubmitInfo = {
 				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				.waitSemaphoreCount = Array_Count(WaitSemaphores),
+				.waitSemaphoreCount = (u32)(RenderParams->Swapchains.Count+1),
 				.pWaitSemaphores = WaitSemaphores,
 				.pWaitDstStageMask = WaitStageFlags,
 				.commandBufferCount = Array_Count(CmdBuffers),
@@ -2253,9 +2245,16 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 	//Final swapchain present
 	{
-		VkSwapchainKHR Swapchains[] = { VkGDI->Swapchain };
-		u32 ImageIndices[] = { VkGDI->SwapchainImageIndex };
-		Static_Assert(Array_Count(Swapchains) == Array_Count(ImageIndices));
+		arena* Scratch = Scratch_Get();
+		VkSwapchainKHR* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, VkSwapchainKHR);
+		u32* ImageIndices = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, u32);
+		VkResult* Statuses = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, VkResult);
+
+		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+			Swapchains[i] = Swapchain->Swapchain;
+			ImageIndices[i] = Swapchain->ImageIndex;
+		}
 
 		VkSemaphore WaitSemaphores[] = { Frame->RenderLock };
 
@@ -2265,11 +2264,19 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			.pWaitSemaphores = WaitSemaphores,
 			.swapchainCount = Array_Count(Swapchains),
 			.pSwapchains = Swapchains,
-			.pImageIndices = ImageIndices
+			.pImageIndices = ImageIndices,
+			.pResults = Statuses
 		};
 		Status = vkQueuePresentKHR(VkGDI->PresentQueue, &PresentInfo);
+		Scratch_Release();
+
 		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-			if (!VK_Create_Swapchain(VkGDI)) return;
+			for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+				if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
+					vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+					if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) return;
+				}
+			}			
 		} else if (Status != VK_SUCCESS) {
 			Debug_Log("vkQueuePresentKHR failed");
 			return;
@@ -2332,16 +2339,18 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	Arena_Clear(Frame->Arena);
 
 	//Acquire the swapchain image so we know what view to pass to the user land code
-	Status = vkAcquireNextImageKHR(VkGDI->Device, VkGDI->Swapchain, UINT64_MAX, 
-								   Frame->SwapchainLock, VK_NULL_HANDLE, &VkGDI->SwapchainImageIndex);
-	if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-		if (!VK_Create_Swapchain(VkGDI)) return;
-	} else if (Status != VK_SUCCESS) {
-		Debug_Log("vkAcquireNextImageKHR failed");
-		return;
-	}
 
-	GDI->View = VkGDI->SwapchainTextureViews[VkGDI->SwapchainImageIndex];
+	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+		Status = vkAcquireNextImageKHR(VkGDI->Device, Swapchain->Swapchain, UINT64_MAX, 
+									   Swapchain->Locks[FrameIndex], VK_NULL_HANDLE, &Swapchain->ImageIndex);
+		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+			if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) return;
+		} else if (Status != VK_SUCCESS) {
+			Debug_Log("vkAcquireNextImageKHR failed");
+			return;
+		}
+	}
 }
  
 function GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(VK_Begin_Render_Pass) {
@@ -2602,6 +2611,10 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.CreateShaderFunc = VK_Create_Shader,
 	.DeleteShaderFunc = VK_Delete_Shader,
 
+	.CreateSwapchainFunc = VK_Create_Swapchain,
+	.DeleteSwapchainFunc = VK_Delete_Swapchain,
+	.GetSwapchainViewFunc = VK_Get_Swapchain_View,
+	.GetSwapchainInfoFunc = VK_Get_Swapchain_Info,
 
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,
 	.EndRenderPassFunc = VK_End_Render_Pass,
@@ -2757,37 +2770,6 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 #endif
 
 	Vk_Khr_Surface_Funcs_Load(GDI->Instance);
-
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)vkGetInstanceProcAddr(GDI->Instance, "vkCreateWin32SurfaceKHR");
-
-	VkWin32SurfaceCreateInfoKHR SurfaceCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-		.hinstance = Instance,
-		.hwnd = Window
-	};
-
-	Status = vkCreateWin32SurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &GDI->Surface);
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateWin32SurfaceKHR failed!");
-		return NULL;
-	}
-#elif defined(VK_USE_PLATFORM_METAL_EXT)
-	PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT = (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(GDI->Instance, "vkCreateMetalSurfaceEXT");
-	VkMetalSurfaceCreateInfoEXT SurfaceCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-		.pLayer = Layer
-	};
-
-	Status = vkCreateMetalSurfaceEXT(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &GDI->Surface);
-	if(Status != VK_SUCCESS) {
-		Debug_Log("vkCreateMetalSurfaceEXT failed!");
-		return NULL;
-	}
-#else
-#error "Not Implemented!"
-#endif
-
 	Vk_Instance_Funcs_Load(GDI->Instance);
 	Vk_Khr_Get_Physical_Device_Properties2_Funcs_Load(GDI->Instance);
 
@@ -2801,12 +2783,20 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	GDI->GPUs = Arena_Push_Array(GDI->Base.Arena, PhysicalDeviceCount, vk_gpu);
 
+	vk_tmp_surface Surface = VK_Create_Tmp_Surface(GDI);
+	if (Surface.Surface == VK_NULL_HANDLE) {
+		Debug_Log("Failed to create the vulkan tmp surface");
+		return NULL;
+	}
+
 	for (size_t i = 0; i < PhysicalDeviceCount; i++) {
 		vk_gpu GPU;
-		if (VK_Fill_GPU(GDI, &GPU, PhysicalDevices[i])) {
+		if (VK_Fill_GPU(GDI, &GPU, PhysicalDevices[i], Surface.Surface)) {
 			GDI->GPUs[GDI->GPUCount++] = GPU;
 		}
 	}
+
+	VK_Delete_Tmp_Surface(GDI, &Surface);
 
 	if (!GDI->GPUCount) {
 		Debug_Log("No valid GPUs");
@@ -2955,13 +2945,10 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	VK_Resource_Pool_Init(&GDI->ResourcePool, GDI->Base.Arena);
 
-	if (!VK_Create_Swapchain(GDI)) {
-		return NULL;
-	}
-
-	for (u64 i = 0; i < VK_FRAME_COUNT; i++) {
+	for (u32 i = 0; i < VK_FRAME_COUNT; i++) {
 		vk_frame_context* Frame = GDI->Frames + i;
 		Frame->Arena = Arena_Create();
+		Frame->Index = i;
 
 		VkCommandPoolCreateInfo CommandPoolCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -2992,12 +2979,6 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		VkSemaphoreCreateInfo SemaphoreLockInfo = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
 		};
-		Status = vkCreateSemaphore(GDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->SwapchainLock);
-		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateSemaphore failed!");
-			return NULL;
-		}
-
 		Status = vkCreateSemaphore(GDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->RenderLock);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkCreateSemaphore failed!");
@@ -3052,19 +3033,9 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 #endif
 	}
 	GDI->CurrentTransfer = &GDI->Transfers[0];
-
 	GDI->CurrentFrame = GDI->Frames + GDI->FrameIndex;
 
 	vk_frame_context* Frame = GDI->CurrentFrame;
-	Status = vkAcquireNextImageKHR(GDI->Device, GDI->Swapchain, UINT64_MAX, 
-								   Frame->SwapchainLock, VK_NULL_HANDLE, &GDI->SwapchainImageIndex);
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkAcquireNextImageKHR failed");
-		return NULL;
-	}
-
-	GDI->Base.View = GDI->SwapchainTextureViews[GDI->SwapchainImageIndex];
-
 	return (gdi*)GDI;
 }
 

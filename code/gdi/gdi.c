@@ -158,6 +158,37 @@ export_function void GDI_Delete_Shader(gdi_handle Shader) {
 	}
 }
 
+export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo) {
+	gdi_handle Result = GDI_Backend_Create_Swapchain(CreateInfo);
+	return Result;
+}
+
+export_function void GDI_Delete_Swapchain(gdi_handle Swapchain) {
+	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+	if (!GDI_Is_Null(Swapchain)) {
+		GDI_Backend_Delete_Swapchain(Swapchain);
+	}
+}
+
+export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain) {
+	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+	gdi_handle Result = GDI_Null_Handle();
+	if (!GDI_Is_Null(Swapchain)) {
+		Result = GDI_Backend_Get_Swapchain_View(Swapchain);
+	}
+	return Result;
+}
+
+export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain) {
+	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+	gdi_swapchain_info Result;
+	Memory_Clear(&Result, sizeof(gdi_swapchain_info));
+	if (!GDI_Is_Null(Swapchain)) {
+		Result = GDI_Backend_Get_Swapchain_Info(Swapchain);
+	}
+	return Result;
+}
+
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass) {
 	gdi* GDI = GDI_Get();
@@ -178,6 +209,12 @@ export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi
 }
 
 export_function void GDI_Render(const gdi_render_params* RenderParams) {
+#ifdef DEBUG_BUILD
+	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+		Assert(GDI_Is_Type(RenderParams->Swapchains.Ptr[i], SWAPCHAIN));
+	}
+#endif
+	
 	gdi* GDI = GDI_Get();
 	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		if (!ImGDI->IsReset) {
