@@ -88,8 +88,8 @@ if %build_tracy% == 1 (
 	set app_includes=%app_includes% -I"%tracy_path%\public\tracy"
 )
 
-set msvc_optimized_flag=/Od
-set clang_optimized_flag=-O0
+set msvc_optimized_flag=/Od /MTd
+set clang_optimized_flag=-O0 -MTd
 if %build_debug% == 0 (
 	set msvc_optimized_flag=/O2
 	set clang_optimized_flag=-O3

@@ -741,6 +741,13 @@ export_function b32 Quat_Is_Nan(quat Q) {
 	return Is_Nan(Q.x) || Is_Nan(Q.y) || Is_Nan(Q.z) || Is_Nan(Q.w);
 }
 
+export_function v3 Quat_Rotate(v3 V, quat Q) {
+	v3 A = V3_Mul_S(Q.v, 2.0f * V3_Dot(V, Q.v));
+	v3 B = V3_Mul_S(V, Sq(Q.s) - V3_Sq_Mag(Q.v));
+	v3 C = V3_Mul_S(V3_Cross(Q.v, V), 2.0f * Q.s);
+	return V3_Add_V3(A, V3_Add_V3(B, C));
+}
+
 export_function m3 M3_From_M4(const m4* M) {
 	m3 Result = {
 		.x = M->x,
@@ -1049,6 +1056,16 @@ export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar)
 		0, 0, d, 0
 	};
 	return M4_F32(Data);
+}
+
+export_function m4 M4_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
+	m4 Result = {
+		2/(r-l), 		0, 			0,  		  0, 
+		0, 				2/(t-b), 	0,  		  0, 
+		0, 				0, 			-2/(f-n), 	  0,
+		-(r+l)/(r-l), -(t+b)/(t-b), -(f+n)/(f-n), 1
+	};
+	return Result;
 }
 
 export_function v4 V4_Mul_M4(v4 A, const m4* B) {

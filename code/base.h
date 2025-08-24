@@ -14,6 +14,7 @@ extern "C" {
 #include <float.h>
 #include <ctype.h>
 #include <wchar.h>
+#include <inttypes.h>
 
 #ifdef _WIN32
 // Windows (both 32-bit and 64-bit)
@@ -457,7 +458,7 @@ export_function u32 U32_Color_From_V4(v4 Color);
 typedef struct {
 	union {
 		f32 Data[4];
-		v4  V;
+		v4  Q;
 		struct { f32 x, y, z, w; };
 		struct { v3 v; f32 s; };
 	};
@@ -481,6 +482,7 @@ export_function f32 Quat_Mag(quat V);
 export_function quat Quat_Norm(quat V);
 export_function quat Quat_Lerp(quat A, f32 t, quat B);
 export_function b32 Quat_Is_Nan(quat Q);
+export_function v3 Quat_Rotate(v3 V, quat Q);
 
 typedef struct {
 	union {
@@ -544,6 +546,7 @@ export_function m4 M4_Look_At(v3 Position, v3 Target);
 export_function m4 M4_Transpose(const m4* M);
 export_function m4 M4_Mul_M4(const m4* A, const m4* B);
 export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar);
+export_function m4 M4_Orthographic(f32 Left, f32 Right, f32 Bottom, f32 Top, f32 Near, f32 Far);
 export_function v4 V4_Mul_M4(v4 A, const m4* B);
 
 typedef struct {

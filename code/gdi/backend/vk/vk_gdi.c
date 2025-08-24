@@ -1668,7 +1668,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		goto error;
 	}
 
-	VK_Set_Debug_Name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, "swapchain", Swapchain->Surface, SwapchainInfo->DebugName);
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, "swapchain", Swapchain->Swapchain, SwapchainInfo->DebugName);
 
 	return Result;
 
@@ -3036,6 +3036,8 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	GDI->CurrentFrame = GDI->Frames + GDI->FrameIndex;
 
 	vk_frame_context* Frame = GDI->CurrentFrame;
+
+	GDI_Set((gdi*)GDI);
 	return (gdi*)GDI;
 }
 
