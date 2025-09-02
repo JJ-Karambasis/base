@@ -485,6 +485,11 @@ export_function v3 V3_Div_S(v3 v, f32 s) {
 	return Result;
 }
 
+export_function v3 V3_Div_V3(v3 a, v3 b) {
+	v3 Result = V3(a.x / b.x, a.y / b.y, a.z / b.z);
+	return Result;
+}
+
 export_function f32 V3_Dot(v3 a, v3 b) {
 	f32 Result = a.x * b.x + a.y * b.y + a.z * b.z;
 	return Result;
@@ -1058,12 +1063,42 @@ export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar)
 	return M4_F32(Data);
 }
 
+export_function m4 M4_Inverse_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar) {
+	f32 t = 1.0f/Tan_F32(FOV*0.5f);
+	f32 n = ZNear;
+	f32 f = ZFar;
+
+	f32 a = t/AspectRatio;
+	f32 b = t;
+	f32 c = f/(n-f);
+	f32 d = (n*f)/(n-f);
+	f32 e = -1;
+
+	f32 Data[] = {
+		1.0f/a, 0,     0,     0, 
+		0,     1.0f/b, 0,     0, 
+		0,     0,      0,     1.0f/d, 
+		0,     0,      1.0f/e, -c/(d*e)
+	};
+	return M4_F32(Data);
+}
+
 export_function m4 M4_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
 	m4 Result = {
 		2/(r-l), 		0, 			0,  		  0, 
 		0, 				2/(t-b), 	0,  		  0, 
-		0, 				0, 			-2/(f-n), 	  0,
-		-(r+l)/(r-l), -(t+b)/(t-b), -(f+n)/(f-n), 1
+		0, 				0, 			1/(n-f), 	  0,
+		-(r+l)/(r-l), -(t+b)/(t-b), n/(n-f), 1
+	};
+	return Result;
+}
+
+export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
+	m4 Result = {
+		(r-l)/2,     0,           0,            0,
+		0,           (t-b)/2,     0,            0,
+		0,           0,          -(f-n)/2,      0,
+		(r+l)/2,     (t+b)/2,    -(f+n)/2,     1
 	};
 	return Result;
 }
@@ -1229,6 +1264,34 @@ export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B) {
 	return Result;
 }
 
+export_function m4 M4_Mul_M4_Affine(const m4* A, const m4_affine* B) {
+	m4_affine_transposed BTransposed = M4_Affine_Transpose(B);
+
+	m4 Result = {
+		.m00 = V4_Dot(A->Rows[0], BTransposed.Rows[0]),
+		.m01 = V4_Dot(A->Rows[0], BTransposed.Rows[1]),
+		.m02 = V4_Dot(A->Rows[0], BTransposed.Rows[2]),
+		.m03 = A->m03,
+
+		.m10 = V4_Dot(A->Rows[1], BTransposed.Rows[0]),
+		.m11 = V4_Dot(A->Rows[1], BTransposed.Rows[1]),
+		.m12 = V4_Dot(A->Rows[1], BTransposed.Rows[2]),
+		.m13 = A->m13,
+
+		.m20 = V4_Dot(A->Rows[2], BTransposed.Rows[0]),
+		.m21 = V4_Dot(A->Rows[2], BTransposed.Rows[1]),
+		.m22 = V4_Dot(A->Rows[2], BTransposed.Rows[2]),
+		.m23 = A->m23,
+
+		.m30 = V4_Dot(A->Rows[3], BTransposed.Rows[0]),
+		.m31 = V4_Dot(A->Rows[3], BTransposed.Rows[1]),
+		.m32 = V4_Dot(A->Rows[3], BTransposed.Rows[2]),
+		.m33 = A->m33,
+	};
+
+	return Result;
+}
+
 export_function m4_affine M4_Affine_Inverse(const m4_affine* M) {
 	f32 xSq = V3_Sq_Mag(M->x);
 	f32 ySq = V3_Sq_Mag(M->y);
@@ -1291,6 +1354,25 @@ export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q) {
 	m3 Orientation = M3_From_Quat(Q);
 	return M4_Affine_Inverse_Transform_No_Scale(T, &Orientation);
+}
+
+export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target) {
+	v3 Direction = V3_Norm(V3_Sub_V3(Position, Target));
+	v3 Up = G_ZAxis;
+	
+	//If the direction and up vector are very close, the cross products
+	//will become invalid. We need to change the up vector to another 
+	//direction
+	f32 Diff = 1.0f - Abs(V3_Dot(Direction, Up));
+	if (Equal_Zero_Eps_F32(Diff)) {
+		Up = G_YAxis;
+	}
+
+	v3 X = V3_Negate(V3_Norm(V3_Cross(Direction, Up)));
+	v3 Y = V3_Cross(Direction, X);
+
+	m3 M = M3_XYZ(X, Y, Direction);
+	return M4_Affine_Inverse_Transform_No_Scale(Position, &M);
 }
 
 export_function rect2 Rect2(v2 p0, v2 p1) {

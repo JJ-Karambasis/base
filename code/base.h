@@ -393,6 +393,7 @@ export_function v3 V3_Sub_V3(v3 a, v3 b);
 export_function v3 V3_Mul_S(v3 v, f32 s);
 export_function v3 V3_Mul_V3(v3 a, v3 b);
 export_function v3 V3_Div_S(v3 v, f32 s);
+export_function v3 V3_Div_V3(v3 a, v3 b);
 export_function f32 V3_Dot(v3 a, v3 b);
 export_function size_t V3_Largest_Index(v3 v);
 export_function f32 V3_Largest(v3 v);
@@ -546,7 +547,9 @@ export_function m4 M4_Look_At(v3 Position, v3 Target);
 export_function m4 M4_Transpose(const m4* M);
 export_function m4 M4_Mul_M4(const m4* A, const m4* B);
 export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar);
+export_function m4 M4_Inverse_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar);
 export_function m4 M4_Orthographic(f32 Left, f32 Right, f32 Bottom, f32 Top, f32 Near, f32 Far);
+export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f);
 export_function v4 V4_Mul_M4(v4 A, const m4* B);
 
 typedef struct {
@@ -595,11 +598,13 @@ export_function m4_affine M4_Affine_Identity();
 export_function m4_affine_transposed M4_Affine_Transpose(const m4_affine* M);
 export_function v3 V4_Mul_M4_Affine(v4 A, const m4_affine* B);
 export_function m4_affine M4_Affine_Mul_M4_Affine(const m4_affine* A, const m4_affine* B);
+export_function m4 M4_Mul_M4_Affine(const m4* A, const m4_affine* B);
 export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B);
 export_function m4_affine M4_Affine_Inverse(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M);
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q);
+export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target);
 
 typedef struct {
 	v2 p0;

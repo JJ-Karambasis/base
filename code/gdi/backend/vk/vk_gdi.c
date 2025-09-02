@@ -1854,6 +1854,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
 			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
 			WaitSemaphores[i] = Swapchain->Locks[Frame->Index];
+			WaitStageFlags[i] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		}
 
 		for (gdi_pass* Pass = GDI->FirstPass; Pass; Pass = Pass->Next) {

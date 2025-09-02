@@ -14,6 +14,8 @@ struct span {
 		Ptr = List.begin();
 		Count = List.size();
 	}
+
+	inline span(const type* _Ptr, size_t _Count) : Ptr(_Ptr), Count(_Count) {}
 };
 
 #endif
