@@ -105,6 +105,9 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkCmdCopyImageToBuffer);
 	VK_FUNC(vkDestroyImageView);
 	VK_FUNC(vkDestroyPipeline);
+	VK_FUNC(vkDestroySemaphore);
+	VK_FUNC(vkDeviceWaitIdle);
+	VK_FUNC(vkQueueWaitIdle);
 });
 
 

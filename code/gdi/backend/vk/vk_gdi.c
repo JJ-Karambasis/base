@@ -452,6 +452,10 @@ function void VK_Delete_Swapchain_Resources(vk_gdi* GDI, vk_swapchain* Swapchain
 	Not_Implemented;
 }
 
+function void VK_Delete_Semaphore_Resources(vk_gdi* GDI, vk_semaphore* Semaphore) {
+	vkDestroySemaphore(GDI->Device, Semaphore->Handle, VK_NULL_HANDLE);
+}
+
 function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice, VkSurfaceKHR Surface) {
 	VkPhysicalDeviceProperties DeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
@@ -587,6 +591,16 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	return Result;
 }
 
+function void VK_Semaphore_Add_To_Delete_Queue(vk_gdi* GDI, vk_semaphore* Semaphore) {
+	OS_RW_Mutex_Read_Lock(GDI->DeleteLock);
+	vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(GDI, GDI->CurrentDeleteQueue);
+	vk_semaphore_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_semaphore_delete_queue_entry);
+	Entry->Entry = *Semaphore;
+	SLL_Push_Back(ThreadContext->SemaphoreDeleteQueue.First, ThreadContext->SemaphoreDeleteQueue.Last, Entry);
+	OS_RW_Mutex_Read_Unlock(GDI->DeleteLock);
+	Memory_Clear(Semaphore, sizeof(vk_semaphore));
+}
+
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
 function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
 	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
@@ -640,11 +654,19 @@ function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
 		Swapchain->TextureViews[i] = VK_Create_Texture_View((gdi*)GDI, &TextureViewCreateInfo);
 	}
 
-	Status = vkAcquireNextImageKHR(GDI->Device, Swapchain->Swapchain, UINT64_MAX, 
-								   Swapchain->Locks[GDI->CurrentFrame->Index], VK_NULL_HANDLE, &Swapchain->ImageIndex);
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkAcquireNextImageKHR failed");
-		return false;
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		if (Swapchain->Locks[i].Handle != VK_NULL_HANDLE) {
+			VK_Semaphore_Add_To_Delete_Queue(GDI, &Swapchain->Locks[i]);
+		}
+
+		VkSemaphoreCreateInfo SemaphoreLockInfo = {
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+		};
+		VkResult Status = vkCreateSemaphore(GDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i].Handle);
+		if (Status != VK_SUCCESS) {
+			Debug_Log("vkCreateSemaphore failed!");
+			return false;
+		}
 	}
 
 	return true;
@@ -1580,6 +1602,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, Result);
 	Swapchain->Handle = Result;
 
+	VkResult Status;
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 	Swapchain->Surface = VK_Create_Surface(VkGDI, SwapchainInfo->Window, SwapchainInfo->Instance);
 #elif defined(VK_USE_PLATFORM_METAL_EXT)
@@ -1589,7 +1612,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		.pLayer = SwapchainInfo->Layer
 	};
 
-	VkResult Status = vkCreateMetalSurfaceEXT(VkGDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Swapchain->Surface);
+	Status = vkCreateMetalSurfaceEXT(VkGDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Swapchain->Surface);
 	if(Status != VK_SUCCESS) {
 		Debug_Log("vkCreateMetalSurfaceEXT failed!");
 		goto error;
@@ -1612,11 +1635,11 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 
 	{
 		Swapchain->ImageCount = SurfaceCaps.minImageCount;
-		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle) + sizeof(VkSemaphore));
+		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle) + sizeof(vk_semaphore));
 		Swapchain->Images = (VkImage*)Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
 		Swapchain->Textures = (gdi_handle*)(Swapchain->Images + Swapchain->ImageCount);
 		Swapchain->TextureViews = (gdi_handle*)(Swapchain->Textures + Swapchain->ImageCount);
-		Swapchain->Locks = (VkSemaphore*)(Swapchain->TextureViews + Swapchain->ImageCount);
+		Swapchain->Locks = (vk_semaphore*)(Swapchain->TextureViews + Swapchain->ImageCount);
 
 		arena* Scratch = Scratch_Get();
 
@@ -1653,18 +1676,15 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		Swapchain->Format = VK_Get_GDI_Format(SurfaceFormat.format);
 	}
 
-	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
-		VkSemaphoreCreateInfo SemaphoreLockInfo = {
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
-		};
-		VkResult Status = vkCreateSemaphore(VkGDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i]);
-		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateSemaphore failed!");
-			goto error;
-		}
+	if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) {
+		goto error;
 	}
 
-	if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) {
+	
+	Status = vkAcquireNextImageKHR(VkGDI->Device, Swapchain->Swapchain, UINT64_MAX, 
+								   Swapchain->Locks[VkGDI->CurrentFrame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+	if (Status != VK_SUCCESS) {
+		Debug_Log("vkAcquireNextImageKHR failed");
 		goto error;
 	}
 
@@ -1853,7 +1873,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
 			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-			WaitSemaphores[i] = Swapchain->Locks[Frame->Index];
+			WaitSemaphores[i] = Swapchain->Locks[Frame->Index].Handle;
 			WaitStageFlags[i] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		}
 
@@ -2344,7 +2364,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
 		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
 		Status = vkAcquireNextImageKHR(VkGDI->Device, Swapchain->Swapchain, UINT64_MAX, 
-									   Swapchain->Locks[FrameIndex], VK_NULL_HANDLE, &Swapchain->ImageIndex);
+									   Swapchain->Locks[FrameIndex].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
 		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
 			if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) return;
 		} else if (Status != VK_SUCCESS) {

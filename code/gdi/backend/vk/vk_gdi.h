@@ -91,6 +91,7 @@ typedef struct {
 #endif
 } vk_shader;
 
+typedef struct vk_semaphore vk_semaphore;
 typedef struct {
 	gdi_handle 		   Handle;
 	VkSurfaceKHR   	   Surface;
@@ -99,7 +100,7 @@ typedef struct {
 	VkImage* 	   	   Images;
 	gdi_handle*    	   Textures;
 	gdi_handle*    	   TextureViews;
-	VkSemaphore* 	   Locks;
+	vk_semaphore* 	   Locks;
 	VkSurfaceFormatKHR SurfaceFormat;
 	gdi_format 		   Format;
 	v2i 			   Dim;
@@ -209,6 +210,21 @@ typedef struct {
 	vk_buffer_readback_array BufferReadbacks;
 } vk_frame_context;
 
+struct vk_semaphore {
+	VkSemaphore Handle;
+};
+
+typedef struct vk_semaphore_delete_queue_entry vk_semaphore_delete_queue_entry;
+struct vk_semaphore_delete_queue_entry {
+	vk_semaphore 					 Entry;
+	vk_semaphore_delete_queue_entry* Next;
+};
+
+typedef struct {
+	vk_semaphore_delete_queue_entry* First;
+	vk_semaphore_delete_queue_entry* Last;
+} vk_semaphore_delete_queue;
+
 Meta()
 struct vk_delete_thread_context {
 	arena* 							  Arena Tags(NoIteration);
@@ -221,6 +237,7 @@ struct vk_delete_thread_context {
 	vk_bind_group_delete_queue 		  Bind_GroupDeleteQueue Tags(name: Bind_Group);
 	vk_shader_delete_queue 			  ShaderDeleteQueue Tags(name: Shader);
 	vk_swapchain_delete_queue 		  SwapchainDeleteQueue Tags(name: Swapchain);
+	vk_semaphore_delete_queue 		  SemaphoreDeleteQueue Tags(name: Semaphore);
 	vk_delete_thread_context* 		  Next Tags(NoIteration);
 };
 
