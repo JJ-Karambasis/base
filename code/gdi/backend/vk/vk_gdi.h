@@ -105,6 +105,7 @@ typedef struct {
 	gdi_format 		   Format;
 	v2i 			   Dim;
 	u32 			   ImageIndex;
+	b32 			   HasFailed;
 } vk_swapchain;
 
 typedef struct vk_delete_thread_context vk_delete_thread_context;

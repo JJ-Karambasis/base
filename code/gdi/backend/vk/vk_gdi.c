@@ -602,14 +602,20 @@ function void VK_Semaphore_Add_To_Delete_Queue(vk_gdi* GDI, vk_semaphore* Semaph
 }
 
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
-function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
+function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain, b32 AcquireNewImage) {	
+	VkSurfaceCapabilitiesKHR SurfaceCaps;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
+
+	Swapchain->Dim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
+
+	if (Swapchain->Dim.x == 0 || Swapchain->Dim.y == 0) {
+		return false;
+	}
+	
 	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
 		VK_Texture_Pool_Free(&GDI->ResourcePool, Swapchain->Textures[i]);
 		VK_Texture_View_Add_To_Delete_Queue(GDI, Swapchain->TextureViews[i]);
 	}
-
-	VkSurfaceCapabilitiesKHR SurfaceCaps;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GDI->TargetGPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
 
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -636,8 +642,6 @@ function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
 
 	vkGetSwapchainImagesKHR(GDI->Device, Swapchain->Swapchain, &Swapchain->ImageCount, Swapchain->Images);
 	
-	Swapchain->Dim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
-
 	for (u32 i = 0; i < Swapchain->ImageCount; i++) {
 		Swapchain->Textures[i] = VK_Texture_Pool_Allocate(&GDI->ResourcePool);
 
@@ -665,6 +669,15 @@ function b32 VK_Recreate_Swapchain(vk_gdi* GDI, vk_swapchain* Swapchain) {
 		VkResult Status = vkCreateSemaphore(GDI->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i].Handle);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkCreateSemaphore failed!");
+			return false;
+		}
+	}
+
+	if (AcquireNewImage) {
+		Status = vkAcquireNextImageKHR(GDI->Device, Swapchain->Swapchain, UINT64_MAX,
+									   Swapchain->Locks[GDI->CurrentFrame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+		if (Status != VK_SUCCESS) {
+			Debug_Log("vkAcquireNextImageKHR failed");
 			return false;
 		}
 	}
@@ -1434,7 +1447,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			VkPipelineRasterizationStateCreateInfo RasterizationState = {
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 				.polygonMode = VK_POLYGON_MODE_FILL,
-				.cullMode = VK_CULL_MODE_BACK_BIT,
+				.cullMode = VK_CULL_MODE_NONE,
 				.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 				.lineWidth = 1.0f
 			};
@@ -1602,7 +1615,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, Result);
 	Swapchain->Handle = Result;
 
-	VkResult Status;
+	//VkResult Status;
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 	Swapchain->Surface = VK_Create_Surface(VkGDI, SwapchainInfo->Window, SwapchainInfo->Instance);
 #elif defined(VK_USE_PLATFORM_METAL_EXT)
@@ -1676,15 +1689,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		Swapchain->Format = VK_Get_GDI_Format(SurfaceFormat.format);
 	}
 
-	if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) {
-		goto error;
-	}
-
-	
-	Status = vkAcquireNextImageKHR(VkGDI->Device, Swapchain->Swapchain, UINT64_MAX, 
-								   Swapchain->Locks[VkGDI->CurrentFrame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkAcquireNextImageKHR failed");
+	if (!VK_Recreate_Swapchain(VkGDI, Swapchain, true)) {
 		goto error;
 	}
 
@@ -1726,27 +1731,26 @@ function GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(VK_Get_Swapchain_Info) {
 	return Result;
 }
 
-function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
-	vk_gdi* VkGDI = (vk_gdi*)GDI;
+function b32 VK_Render_Internal(vk_gdi* GDI, const gdi_handle_array* Swapchains, const gdi_buffer_readback_array* BufferReadbacks, const gdi_texture_readback_array* TextureReadbacks) {
 
 	//Reset transfers for next frame
 	vk_transfer_context* TransferContext = NULL;
 
 	{
-		OS_RW_Mutex_Write_Lock(VkGDI->TransferLock);
-		TransferContext = VkGDI->CurrentTransfer;
-		VkGDI->TransferIndex++;
-		VkGDI->CurrentTransfer = VkGDI->Transfers + (VkGDI->TransferIndex % VK_MAX_TRANSFER_COUNT);
-		vk_transfer_context* NewTransferContext = VkGDI->CurrentTransfer;
-#ifdef DEBUG_BUILD
+		OS_RW_Mutex_Write_Lock(GDI->TransferLock);
+		TransferContext = GDI->CurrentTransfer;
+		GDI->TransferIndex++;
+		GDI->CurrentTransfer = GDI->Transfers + (GDI->TransferIndex % VK_MAX_TRANSFER_COUNT);
+		vk_transfer_context* NewTransferContext = GDI->CurrentTransfer;
+		#ifdef DEBUG_BUILD
 		//Fence should always be signaled since we waited on the render fence already
-		Assert(vkGetFenceStatus(VkGDI->Device, NewTransferContext->DEBUGFence) == VK_SUCCESS);
-		vkResetFences(VkGDI->Device, 1, &NewTransferContext->DEBUGFence);
-#endif
+		Assert(vkGetFenceStatus(GDI->Device, NewTransferContext->DEBUGFence) == VK_SUCCESS);
+		vkResetFences(GDI->Device, 1, &NewTransferContext->DEBUGFence);
+		#endif
 		for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&NewTransferContext->TopThread); Thread; Thread = Thread->Next) {
 			Thread->NeedsReset = true;
 		}
-		OS_RW_Mutex_Write_Unlock(VkGDI->TransferLock);
+		OS_RW_Mutex_Write_Unlock(GDI->TransferLock);
 	}
 
 	for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
@@ -1755,14 +1759,14 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		}
 	}
 
-	vk_frame_context* Frame = VkGDI->CurrentFrame;
+	vk_frame_context* Frame = GDI->CurrentFrame;
    
 	//Transfer commands
 	{
-		VkResult Status = vkResetCommandPool(VkGDI->Device, TransferContext->CmdPool, 0);
+		VkResult Status = vkResetCommandPool(GDI->Device, TransferContext->CmdPool, 0);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkResetCommandPool failed");
-			return;
+			return false;
 		}
 
 		VkCommandBufferBeginInfo BeginInfo = {
@@ -1773,7 +1777,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		Status = vkBeginCommandBuffer(TransferContext->CmdBuffer, &BeginInfo);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkBeginCommandBuffer failed");
-			return;
+			return false;
 		}
 
 		arena* Scratch = Scratch_Get();
@@ -1817,7 +1821,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkEndCommandBuffer failed!");
-			return;
+			return false;
 		}
 
 		VkCommandBuffer CmdBuffers[] = { TransferContext->CmdBuffer };
@@ -1832,25 +1836,26 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		};
 
 		VkFence TransferFence = VK_NULL_HANDLE;
-#ifdef DEBUG_BUILD
+		#ifdef DEBUG_BUILD
 		TransferFence = TransferContext->DEBUGFence;
-#endif
-		Status = vkQueueSubmit(VkGDI->TransferQueue, 1, &SubmitInfo, TransferFence);
+		#endif
+		Status = vkQueueSubmit(GDI->TransferQueue, 1, &SubmitInfo, TransferFence);
 		if (Status != VK_SUCCESS) {
 			Assert(false);
 			Debug_Log("vkQueueSubmit failed");
-			return;
+			return false;
 		}
 	}
 
 	VkResult Status = VK_SUCCESS;
 
 	//Render commands
+
 	{
-		Status = vkResetCommandPool(VkGDI->Device, Frame->CmdPool, 0);
+		Status = vkResetCommandPool(GDI->Device, Frame->CmdPool, 0);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkResetCommandPool failed");
-			return;
+			return false;
 		}
 
 		VkCommandBufferBeginInfo BeginInfo = {
@@ -1861,23 +1866,26 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		Status = vkBeginCommandBuffer(Frame->CmdBuffer, &BeginInfo);
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkBeginCommandBuffer failed");
-			return;
+			return false;
 		}
 
 		arena* Scratch = Scratch_Get();
+
 		vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
 		vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
 		
-		VkPipelineStageFlags* WaitStageFlags = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count + 1, VkPipelineStageFlags);
-		VkSemaphore* WaitSemaphores = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count + 1, VkSemaphore);
+		u32 WaitSemaphoreCount = 0;
+		VkPipelineStageFlags* WaitStageFlags = Arena_Push_Array(Scratch, Swapchains->Count + 1, VkPipelineStageFlags);
+		VkSemaphore* WaitSemaphores = Arena_Push_Array(Scratch, Swapchains->Count + 1, VkSemaphore);
 
-		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-			WaitSemaphores[i] = Swapchain->Locks[Frame->Index].Handle;
-			WaitStageFlags[i] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		for (size_t i = 0; i < Swapchains->Count; i++) {
+			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&GDI->ResourcePool, Swapchains->Ptr[i]);
+			WaitSemaphores[WaitSemaphoreCount] = Swapchain->Locks[Frame->Index].Handle;
+			WaitStageFlags[WaitSemaphoreCount] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			WaitSemaphoreCount++;
 		}
 
-		for (gdi_pass* Pass = GDI->FirstPass; Pass; Pass = Pass->Next) {
+		for (gdi_pass* Pass = GDI->Base.FirstPass; Pass; Pass = Pass->Next) {
 			VK_Barriers_Clear(&PrePassBarriers);
 			VK_Barriers_Clear(&PostPassBarriers);
 
@@ -1889,27 +1897,28 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 					//Image memory barriers
 					for (size_t i = 0; i < ComputePass->TextureWrites.Count; i++) {
-						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, ComputePass->TextureWrites.Ptr[i]);
+						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&GDI->ResourcePool, ComputePass->TextureWrites.Ptr[i]);
 						Assert(TextureView);
-						vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, TextureView->Texture);
+						vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, TextureView->Texture);
 						Assert(Texture);
 
 						if (!GDI_Is_Null(Texture->Swapchain)) {
 							size_t Index = (size_t)-1;
-							for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-								if (GDI_Is_Equal(RenderParams->Swapchains.Ptr[i], Texture->Swapchain)) {
+							for (size_t i = 0; i < Swapchains->Count; i++) {
+								if (GDI_Is_Equal(Swapchains->Ptr[i], Texture->Swapchain)) {
 									Index = i;
 									break;
 								}
 							}
-							Assert(Index != (size_t)-1); //Swapchain is not used
 
-							if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-								WaitStageFlags[i] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+							if (Index != (size_t)-1) {
+								if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+									WaitStageFlags[i] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+									VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);									
+								} else {
+									VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+								}									
 							}
-
-							VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_SHADER_READ);
-							VK_Add_Post_Swapchain_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ);
 						} else {
 							VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
@@ -1926,7 +1935,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					for (size_t i = 0; i < ComputePass->Dispatches.Count; i++) {
 						gdi_dispatch* Dispatch = ComputePass->Dispatches.Ptr + i;
 						
-						vk_shader* Shader = VK_Shader_Pool_Get(&VkGDI->ResourcePool, Dispatch->Shader);
+						vk_shader* Shader = VK_Shader_Pool_Get(&GDI->ResourcePool, Dispatch->Shader);
 						Assert(Shader->DEBUGType == GDI_PASS_TYPE_COMPUTE);
 
 						if (Shader != CurrentShader) {
@@ -1956,7 +1965,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 										for (size_t i = 0; i < Binding->Count; i++) {
 											Assert(TextureIndex < ComputePass->TextureWrites.Count);
 											gdi_handle Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
-											vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, Handle);
+											vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&GDI->ResourcePool, Handle);
 
 											ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
 											ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1971,7 +1980,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 										for (size_t i = 0; i < Binding->Count; i++) {
 											Assert(BufferIndex < ComputePass->BufferWrites.Count);
 											gdi_handle Handle = ComputePass->BufferWrites.Ptr[BufferIndex++];
-											vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, Handle);
+											vk_buffer* Buffer = VK_Buffer_Pool_Get(&GDI->ResourcePool, Handle);
 											Assert(Buffer);
 
 											BufferInfo[i].buffer = Buffer->Buffer;
@@ -1996,7 +2005,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						VkDescriptorSet DescriptorSets[GDI_MAX_BIND_GROUP_COUNT - 1];
 
 						for (u32 i = 0; i < GDI_MAX_BIND_GROUP_COUNT - 1; i++) {
-							vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&VkGDI->ResourcePool, Dispatch->BindGroups[i]);
+							vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&GDI->ResourcePool, Dispatch->BindGroups[i]);
 							if (BindGroup) {
 								DescriptorSets[DescriptorSetCount++] = BindGroup->Set;
 							}
@@ -2036,9 +2045,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 					Memory_Clear(&DepthAttachment, sizeof(DepthAttachment));
 
 					for (size_t i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
-						vk_texture_view* View = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, RenderPass->RenderTargetViews[i]);
+						vk_texture_view* View = VK_Texture_View_Pool_Get(&GDI->ResourcePool, RenderPass->RenderTargetViews[i]);
 						if (View) {
-							vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, View->Texture);
+							vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, View->Texture);
 							Assert(Texture);
 
 							gdi_clear_color* ClearState = RenderPass->ClearColors+i;
@@ -2059,20 +2068,20 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 							if (!GDI_Is_Null(Texture->Swapchain)) {
 								size_t Index = (size_t)-1;
-								for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-									if (GDI_Is_Equal(RenderParams->Swapchains.Ptr[i], Texture->Swapchain)) {
+								for (size_t i = 0; i < Swapchains->Count; i++) {
+									if (GDI_Is_Equal(Swapchains->Ptr[i], Texture->Swapchain)) {
 										Index = i;
 										break;
 									}
 								}
-								Assert(Index != (size_t)-1); //Swapchain is not used
-
-								if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-									WaitStageFlags[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+								if (Index != (size_t)-1) {
+									if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+										WaitStageFlags[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+										VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);									
+									} else {
+										VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_RENDER_TARGET);
+									}																	
 								}
-																	
-								VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);
-								VK_Add_Post_Swapchain_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET);
 							} else {
 								VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_RENDER_TARGET);
 								VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_SHADER_READ);
@@ -2080,9 +2089,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 						}
 					}
 
-					vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&VkGDI->ResourcePool, RenderPass->DepthBufferView);
+					vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&GDI->ResourcePool, RenderPass->DepthBufferView);
 					if (DepthView) {
-						vk_texture* DepthTexture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, DepthView->Texture);
+						vk_texture* DepthTexture = VK_Texture_Pool_Get(&GDI->ResourcePool, DepthView->Texture);
 						gdi_clear_depth* ClearState = &RenderPass->ClearDepth;
 
 						if (!(DepthTexture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
@@ -2126,16 +2135,16 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 			}
 		}
 
-		if (RenderParams->TextureReadbacks.Count || RenderParams->BufferReadbacks.Count) {
-			Frame->TextureReadbacks = VK_Texture_Readback_Array_Alloc((allocator*)Frame->Arena, RenderParams->TextureReadbacks.Count);
-			Frame->BufferReadbacks = VK_Buffer_Readback_Array_Alloc((allocator*)Frame->Arena, RenderParams->BufferReadbacks.Count);
+		if (TextureReadbacks->Count || BufferReadbacks->Count) {
+			Frame->TextureReadbacks = VK_Texture_Readback_Array_Alloc((allocator*)Frame->Arena, TextureReadbacks->Count);
+			Frame->BufferReadbacks = VK_Buffer_Readback_Array_Alloc((allocator*)Frame->Arena, BufferReadbacks->Count);
 
 			vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
 			vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
 		
-			for (size_t i = 0; i < RenderParams->TextureReadbacks.Count; i++) {
-				const gdi_texture_readback* Readback = RenderParams->TextureReadbacks.Ptr + i;
-				vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, Readback->Texture);
+			for (size_t i = 0; i < TextureReadbacks->Count; i++) {
+				const gdi_texture_readback* Readback = TextureReadbacks->Ptr + i;
+				vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, Readback->Texture);
 				if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
 					VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_READ);
 					VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_READ, VK_RESOURCE_STATE_SHADER_READ);
@@ -2145,15 +2154,15 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				} Invalid_Else;
 			}
 
-			if (RenderParams->BufferReadbacks.Count) {
+			if (BufferReadbacks->Count) {
 				VK_Submit_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_MEMORY_READ, VK_RESOURCE_STATE_TRANSFER_READ);
 			} else {
 				VK_Submit_Barriers(&PrePassBarriers);
 			}
 
-			for (size_t i = 0; i < RenderParams->TextureReadbacks.Count; i++) {
-				const gdi_texture_readback* Readback = RenderParams->TextureReadbacks.Ptr + i;
-				vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, Readback->Texture);
+			for (size_t i = 0; i < TextureReadbacks->Count; i++) {
+				const gdi_texture_readback* Readback = TextureReadbacks->Ptr + i;
+				vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, Readback->Texture);
 				
 				v2i Dim = Texture->Dim;
 				size_t AllocationSize = 0;
@@ -2198,9 +2207,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				Frame->TextureReadbacks.Ptr[i] = VkReadback;
 			}
 
-			for (size_t i = 0; i < RenderParams->BufferReadbacks.Count; i++) {
-				const gdi_buffer_readback* Readback = RenderParams->BufferReadbacks.Ptr + i;
-				vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, Readback->Buffer);
+			for (size_t i = 0; i < BufferReadbacks->Count; i++) {
+				const gdi_buffer_readback* Readback = BufferReadbacks->Ptr + i;
+				vk_buffer* Buffer = VK_Buffer_Pool_Get(&GDI->ResourcePool, Readback->Buffer);
 
 				vk_cpu_buffer_push CpuReadback = VK_CPU_Buffer_Push(&Frame->ReadbackBuffer, Buffer->Size);
 
@@ -2222,11 +2231,28 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 				Frame->BufferReadbacks.Ptr[i] = VkReadback;
 			}
 
-			if (RenderParams->BufferReadbacks.Count) {
+			if (BufferReadbacks->Count) {
 				VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_READ, VK_RESOURCE_STATE_MEMORY_READ);
 			} else {
 				VK_Submit_Barriers(&PostPassBarriers);
 			}
+		}
+
+		//Final barriers for the swapchain
+		{
+			vk_barriers FinalBarriers = VK_Barriers_Init(Scratch, Frame->CmdBuffer);
+			for (size_t i = 0; i < Swapchains->Count; i++) {
+				vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&GDI->ResourcePool, Swapchains->Ptr[i]);
+				vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
+				if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+					VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_NONE);
+				} else if (WaitStageFlags[i] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT) {
+					VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET);
+				} else if(WaitStageFlags[i] == VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) {
+					VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+				} Invalid_Else;
+			}
+			VK_Submit_Barriers(&FinalBarriers);
 		}
 
 		Status = vkEndCommandBuffer(Frame->CmdBuffer);
@@ -2234,32 +2260,30 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 
 		if (Status != VK_SUCCESS) {
 			Debug_Log("vkEndCommandBuffer failed");
-			return;
+			return false;
 		}
 
 		{
 			
-			VkCommandBuffer CmdBuffers[] = { Frame->CmdBuffer };
-			VkSemaphore SignalSemaphores[] = { Frame->RenderLock };
-			
-			WaitSemaphores[RenderParams->Swapchains.Count] = Frame->TransferLock;
-			WaitStageFlags[RenderParams->Swapchains.Count] = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			VkCommandBuffer CmdBuffers[] = { Frame->CmdBuffer };			
+			WaitSemaphores[Swapchains->Count] = Frame->TransferLock;
+			WaitStageFlags[Swapchains->Count] = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	
 			VkSubmitInfo SubmitInfo = {
 				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				.waitSemaphoreCount = (u32)(RenderParams->Swapchains.Count+1),
+				.waitSemaphoreCount = (u32)(Swapchains->Count+1),
 				.pWaitSemaphores = WaitSemaphores,
 				.pWaitDstStageMask = WaitStageFlags,
 				.commandBufferCount = Array_Count(CmdBuffers),
 				.pCommandBuffers = CmdBuffers,
-				.signalSemaphoreCount = Array_Count(SignalSemaphores),
-				.pSignalSemaphores = SignalSemaphores
+				.signalSemaphoreCount = Swapchains->Count ? 1u : 0u,
+				.pSignalSemaphores = Swapchains->Count ? &Frame->RenderLock : VK_NULL_HANDLE
 			};
-			Status = vkQueueSubmit(VkGDI->GraphicsQueue, 1, &SubmitInfo, Frame->Fence);
+			Status = vkQueueSubmit(GDI->GraphicsQueue, 1, &SubmitInfo, Frame->Fence);
 			if (Status != VK_SUCCESS) {
 				Assert(false);
 				Debug_Log("vkQueueSubmit failed");
-				return;
+				return false;
 			}
 		}
 	}
@@ -2267,41 +2291,45 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	//Final swapchain present
 	{
 		arena* Scratch = Scratch_Get();
-		VkSwapchainKHR* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, VkSwapchainKHR);
-		u32* ImageIndices = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, u32);
-		VkResult* Statuses = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, VkResult);
 
-		for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-			Swapchains[i] = Swapchain->Swapchain;
-			ImageIndices[i] = Swapchain->ImageIndex;
+		u32 SwapchainCount = 0;
+		VkSwapchainKHR* SwapchainHandles = Arena_Push_Array(Scratch, Swapchains->Count, VkSwapchainKHR);
+		u32* ImageIndices = Arena_Push_Array(Scratch, Swapchains->Count, u32);
+		VkResult* Statuses = Arena_Push_Array(Scratch, Swapchains->Count, VkResult);
+
+		for (size_t i = 0; i < Swapchains->Count; i++) {
+			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&GDI->ResourcePool, Swapchains->Ptr[i]);
+			SwapchainHandles[SwapchainCount] = Swapchain->Swapchain;
+			ImageIndices[SwapchainCount] = Swapchain->ImageIndex;
+			SwapchainCount++;
 		}
 
-		VkSemaphore WaitSemaphores[] = { Frame->RenderLock };
+		if (Swapchains->Count) {
+			VkSemaphore WaitSemaphores[] = { Frame->RenderLock };
+			VkPresentInfoKHR PresentInfo = {
+				.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+				.waitSemaphoreCount = Array_Count(WaitSemaphores),
+				.pWaitSemaphores = WaitSemaphores,
+				.swapchainCount = SwapchainCount,
+				.pSwapchains = SwapchainHandles,
+				.pImageIndices = ImageIndices,
+				.pResults = Statuses
+			};
+			Status = vkQueuePresentKHR(GDI->PresentQueue, &PresentInfo);
 
-		VkPresentInfoKHR PresentInfo = {
-			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-			.waitSemaphoreCount = Array_Count(WaitSemaphores),
-			.pWaitSemaphores = WaitSemaphores,
-			.swapchainCount = Array_Count(Swapchains),
-			.pSwapchains = Swapchains,
-			.pImageIndices = ImageIndices,
-			.pResults = Statuses
-		};
-		Status = vkQueuePresentKHR(VkGDI->PresentQueue, &PresentInfo);
-		Scratch_Release();
-
-		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-			for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-				if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
-					vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-					if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) return;
+			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+				for (size_t i = 0; i < SwapchainCount; i++) {
+					if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
+						vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&GDI->ResourcePool, Swapchains->Ptr[i]);
+						VK_Recreate_Swapchain(GDI, Swapchain, false);
+					}
 				}
-			}			
-		} else if (Status != VK_SUCCESS) {
-			Debug_Log("vkQueuePresentKHR failed");
-			return;
+			} else if (Status != VK_SUCCESS) {
+				Debug_Log("vkQueuePresentKHR failed");
+			}
 		}
+
+		Scratch_Release();
 	}
 
 	//Free renderpasses that were queued for deleting this frame
@@ -2317,61 +2345,90 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		Thread->RenderPassesToDelete = NULL;
 	}
 
-	VkGDI->FrameIndex++;
+	GDI->FrameIndex++;
 
-	u64 FrameIndex = (VkGDI->FrameIndex % VK_FRAME_COUNT);
-	VkGDI->CurrentFrame = VkGDI->Frames + FrameIndex;
+	u64 FrameIndex = (GDI->FrameIndex % VK_FRAME_COUNT);
+	GDI->CurrentFrame = GDI->Frames + FrameIndex;
 
-	Frame = VkGDI->CurrentFrame;
+	Frame = GDI->CurrentFrame;
 
 	//Wait on the render fence now. We always have the render frame count less than
 	//the transfer, so waiting on the render is also a wait on the transfers
-	VkResult FenceStatus = vkGetFenceStatus(VkGDI->Device, Frame->Fence);
+	VkResult FenceStatus = vkGetFenceStatus(GDI->Device, Frame->Fence);
 	if (FenceStatus == VK_NOT_READY) {
-		vkWaitForFences(VkGDI->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
+		vkWaitForFences(GDI->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
 	} else {
 		Assert(FenceStatus == VK_SUCCESS);
 	}
-	vkResetFences(VkGDI->Device, 1, &Frame->Fence);
+	vkResetFences(GDI->Device, 1, &Frame->Fence);
 
 	//Delete the entries in the delete now that we have waited on the frame and then
 	//safely set that delete queue as the current delete queue atomically
-	vk_delete_queue* DeleteQueue = VkGDI->DeleteQueues + FrameIndex;
-	VK_Delete_Queued_Resources(VkGDI, DeleteQueue);
+	vk_delete_queue* DeleteQueue = GDI->DeleteQueues + FrameIndex;
+	VK_Delete_Queued_Resources(GDI, DeleteQueue);
 
 	//Readbacks before we reset the arena
 	for (size_t i = 0; i < Frame->TextureReadbacks.Count; i++) {
 		vk_texture_readback* Readback = Frame->TextureReadbacks.Ptr + i;
-		vk_texture* Texture = VK_Texture_Pool_Get(&VkGDI->ResourcePool, Readback->Texture);
+		vk_texture* Texture = VK_Texture_Pool_Get(&GDI->ResourcePool, Readback->Texture);
 		Readback->Func(Readback->Texture, Texture->Dim, Texture->Format, Texture->MipCount, Readback->CPU.Ptr, Readback->UserData);
 	}
 
 	for (size_t i = 0; i < Frame->BufferReadbacks.Count; i++) {
 		vk_buffer_readback* Readback = Frame->BufferReadbacks.Ptr + i;
-		vk_buffer* Buffer = VK_Buffer_Pool_Get(&VkGDI->ResourcePool, Readback->Buffer);
+		vk_buffer* Buffer = VK_Buffer_Pool_Get(&GDI->ResourcePool, Readback->Buffer);
 		Readback->Func(Readback->Buffer, Buffer->Size, Readback->CPU.Ptr, Readback->UserData);
 	}
 
-	OS_RW_Mutex_Write_Lock(VkGDI->DeleteLock);
-	VkGDI->CurrentDeleteQueue = DeleteQueue;
-	OS_RW_Mutex_Write_Unlock(VkGDI->DeleteLock);
+	OS_RW_Mutex_Write_Lock(GDI->DeleteLock);
+	GDI->CurrentDeleteQueue = DeleteQueue;
+	OS_RW_Mutex_Write_Unlock(GDI->DeleteLock);
 	
 	VK_CPU_Buffer_Clear(&Frame->ReadbackBuffer);
 	Arena_Clear(Frame->Arena);
 
 	//Acquire the swapchain image so we know what view to pass to the user land code
 
-	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-		Status = vkAcquireNextImageKHR(VkGDI->Device, Swapchain->Swapchain, UINT64_MAX, 
-									   Swapchain->Locks[FrameIndex].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
-		if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-			if (!VK_Recreate_Swapchain(VkGDI, Swapchain)) return;
-		} else if (Status != VK_SUCCESS) {
-			Debug_Log("vkAcquireNextImageKHR failed");
-			return;
+	for (size_t i = 0; i < Swapchains->Count; i++) {
+		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&GDI->ResourcePool, Swapchains->Ptr[i]);
+		if (Swapchain && Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
+			Status = vkAcquireNextImageKHR(GDI->Device, Swapchain->Swapchain, UINT64_MAX,
+										   Swapchain->Locks[FrameIndex].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+				VK_Recreate_Swapchain(GDI, Swapchain, true);
+			} else if (Status != VK_SUCCESS) {
+				Debug_Log("vkAcquireNextImageKHR failed");
+				return false;
+			}
 		}
 	}
+
+	return true;
+}
+
+function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
+	arena* Scratch = Scratch_Get();
+
+	
+	u32 SwapchainCount = 0;
+	gdi_handle* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, gdi_handle);
+	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&VkGDI->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+		if (Swapchain) {
+			if (Swapchain->Dim.x == 0 || Swapchain->Dim.y == 0) {
+				if (VK_Recreate_Swapchain(VkGDI, Swapchain, true)) {
+					Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
+				}
+			} else {
+				Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
+			}
+		}
+	}
+
+	gdi_handle_array Array = { .Ptr = Swapchains, .Count = SwapchainCount };
+	VK_Render_Internal(VkGDI, &Array, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
+	Scratch_Release();
 }
  
 function GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(VK_Begin_Render_Pass) {

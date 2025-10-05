@@ -1380,6 +1380,12 @@ export_function rect2 Rect2(v2 p0, v2 p1) {
 	return Result;
 }
 
+export_function rect2 Rect2_From_Center_Dim(v2 CenterP, v2 Dim) {
+	v2 HalfDim = V2_Mul_S(Dim, 0.5f);
+	rect2 Result = { V2_Sub_V2(CenterP, HalfDim), V2_Add_V2(CenterP, HalfDim) };
+	return Result;
+}
+
 export_function rect2 Rect2_Offset(rect2 Rect, v2 Offset) {
 	rect2 Result = Rect2(V2_Add_V2(Rect.p0, Offset), V2_Add_V2(Rect.p1, Offset));
 	return Result;
@@ -1911,6 +1917,7 @@ export_function u32 Random32_XOrShift(random32_xor_shift* Random) {
 Array_Implement(char, Char);
 Array_Implement(u32, U32);
 Array_Implement(string, String);
+Array_Implement(v3, V3);
 
 Dynamic_Array_Implement_Type(char, Char);
 Dynamic_Array_Implement_Type(string, String);
@@ -3198,19 +3205,16 @@ export_function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) 
 #define Pool_Entry_Size(entry) (sizeof(pool_id)+(entry)->ItemSize)
 #define Pool_Get_Internal_ID(entry, index) ((pool_id*)Offset_Pointer((entry)->Data, (index)*Pool_Entry_Size(entry)))
 
-export_function pool Pool_Init_With_Size(size_t ItemSize, size_t ReserveSize) {
-	pool Result;
-	Memory_Clear(&Result, sizeof(pool));
-	Result.ItemSize = ItemSize;
-	Result.Reserve = Make_Memory_Reserve(ReserveSize);
-	Result.Data = Result.Reserve.BaseAddress;
-	Pool_Clear(&Result);
-	return Result;
+export_function void Pool_Init_With_Size(pool* Pool, size_t ItemSize, size_t ReserveSize) {
+	Memory_Clear(Pool, sizeof(pool));
+	Pool->ItemSize = ItemSize;
+	Pool->Reserve = Make_Memory_Reserve(ReserveSize);
+	Pool->Data = Pool->Reserve.BaseAddress;
+	Pool_Clear(Pool);
 }
 
-export_function pool Pool_Init(size_t ItemSize) {
-	pool Result = Pool_Init_With_Size(ItemSize, GB(1));
-	return Result;
+export_function void Pool_Init(pool* Pool, size_t ItemSize) {
+	Pool_Init_With_Size(Pool, ItemSize, GB(1));
 }
 
 export_function void Pool_Delete(pool* Pool) {

@@ -175,11 +175,13 @@ function void Win32_Get_All_Files_Recursive(allocator* Allocator, dynamic_string
 		string FileOrDirectoryName = String_From_WString((allocator*)Scratch, WString_Null_Term(FindData.cFileName));
 		if (!String_Equals(FileOrDirectoryName, String_Lit(".")) && !String_Equals(FileOrDirectoryName, String_Lit(".."))) {
 			if (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+				string DirectoryName = FileOrDirectoryName;
 				if (Recursive) {
-					string DirectoryName = FileOrDirectoryName;
-					string Strings[] = { Directory, DirectoryName, String_Lit("/") };
-					string DirectoryPath = String_Combine((allocator*)Scratch, Strings, Array_Count(Strings));
+					string DirectoryPath = String_Directory_Concat((allocator*)Scratch, Directory, DirectoryName);
 					Win32_Get_All_Files_Recursive(Allocator, Array, DirectoryPath, true);
+				} else {
+					string DirectoryPath = String_Directory_Concat(Allocator, Directory, DirectoryName);
+					Dynamic_String_Array_Add(Array, DirectoryPath);
 				}
 			} else {
 				string FileName = FileOrDirectoryName;

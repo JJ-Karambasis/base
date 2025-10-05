@@ -612,6 +612,7 @@ typedef struct {
 } rect2;
 
 export_function rect2 Rect2(v2 p0, v2 p1);
+export_function rect2 Rect2_From_Center_Dim(v2 CenterP, v2 Dim);
 export_function rect2 Rect2_Offset(rect2 Rect, v2 Offset);
 export_function b32 Rect2_Contains_V2(rect2 Rect, v2 V);
 export_function v2 Rect2_Size(rect2 Rect);
@@ -822,6 +823,14 @@ Array->Count = 0; \
 function void Dynamic_##name##_Array_Remove_Index(dynamic_##container_name##_array* Array, size_t Index) { \
 Array->Ptr[Index] = Array->Ptr[Array->Count - 1]; \
 Array->Count--; \
+} \
+function b32 Dynamic_##name##_Array_Is_Empty(dynamic_##container_name##_array* Array) { \
+return Array->Count == 0; \
+} \
+function type Dynamic_##name##_Array_Pop(dynamic_##container_name##_array* Array) { \
+Assert(Array->Count != 0); \
+Array->Count--; \
+return Array->Ptr[Array->Count]; \
 }
 
 #define Dynamic_Array_Define_Type(type) Dynamic_Array_Define(type, type)
@@ -1183,8 +1192,8 @@ inline b32 Pool_ID_Null(pool_id ID) {
 	return ID.ID == 0;
 }
 
-export_function pool Pool_Init_With_Size(size_t ItemSize, size_t ReserveSize);
-export_function pool Pool_Init(size_t ItemSize);
+export_function void Pool_Init_With_Size(pool* Pool, size_t ItemSize, size_t ReserveSize);
+export_function void Pool_Init(pool* Pool, size_t ItemSize);
 export_function void Pool_Delete(pool* Pool);
 export_function pool_id Pool_Allocate(pool* Pool);
 export_function void Pool_Free(pool* Pool, pool_id ID);
@@ -1298,6 +1307,38 @@ export_function base* Base_Init();
 }
 #endif
 
+#include "meta_program/meta_defines.h"
 #include "base.inl"
+
+#ifdef __cplusplus
+
+function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Scratch_Allocate_Memory);
+function ALLOCATOR_FREE_MEMORY_DEFINE(Scratch_Free_Memory);
+global allocator_vtable Scratch_VTable = {
+	.AllocateMemoryFunc = Scratch_Allocate_Memory,
+	.FreeMemoryFunc = Scratch_Free_Memory
+};
+
+struct scratch : public allocator {
+	arena* Arena;
+
+	inline scratch() {
+		Arena = Scratch_Get();
+		VTable = &Scratch_VTable;
+	}
+
+	inline ~scratch() { Scratch_Release(); }
+};
+
+function inline ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Scratch_Allocate_Memory) {
+	scratch* Scratch = (scratch*)Allocator;
+	return Arena_Push(Scratch->Arena, Size);
+}
+
+function inline ALLOCATOR_FREE_MEMORY_DEFINE(Scratch_Free_Memory) {
+	//Noop
+}
+
+#endif
 
 #endif

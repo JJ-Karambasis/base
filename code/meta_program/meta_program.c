@@ -16,6 +16,55 @@ int main(int ArgCount, const char** Args) {
 	Meta_Parser_Init_Globals(Arena);
 	G_ErrorStream = Begin_Stream_Writer((allocator*)Arena);
 	
+	//Hashmaps to check if directories or files are excluded
+	hashmap DirectoriesToExclude = Hashmap_Init((allocator*)Arena, sizeof(b8), sizeof(string), Hash_String, Compare_String);
+	hashmap FilesToExclude = Hashmap_Init((allocator*)Arena, sizeof(b8), sizeof(string), Hash_String, Compare_String);
+	for (int i = 1; i < ArgCount; i++) {
+		string Arg = String_Null_Term(Args[i]);
+		if (String_Equals(Arg, String_Lit("-D"))) {
+			i++;
+			while (i < ArgCount) {
+				string Parameter = String_Null_Term(Args[i]);
+				
+				if (String_Starts_With_Char(Parameter, '-')) {
+					i--;
+					break;
+				}
+
+				if (!OS_Is_Directory_Path(Parameter)) {
+					Debug_Log("Invalid parameter '-D %.*s'. Not a valid directory path", Parameter.Size, Parameter.Ptr);
+					return 1;
+				}
+
+				b8 Value = true;
+				string DirectoryPath = String_Directory_Concat((allocator*)Arena, Parameter, String_Empty());
+				Hashmap_Add(&DirectoriesToExclude, &DirectoryPath, &Value);
+				i++;
+			}
+		}
+
+		if (String_Equals(Arg, String_Lit("-F"))) {
+			i++;
+			while (i < ArgCount) {
+				string Parameter = String_Null_Term(Args[i]);
+				
+				if (String_Starts_With_Char(Parameter, '-')) {
+					i--;
+					break;
+				}
+
+				if (!OS_Is_File_Path(Parameter)) {
+					Debug_Log("Invalid parameter '-F %.*s'. Not a valid directory path", Parameter.Size, Parameter.Ptr);
+					return 1;
+				}
+
+				b8 Value = true;
+				Hashmap_Add(&FilesToExclude, &Parameter, &Value);
+				i++;
+			}
+		}
+	}
+
 	//Hashmap to prevent duplicate file entries
 	hashmap FileMap = Hashmap_Init((allocator*)Arena, sizeof(b8), sizeof(string), Hash_String, Compare_String);
 
@@ -36,11 +85,23 @@ int main(int ArgCount, const char** Args) {
 					return 1;
 				}
 
-				string_array Files = OS_Get_All_Files((allocator*)Arena, Parameter, true);
-				for (size_t f = 0; f < Files.Count; f++) {
-					b8 Value = true;
-					if (!Hashmap_Find(&FileMap, &Files.Ptr[f], &Value)) {
-						Hashmap_Add(&FileMap, &Files.Ptr[f], &Value);
+				string DirectoryPath = String_Directory_Concat((allocator*)Arena, Parameter, String_Empty());
+
+				dynamic_string_array FileStack = Dynamic_String_Array_Init((allocator*)Arena);
+				Dynamic_String_Array_Add(&FileStack, DirectoryPath);
+
+				while (!Dynamic_String_Array_Is_Empty(&FileStack)) {
+					string DirectoryOrFilePath = Dynamic_String_Array_Pop(&FileStack);
+					if (OS_Is_Directory_Path(DirectoryOrFilePath)) {
+						if (!Hashmap_Find_Ptr(&DirectoriesToExclude, &DirectoryOrFilePath)) {
+							string_array Files = OS_Get_All_Files((allocator*)Arena, DirectoryOrFilePath, false);
+							Dynamic_String_Array_Add_Range(&FileStack, Files.Ptr, Files.Count);
+						}
+					} else if (OS_Is_File_Path(DirectoryOrFilePath)) {
+						if (!Hashmap_Find_Ptr(&FileMap, &DirectoryOrFilePath) && !Hashmap_Find_Ptr(&FilesToExclude, &DirectoryOrFilePath)) {
+							b8 Value = true;
+							Hashmap_Add(&FileMap, &DirectoryOrFilePath, &Value);
+						}						
 					}
 				}
 
@@ -57,15 +118,14 @@ int main(int ArgCount, const char** Args) {
 					i--;
 					break;
 				}
-				
 
 				if (!OS_Is_File_Path(Parameter)) {
 					Debug_Log("Invalid parameter '-f %.*s'. Not a valid file path", Parameter.Size, Parameter.Ptr);
 					return 1;
 				}
 
-				b8 Value = true;
-				if (!Hashmap_Find(&FileMap, &Parameter, &Value)) {
+				if (!Hashmap_Find_Ptr(&FileMap, &Parameter) && !Hashmap_Find_Ptr(&FilesToExclude, &Parameter)) {
+					b8 Value = true;
 					Hashmap_Add(&FileMap, &Parameter, &Value);
 				}
 

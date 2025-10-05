@@ -1,3 +1,10 @@
+/*
+
+TODO:
+-Culling (front and backface), and wireframe mode
+
+*/
+
 #ifndef GDI_H
 #define GDI_H
 
