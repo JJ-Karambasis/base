@@ -47,7 +47,7 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
 	String_Expand(VK_KHR_SWAPCHAIN_EXTENSION_NAME),
 	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
-	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME)
+	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME),
 #ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 #endif
@@ -100,6 +100,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 								   NULL, NULL, WindowClass.hInstance, NULL);
     
     if (!Window) {
+		//todo: Need to cleanup resources
         Debug_Log("Failed to create window");
         return Result;
     }
@@ -108,6 +109,8 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 	if (Surface != VK_NULL_HANDLE) {
 		Result.Window = Window;
 		Result.Surface = Surface;
+	} else {
+		//todo: Need to cleanup resources
 	}
 
 	return Result;
@@ -117,6 +120,74 @@ function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
 	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
 	DestroyWindow(Surface->Window);
 	UnregisterClassA("GDI_DummyVulkanWindow", GetModuleHandle(NULL));
+}
+
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+
+typedef struct {
+	NSWindow* Window;
+	CAMetalLayer* Layer;
+	VkSurfaceKHR Surface;
+} vk_tmp_surface;
+
+function VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, CAMetalLayer* Layer) {
+    PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT = (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(GDI->Instance, "vkCreateMetalSurfaceEXT");
+	VkMetalSurfaceCreateInfoEXT SurfaceCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+		.pLayer = Layer
+	};
+
+    VkSurfaceKHR Surface;
+	VkResult Status = vkCreateMetalSurfaceEXT(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
+	if(Status != VK_SUCCESS) {
+		Debug_Log("vkCreateMetalSurfaceEXT failed!");
+		return VK_NULL_HANDLE;
+	}
+
+    return Surface;
+}
+
+function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
+	vk_tmp_surface Result;
+	Memory_Clear(&Result, sizeof(vk_tmp_surface));
+
+    NSRect Rect = NSMakeRect(0, 0, 1, 1);
+    NSWindow* Window = [[NSWindow alloc] initWithContentRect:Rect
+                                         styleMask:NSWindowStyleMaskBorderless
+                                         backing:NSBackingStoreBuffered
+                                         defer:NO];
+    if(Window == nil) {
+        Debug_Log("Failed to create window");
+        return Result;
+    }
+
+    NSView* View = [Window contentView];
+    
+    // Create a CAMetalLayer and attach to view
+    CAMetalLayer* Layer = [CAMetalLayer layer];
+    if(Layer == nil) {
+        //todo: Need to cleanup resources
+        Debug_Log("Failed to create the metal layer");
+        return Result;
+    }
+    
+    [View setLayer:Layer];
+    [View setWantsLayer:YES];
+
+	VkSurfaceKHR Surface = VK_Create_Surface(GDI, Layer);
+	if (Surface != VK_NULL_HANDLE) {
+		Result.Window = Window;
+        Result.Layer = Layer;
+		Result.Surface = Surface;
+	}
+
+	return Result;
+}
+
+function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
+	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
+	[Surface->Layer release];
+    [Surface->Window release];
 }
 
 #else
@@ -485,11 +556,6 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 		HasFeatures = false;
 	}
 
-	if (!Robustness2Features->nullDescriptor) {
-		Debug_Log("Missing vulkan feature 'Null Descriptor' for device '%s'", DeviceProperties.deviceName);
-		HasFeatures = false;
-	}
-
 	if (!Synchronization2Feature->synchronization2) {
 		Debug_Log("Missing vulkan feature 'Synchronization 2' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
@@ -577,6 +643,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				GPU->GraphicsQueueFamilyIndex = GraphicsQueueFamilyIndex;
 				GPU->PresentQueueFamilyIndex = PresentQueueFamilyIndex;
 				GPU->Features = Features;
+				GPU->HasNullDescriptorFeature = Robustness2Features->nullDescriptor;
 
 				Result = true;
 			} else {
@@ -1619,17 +1686,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 	Swapchain->Surface = VK_Create_Surface(VkGDI, SwapchainInfo->Window, SwapchainInfo->Instance);
 #elif defined(VK_USE_PLATFORM_METAL_EXT)
-	PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT = (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(VkGDI->Instance, "vkCreateMetalSurfaceEXT");
-	VkMetalSurfaceCreateInfoEXT SurfaceCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-		.pLayer = SwapchainInfo->Layer
-	};
-
-	Status = vkCreateMetalSurfaceEXT(VkGDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Swapchain->Surface);
-	if(Status != VK_SUCCESS) {
-		Debug_Log("vkCreateMetalSurfaceEXT failed!");
-		goto error;
-	}
+	Swapchain->Surface = VK_Create_Surface(VkGDI, SwapchainInfo->Layer);
 #else
 #error "Not Implemented!"
 #endif
@@ -1689,11 +1746,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		Swapchain->Format = VK_Get_GDI_Format(SurfaceFormat.format);
 	}
 
-	if (!VK_Recreate_Swapchain(VkGDI, Swapchain, true)) {
-		goto error;
-	}
-
-	VK_Set_Debug_Name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, "swapchain", Swapchain->Swapchain, SwapchainInfo->DebugName);
+	VK_Recreate_Swapchain(VkGDI, Swapchain, true);
 
 	return Result;
 
@@ -3111,6 +3164,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 #endif
 	}
 	GDI->CurrentTransfer = &GDI->Transfers[0];
+	GDI->CurrentDeleteQueue = &GDI->DeleteQueues[0];
 	GDI->CurrentFrame = GDI->Frames + GDI->FrameIndex;
 
 	vk_frame_context* Frame = GDI->CurrentFrame;

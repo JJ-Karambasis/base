@@ -279,7 +279,7 @@ typedef struct {
 	HWND 	  Window;
 	HINSTANCE Instance;
 #elif defined(OS_OSX)
-	CAMetalLayer* Layer
+	CAMetalLayer* Layer;
 #endif
 	gdi_format Format;
 	string DebugName;

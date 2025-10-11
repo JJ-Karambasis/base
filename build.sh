@@ -78,7 +78,7 @@ if [ ! -d "$bin_path" ]; then
 fi
 
 app_includes=
-app_defines="-DRPMALLOC_FIRST_CLASS_HEAPS=1"
+app_defines=" -DENABLE_OVERRIDE=0 -DRPMALLOC_FIRST_CLASS_HEAPS=1"
 
 if [ $build_debug -eq 1 ]; then 
     app_defines="$app_defines -DDEBUG_BUILD"
@@ -90,7 +90,7 @@ if [ $build_debug -eq 0 ]; then
 fi
 
 clang_compile_only="-c"
-clang_warnings="-Wall -Werror -Wno-missing-braces -Wno-switch -Wno-unused-function -Wno-nullability-completeness -Wno-unused-variable -Wno-unused-private-field"
+clang_warnings="-Wall -Werror -Wno-missing-braces -Wno-switch -Wno-unused-function -Wno-nullability-completeness -Wno-undefined-internal -Wno-unused-variable -Wno-unused-private-field"
 clang_flags="-g $clang_optimized_flag"
 clang_out="-o"
 
@@ -105,9 +105,13 @@ fi
 
 compiler=$compiler_c
 c_ext="c"
+compiler_objc="clang"
+objc_ext="m"
 
 if [ $build_cpp -eq 1 ]; then
     compiler=$compiler_cpp
+    compiler_objc="clang++ -std=c++20"
+    objc_ext="mm"
     c_ext="cpp"
 fi
 
@@ -132,14 +136,17 @@ if [ $build_meta -eq 1 ]; then
     pushd "$bin_path"
         $compiler $compile_flags $compile_warnings $app_defines $app_includes "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o osx_base.o $compile_out meta_program
     popd
-
 fi
 
 if [ $build_gdi -eq 1 ]; then
     pushd "$bin_path"
         ./meta_program -d "$code_path/gdi"
         $compiler_cpp $compile_flags $compile_warnings $compile_only $app_defines -DVK_USE_PLATFORM_METAL_EXT $app_includes -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_vma_usage.cpp"
-        $compiler $compile_flags $compile_warnings $compile_only $app_defines -DVK_USE_PLATFORM_METAL_EXT $app_includes -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" -I"$code_path" "$code_path/gdi/backend/vk/vk_gdi.$c_ext" $compile_out gdi.o
+    
+        if [ $build_type == "osx" ]; then
+            $compiler_objc $compile_flags $compile_warnings $compile_only $app_defines -DVK_USE_PLATFORM_METAL_EXT $app_includes -I"$code_path" -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_gdi.${objc_ext}" $compile_out gdi.o
+        fi
+
     popd
 fi
 
@@ -147,6 +154,8 @@ obj_files="osx_base.o base.o rpmalloc.o"
 if [ $build_gdi -eq 1 ]; then 
     obj_files="$obj_files gdi.o vk_vma_usage.o"
 fi
+
+echo $obj_files
 
 pushd "$bin_path"
     ar rcs libbase.a $obj_files

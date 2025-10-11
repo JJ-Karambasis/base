@@ -165,7 +165,9 @@ function void OSX_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_a
 	if (!String_Ends_With_Char(Directory, '/')) {
 		Directory = String_Concat((allocator*)Scratch, Directory, String_Lit("/"));
 	}
-    Assert(String_Is_Null_Term(Directory));
+
+    //Copy the directory to ensure it is null terminated
+    Directory = String_Copy((allocator*)Scratch, Directory);
 
     DIR* Dir = opendir(Directory.Ptr);
     if(Dir != NULL) {
@@ -175,11 +177,13 @@ function void OSX_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_a
             string FileOrDirectoryName = String_Null_Term(DirEntry->d_name);
             if (!String_Equals(FileOrDirectoryName, String_Lit(".")) && !String_Equals(FileOrDirectoryName, String_Lit(".."))) {
                 if(DirEntry->d_type == DT_DIR) {
-                    if(Recursive) {
-                        string DirectoryName = FileOrDirectoryName;
-                        string Strings[] = { Directory, DirectoryName, String_Lit("/") };
-                        string DirectoryPath = String_Combine((allocator*)Scratch, Strings, Array_Count(Strings));
+                    string DirectoryName = FileOrDirectoryName;
+                    if (Recursive) {
+                        string DirectoryPath = String_Directory_Concat((allocator*)Scratch, Directory, DirectoryName);
                         OSX_Get_All_Files_Recursive(Allocator, Array, DirectoryPath, true);
+                    } else {
+                        string DirectoryPath = String_Directory_Concat(Allocator, Directory, DirectoryName);
+                        Dynamic_String_Array_Add(Array, DirectoryPath);
                     }
                 } else {
                     string FileName = FileOrDirectoryName;
@@ -506,6 +510,70 @@ function OS_SEMAPHORE_ADD_DEFINE(OSX_Semaphore_Add) {
 	}
 }
 
+function OS_EVENT_CREATE_DEFINE(OSX_Event_Create) {
+    pthread_mutex_t Mutex;
+	pthread_cond_t Cond;
+	
+	pthread_mutex_init(&Mutex, NULL);
+    pthread_cond_init(&Cond, NULL);
+
+	osx_base* OSX = OSX_Get();
+	pthread_mutex_lock(&OSX->ResourceLock);
+	os_event* Event = OSX->FreeEvents;
+	if (Event) SLL_Pop_Front(OSX->FreeEvents);
+	else Event = Arena_Push_Struct_No_Clear(OSX->ResourceArena, os_event);
+	pthread_mutex_unlock(&OSX->ResourceLock);
+
+	Memory_Clear(Event, sizeof(os_event));
+	Event->Mutex = Mutex;
+    Event->Cond = Cond;
+	return Event;
+}
+
+function OS_EVENT_DELETE_DEFINE(OSX_Event_Delete) {
+	if (Event) {
+        pthread_mutex_destroy(&Event->Mutex);
+        pthread_cond_destroy(&Event->Cond);
+
+		osx_base* OSX = OSX_Get();
+		pthread_mutex_lock(&OSX->ResourceLock);
+		SLL_Push_Front(OSX->FreeEvents, Event);
+		pthread_mutex_unlock(&OSX->ResourceLock);
+	}
+}
+
+function OS_EVENT_WAIT_DEFINE(OSX_Event_Wait) {
+    if(Event) {
+        pthread_mutex_lock(&Event->Mutex);
+    
+        // If already signaled, return immediately
+        if (Event->IsSignaled) {
+            pthread_mutex_unlock(&Event->Mutex);
+            return;
+        }
+        
+        pthread_cond_wait(&Event->Cond, &Event->Mutex);
+        pthread_mutex_unlock(&Event->Mutex);
+    }
+}
+
+function OS_EVENT_SIGNAL_DEFINE(OSX_Event_Signal) {
+	if(Event) {
+        pthread_mutex_lock(&Event->Mutex);
+        Event->IsSignaled = true;
+        pthread_cond_broadcast(&Event->Cond);  // Wake all waiting threads
+        pthread_mutex_unlock(&Event->Mutex);
+    }
+}
+
+function OS_EVENT_RESET_DEFINE(OSX_Event_Reset) {
+	if(Event) {
+        pthread_mutex_lock(&Event->Mutex);
+        Event->IsSignaled = false;
+        pthread_mutex_unlock(&Event->Mutex);
+    }
+}
+
 function OS_HOT_RELOAD_CREATE_DEFINE(OSX_Hot_Reload_Create) {
     FilePath = String_Copy(Default_Allocator_Get(), FilePath);
 
@@ -664,6 +732,12 @@ global os_base_vtable OSX_Base_VTable = {
     .SemaphoreIncrementFunc = OSX_Semaphore_Increment,
     .SemaphoreDecrementFunc = OSX_Semaphore_Decrement,
     .SemaphoreAddFunc = OSX_Semaphore_Add,
+
+    .EventCreateFunc = OSX_Event_Create,
+    .EventDeleteFunc = OSX_Event_Delete,
+    .EventResetFunc = OSX_Event_Reset,
+    .EventSignalFunc = OSX_Event_Signal,
+    .EventWaitFunc = OSX_Event_Wait,
 
 	.HotReloadCreateFunc = OSX_Hot_Reload_Create,
 	.HotReloadDeleteFunc = OSX_Hot_Reload_Delete,

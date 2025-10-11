@@ -31,6 +31,10 @@ export_function base* Base_Get() {
 }
 
 export_function allocator* Default_Allocator_Get() {
+	if(!Base_Get()) {
+		Base_Init();
+	}
+	
 	return &Base_Get()->DefaultAllocator;
 }
 
@@ -65,16 +69,18 @@ global allocator_vtable Heap_VTable = {
 };
 
 export_function base* Base_Init() {
-	local base Base;
-	Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
-	Base.ArenaVTable = &Arena_VTable;
-	Base.HeapVTable = &Heap_VTable;
-	Base.JobSystemThreadCallback = Job_System_Thread_Callback;
+	if(!Base_Get()) {
+		local base Base;
+		Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
+		Base.ArenaVTable = &Arena_VTable;
+		Base.HeapVTable = &Heap_VTable;
+		Base.JobSystemThreadCallback = Job_System_Thread_Callback;
 
-	Base_Set(&Base);
-	OS_Base_Init(&Base);
+		Base_Set(&Base);
+		OS_Base_Init(&Base);
+	}
 
-	return &Base;
+	return Base_Get();
 }
 
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon) {

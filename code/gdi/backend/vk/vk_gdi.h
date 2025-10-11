@@ -257,6 +257,7 @@ typedef struct {
 	u32 							 PresentQueueFamilyIndex;
 	dynamic_char_ptr_array 			 Extensions;
 	VkPhysicalDeviceFeatures2KHR* 	 Features;
+	b32 							 HasNullDescriptorFeature;
 } vk_gpu;
 
 struct vk_gdi {
@@ -275,6 +276,9 @@ struct vk_gdi {
 	VkQueue  GraphicsQueue;
 	VkQueue  PresentQueue;
 	VkQueue  TransferQueue;
+
+	//Support device features
+	b32 HasNullDescriptor;
 
 	//Resources
 	VmaAllocator 	 GPUAllocator;
@@ -298,5 +302,6 @@ struct vk_gdi {
 	vk_transfer_context  Transfers[VK_MAX_TRANSFER_COUNT];
 	vk_transfer_context* CurrentTransfer;
 };
+
 
 #endif
