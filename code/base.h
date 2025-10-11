@@ -46,6 +46,7 @@ extern "C" {
 #endif
 
 #ifdef OS_WIN32
+//todo: Are we sure we want to include windows.h?
 #include <windows.h>
 #ifdef __cplusplus
 #define export_function extern "C" __declspec(dllexport)

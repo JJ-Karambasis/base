@@ -33,6 +33,13 @@ struct os_semaphore {
     os_semaphore* Next;
 };
 
+struct os_event {
+    pthread_mutex_t Mutex;
+    pthread_cond_t Cond;
+    b32 IsSignaled;
+    os_event* Next;
+};
+
 struct os_hot_reload {
 	string 	       FilePath;
 	time_t 	       LastWriteTime;
@@ -55,6 +62,7 @@ typedef struct {
     os_mutex* FreeMutex;
     os_rw_mutex* FreeRWMutex;
     os_semaphore* FreeSemaphores;
+    os_event* FreeEvents;
     os_hot_reload* FreeHotReload;
     os_library* FreeLibrary;
 } osx_base;
