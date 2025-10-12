@@ -80,6 +80,45 @@ struct span {
 };
 
 template <typename type>
+struct array {
+	allocator* Allocator = NULL;
+	type* Ptr 			 = NULL;
+	size_t Count 		 = 0;
+	size_t Capacity 	 = 0;
+
+	array() = default;
+	inline array(allocator* _Allocator) : Allocator(_Allocator) { }
+};
+
+template <typename type>
+function inline void Array_Init(array<type>* Array, allocator* Allocator = Default_Allocator_Get()) {
+	*Array = array<type>(Allocator);
+}
+
+template <typename type>
+function inline void Array_Add(array<type>* Array, const type& Entry) {
+	if(Array->Count == Array->Capacity) {
+		size_t NewCapacity = Array->Capacity ? Array->Capacity*2 : 32;
+		type* NewPtr = Allocator_Allocate_Array(Array->Allocator, NewCapacity, type);
+
+		if(Array->Ptr) {
+			Memory_Copy(NewPtr, Array->Ptr, Array->Capacity*sizeof(type));
+			Allocator_Free_Memory(Array->Allocator, Array->Ptr);
+		}
+
+		Array->Ptr = NewPtr;
+		Array->Capacity = NewCapacity;
+	}
+
+	Array->Ptr[Array->Count++] = Entry;
+}
+
+template <typename type>
+function inline void Array_Clear(array<type>* Array) {
+	Array->Count = 0;
+}
+
+template <typename type>
 struct pool_handle {
 	pool_id ID;
 };

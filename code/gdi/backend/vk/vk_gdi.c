@@ -1513,8 +1513,8 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 
 			VkPipelineRasterizationStateCreateInfo RasterizationState = {
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-				.polygonMode = VK_POLYGON_MODE_FILL,
-				.cullMode = VK_CULL_MODE_NONE,
+				.polygonMode = ShaderInfo->IsWireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
+				.cullMode = VK_Get_Cull_Mode(ShaderInfo->CullMode),
 				.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 				.lineWidth = 1.0f
 			};

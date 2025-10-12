@@ -108,6 +108,12 @@ typedef enum {
 
 Meta()
 typedef enum {
+	GDI_CULL_MODE_NONE Tags(vk: VK_CULL_MODE_NONE),
+	GDI_CULL_MODE_BACK Tags(vk: VK_CULL_MODE_BACK_BIT)
+} gdi_cull_mode;
+
+Meta()
+typedef enum {
 	GDI_BLEND_ZERO Tags(vk: VK_BLEND_FACTOR_ZERO),
 	GDI_BLEND_ONE Tags(vk: VK_BLEND_FACTOR_ONE),
 	GDI_BLEND_SRC_COLOR Tags(vk: VK_BLEND_FACTOR_SRC_COLOR),
@@ -263,6 +269,8 @@ typedef struct {
 	gdi_blend_state_array BlendStates;
 	gdi_depth_state DepthState;
 	gdi_primitive Primitive;
+	b32 		  IsWireframe;
+	gdi_cull_mode CullMode;
 	string 		  DebugName;
 } gdi_shader_create_info;
 

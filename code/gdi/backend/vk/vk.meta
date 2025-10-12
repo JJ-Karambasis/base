@@ -293,6 +293,7 @@ VK_Enum_Mapper(Compare_Func, gdi_compare_func, VkCompareOp);
 VK_Enum_Mapper(Idx_Type, gdi_idx_format, VkIndexType);
 VK_Enum_Mapper(Primitive, gdi_primitive, VkPrimitiveTopology);
 VK_Enum_Mapper(Blend, gdi_blend, VkBlendFactor);
+VK_Enum_Mapper(Cull_Mode, gdi_cull_mode, VkCullModeFlags);
 
 META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_gdi* GDI, vk_delete_thread_context* DeleteContext) -> void {
 	META_FOR(vk_delete_thread_context) {

@@ -618,6 +618,12 @@ export_function rect2 Rect2_Offset(rect2 Rect, v2 Offset);
 export_function b32 Rect2_Contains_V2(rect2 Rect, v2 V);
 export_function v2 Rect2_Size(rect2 Rect);
 
+typedef struct {
+	v3 P0;
+	v3 P1;
+	v3 P2;
+} triangle3D;
+
 export_function v3 RGB_To_HSV(v3 rgb);
 export_function v3 HSV_To_RGB(v3 hsv);
 export_function v3 Get_Triangle_Centroid(v3 P0, v3 P1, v3 P2);
