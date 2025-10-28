@@ -14,7 +14,7 @@ int main(int ArgCount, const char** Args) {
 	arena* Arena = Arena_Create();
 	Source_Parser_Init_Globals(Arena);
 	Meta_Parser_Init_Globals(Arena);
-	G_ErrorStream = Begin_Stream_Writer((allocator*)Arena);
+	G_ErrorStream = SStream_Writer_Begin((allocator*)Arena);
 	
 	//Hashmaps to check if directories or files are excluded
 	hashmap DirectoriesToExclude = Hashmap_Init((allocator*)Arena, sizeof(b8), sizeof(string), Hash_String, Compare_String);

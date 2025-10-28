@@ -2,7 +2,7 @@ function void AKON_Report_Error(akon_node_tree* NodeTree, akon_token* Token, con
 	arena* Scratch = Scratch_Get();
 
 	if (!NodeTree->ErrorStream.Allocator) {
-		NodeTree->ErrorStream = Begin_Stream_Writer((allocator*)NodeTree->Arena);
+		NodeTree->ErrorStream = SStream_Writer_Begin((allocator*)NodeTree->Arena);
 	}
 
 	va_list List;
@@ -444,7 +444,7 @@ function void AKON_Generate_String_For_Node(akon_node_tree* NodeTree, akon_node*
 
 export_function string AKON_Generate_String(akon_node_tree* NodeTree, allocator* Allocator) {
 	arena* Scratch = Scratch_Get();
-	sstream_writer Stream = Begin_Stream_Writer((allocator*)Scratch);
+	sstream_writer Stream = SStream_Writer_Begin((allocator*)Scratch);
 
 	akon_node* Node = NodeTree->RootNode->FirstChild;
 	for (size_t i = 0; i < NodeTree->RootNode->NumChildren; i++) {

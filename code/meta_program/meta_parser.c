@@ -124,7 +124,11 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_IS_STRUCT"),
 		String_Lit("META_IS_UNION"),
 		String_Lit("META_IS_ENUM"),
-		String_Lit("META_IS_ARRAY")
+		String_Lit("META_IS_ARRAY"),
+		String_Lit("META_IS_TYPE"),
+		String_Lit("META_IS_NOT_TYPE"),
+		String_Lit("META_IS_NAME"),
+		String_Lit("META_IS_NOT_NAME")
 	};
 	meta_predicate Predicates[] = {
 		META_CONTAINS_TAG_PREDICATE,
@@ -132,7 +136,11 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_IS_STRUCT_PREDICATE,
 		META_IS_UNION_PREDICATE,
 		META_IS_ENUM_PREDICATE,
-		META_IS_ARRAY_PREDICATE
+		META_IS_ARRAY_PREDICATE,
+		META_IS_TYPE_PREDICATE,
+		META_IS_NOT_TYPE_PREDICATE,
+		META_IS_NAME_PREDICATE,
+		META_IS_NOT_NAME_PREDICATE
 	};
 	Static_Assert(Array_Count(Predicates) == Array_Count(PredicatesStr));
 	Static_Assert(Array_Count(Predicates) == META_PREDICATE_COUNT);
@@ -226,6 +234,23 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Array_Predicate) {
 	return Entry->IsArray;
 }
 
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Type_Predicate) {
+	return String_Equals(Parameters.First->String, Entry->Type);
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Type_Predicate) {
+	return !String_Equals(Parameters.First->String, Entry->Type);
+}
+
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Name_Predicate) {
+	return String_Equals(Parameters.First->String, Entry->Name);
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Name_Predicate) {
+	return !String_Equals(Parameters.First->String, Entry->Name);
+}
+
 function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateName) {
 	meta_predicate Predicate = (meta_predicate)-1;
 	if (!Hashmap_Find(&G_MetaPredicatesMap, &PredicateName, &Predicate)) {
@@ -238,7 +263,11 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 		Meta_Parser_Contains_Is_Struct_Predicate,
 		Meta_Parser_Contains_Is_Union_Predicate,
 		Meta_Parser_Contains_Is_Enum_Predicate,
-		Meta_Parser_Contains_Is_Array_Predicate
+		Meta_Parser_Contains_Is_Array_Predicate,
+		Meta_Parser_Contains_Is_Type_Predicate,
+		Meta_Parser_Contains_Is_Not_Type_Predicate,
+		Meta_Parser_Contains_Is_Name_Predicate,
+		Meta_Parser_Contains_Is_Not_Name_Predicate,
 	};
 	Static_Assert(Array_Count(MetaPredicates) == META_PREDICATE_COUNT);
 	Assert(Predicate < META_PREDICATE_COUNT);
@@ -1324,7 +1353,7 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
 
 			//Token has a value
 			if (Meta_Check_Token(TokenIter.Token, ':')) {
-				sstream_writer ValueWriter = Begin_Stream_Writer((allocator*)Scratch);
+				sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
 
 				size_t ParamStackIndex = 0;
 				Meta_Token_Iter_Move_Next(&TokenIter);
@@ -1418,7 +1447,7 @@ function meta_token* Meta_Parse_Enum_Entry(meta_parser* Parser, meta_enum_type* 
 
 		Meta_Token_Iter_Move_Next(&TokenIter);
 
-		sstream_writer ValueWriter = Begin_Stream_Writer((allocator*)Scratch);
+		sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
 			
 		size_t ParenStackIndex = 0;
 		while (TokenIter.Token && (TokenIter.Token->Type != ',' && (TokenIter.Token->Type != ')' || ParenStackIndex))) {

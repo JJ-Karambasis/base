@@ -1037,7 +1037,7 @@ typedef struct {
 	size_t 				 TotalCharCount;
 } sstream_writer;
 
-export_function sstream_writer Begin_Stream_Writer(allocator* Allocator);
+export_function sstream_writer SStream_Writer_Begin(allocator* Allocator);
 export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Entry);
 export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry);
 export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const char* Format, ...);
@@ -1069,7 +1069,46 @@ export_function bstream_reader BStream_Reader_Begin(buffer Buffer);
 export_function b32 BStream_Reader_Is_Valid(bstream_reader* Reader);
 export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t Size);
 export_function u32 BStream_Reader_U32(bstream_reader* Reader);
-#define BStream_Reader_Struct(reader, type) *(const type*)BStream_Reader_Size(reader, sizeof(type))
+
+function inline const void* BStream_Reader_Peek(bstream_reader* Reader) {
+	return Reader->At;
+}
+
+function inline void BStream_Reader_Skip(bstream_reader* Reader, size_t SkipCount) {
+	Assert(Reader->At + SkipCount <= Reader->End);
+	Reader->At += SkipCount;
+}
+
+#define BStream_Reader_Struct(reader, type) *(const type *)BStream_Reader_Size(reader, sizeof(type))
+
+function inline string BStream_Reader_String(bstream_reader* Reader) {
+	size_t Size = *(const size_t*)BStream_Reader_Size(Reader, sizeof(size_t));
+	return Make_String((const char*)BStream_Reader_Size(Reader, Size), Size);
+}
+
+typedef struct bstream_writer_node bstream_writer_node;
+struct bstream_writer_node {
+	buffer Entry;
+	bstream_writer_node* Next;
+};
+
+typedef struct {
+	allocator*           Allocator;
+	bstream_writer_node* First;
+	bstream_writer_node* Last;
+	size_t 				 NodeCount;
+	size_t 				 TotalByteCount;
+} bstream_writer;
+
+export_function bstream_writer BStream_Writer_Begin(allocator* Allocator);
+export_function void BStream_Writer_Front(bstream_writer* Writer, size_t Size, const void* Data);
+export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, const void* Data);
+export_function buffer BStream_Writer_Join(bstream_writer* Writer, allocator* Allocator);
+
+function inline void BStream_Writer_Write_String(bstream_writer* Writer, string String) {
+	BStream_Writer_Write(Writer, sizeof(size_t), &String.Size);
+	BStream_Writer_Write(Writer, String.Size * sizeof(char), String.Ptr);
+}
 
 #define HASH_INVALID_SLOT (u32)-1
 typedef struct {
@@ -1278,14 +1317,16 @@ export_function u32 U32_Hash_U32_With_Seed(u32 Value, u32 Seed);
 export_function u32 U32_Hash_U32(u32 Value);
 export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed);
 export_function u32 U32_Hash_U64(u64 Value);
+export_function u64 U64_Hash_U32_With_Seed(u32 Value, u64 Seed);
+export_function u64 U64_Hash_U32(u32 Value);
 export_function u32 U32_Hash_String(string String);
 export_function u64 U64_Hash_String(string String);
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed);
 export_function u32 U32_Hash_Bytes(void* Data, size_t Size);
 export_function u32 U32_Hash_Bytes_With_Seed(void* Data, size_t Size, u32 Seed);
 export_function u64 U64_Hash_Bytes(void* Data, size_t Size);
-export_function u32 U32_Hash_Ptr(void* Ptr);
-export_function u32 U32_Hash_Ptr_With_Seed(void* Ptr, u32 Seed);
+export_function u32 U32_Hash_Ptr(const void* Ptr);
+export_function u32 U32_Hash_Ptr_With_Seed(const void* Ptr, u32 Seed);
 export_function u32 Hash_String(void* A);
 export_function b32 Compare_String(void* A, void* B);
 export_function buffer Read_Entire_File(allocator* Allocator, string Path);

@@ -1688,6 +1688,8 @@ function  arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
 
 export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Alignment) {
 	Assert(Is_Pow2(Alignment));
+
+	if (!Size) return NULL;
 	
 	void* Result = NULL;
 	if (Arena->Type == ARENA_TYPE_VIRTUAL) {
@@ -2788,7 +2790,7 @@ export_function void SStream_Reader_Skip_Line(sstream_reader* Reader) {
 	}
 }
 
-export_function sstream_writer Begin_Stream_Writer(allocator* Allocator) {
+export_function sstream_writer SStream_Writer_Begin(allocator* Allocator) {
 	sstream_writer Writer = { Allocator };
 	return Writer;
 }
@@ -2873,6 +2875,49 @@ export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t S
 export_function u32 BStream_Reader_U32(bstream_reader* Reader) {
 	u32 Result = *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
 	return Result;
+}
+
+export_function bstream_writer BStream_Writer_Begin(allocator* Allocator) {
+	bstream_writer Result;
+	Memory_Clear(&Result, sizeof(bstream_writer));
+	Result.Allocator = Allocator;
+	return Result;
+}
+
+export_function void BStream_Writer_Front(bstream_writer* Writer, size_t Size, const void* Data) {
+	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
+	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
+
+	Writer->NodeCount++;
+	Writer->TotalByteCount += Size;
+
+	SLL_Push_Front(Writer->First, Node);	
+}
+
+export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, const void* Data) {
+	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
+	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
+
+	Writer->NodeCount++;
+	Writer->TotalByteCount += Size;
+	
+	SLL_Push_Back(Writer->First, Writer->Last, Node);
+
+	if (!Writer->Last) {
+		Writer->Last = Writer->First;
+	}
+}
+
+export_function buffer BStream_Writer_Join(bstream_writer* Writer, allocator* Allocator) {
+	void* Data = Allocator_Allocate_Memory(Allocator, Writer->TotalByteCount);
+
+	u8* DataAt = (u8*)Data;
+	for (bstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
+		Memory_Copy(DataAt, Node->Entry.Ptr, Node->Entry.Size);
+		DataAt += Node->Entry.Size;
+	}
+
+	return Make_Buffer(Data, Writer->TotalByteCount);
 }
 
 export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t ValueSize, size_t KeySize, u32 ItemCapacity, key_hash_func* HashFunc, key_comp_func* CompareFunc) {
@@ -3593,6 +3638,16 @@ export_function u32 U32_Hash_String(string String) {
 	return (u32)XXH32(String.Ptr, String.Size, InitialSeed);
 }
 
+export_function u64 U64_Hash_U32_With_Seed(u32 Value, u64 Seed) {
+	u64 Result = (u64)XXH64(&Value, sizeof(u32), Seed);
+	return Result;
+}
+
+export_function u64 U64_Hash_U32(u32 Value) {
+	u64 Result = (u32)XXH64(&Value, sizeof(u32), InitialSeed);
+	return Result;
+}
+
 export_function u64 U64_Hash_String(string String) {
 	return (u64)XXH64(String.Ptr, String.Size, InitialSeed);
 }
@@ -3617,12 +3672,12 @@ export_function u64 U64_Hash_Bytes(void* Data, size_t Size) {
 	return (u64)XXH64(Data, Size, InitialSeed);
 }
 
-export_function u32 U32_Hash_Ptr(void* Ptr) {
+export_function u32 U32_Hash_Ptr(const void* Ptr) {
 	size_t Value = (size_t)Ptr;
 	return U32_Hash_Bytes(&Value, sizeof(size_t));
 }
 
-export_function u32 U32_Hash_Ptr_With_Seed(void* Ptr, u32 Seed) {
+export_function u32 U32_Hash_Ptr_With_Seed(const void* Ptr, u32 Seed) {
 	size_t Value = (size_t)Ptr;
 	return U32_Hash_Bytes_With_Seed(&Value, sizeof(size_t), Seed);
 }

@@ -178,7 +178,7 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 
 			//Token has a value
 			if (Source_Check_Token(TokenIter.Token, ':')) {
-				sstream_writer ValueWriter = Begin_Stream_Writer((allocator*)Scratch);
+				sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
 
 				size_t ParamStackIndex = 0;
 				Source_Token_Iter_Move_Next(&TokenIter);
@@ -530,7 +530,7 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 					IsPointer = true;
 				}
 
-				sstream_writer TypeWriter = Begin_Stream_Writer((allocator*)Scratch);
+				sstream_writer TypeWriter = SStream_Writer_Begin((allocator*)Scratch);
 				while (StructEntryTokenIter.Token != StartEntryToken) {
 					Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
 					SStream_Writer_Add_Front(&TypeWriter, StructEntryTokenIter.Token->Identifier);

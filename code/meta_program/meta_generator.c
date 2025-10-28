@@ -1,7 +1,7 @@
 function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* Parser) {
 	arena* Scratch = Scratch_Get();
 
-	sstream_writer HeaderWriter = Begin_Stream_Writer((allocator*)Scratch);
+	sstream_writer HeaderWriter = SStream_Writer_Begin((allocator*)Scratch);
 	for (size_t i = 0; i < Parser->GlobalMap.ItemCount; i++) {
 		meta_struct_type* Struct;
 		Hashmap_Get_Value(&Parser->GlobalMap, i, &Struct);
@@ -63,7 +63,7 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 		SStream_Writer_Add(&HeaderWriter, String_Lit(");\n"));
 	}
 
-	sstream_writer SourceWriter = Begin_Stream_Writer((allocator*)Scratch);
+	sstream_writer SourceWriter = SStream_Writer_Begin((allocator*)Scratch);
 	for (size_t i = 0; i < Parser->FunctionMap.ItemCount; i++) {
 		meta_function_type* Function;
 		Hashmap_Get_Value(&Parser->FunctionMap, i, &Function);
