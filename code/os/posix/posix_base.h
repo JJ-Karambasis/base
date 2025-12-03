@@ -1,5 +1,5 @@
-#ifndef OSX_BASE_H
-#define OSX_BASE_H
+#ifndef POSIX_BASE_H
+#define POSIX_BASE_H
 
 struct os_file {
     int Handle;
@@ -28,10 +28,19 @@ struct os_rw_mutex {
     os_rw_mutex* Next;
 };
 
+#ifdef OS_OSX
 struct os_semaphore {
     semaphore_t Handle;
     os_semaphore* Next;
 };
+#elif defined(OS_LINUX)
+struct os_semaphore{
+    sem_t Handle;
+    os_semaphore* Next;
+};
+#else
+#error "Not Implemented"
+#endif
 
 struct os_event {
     pthread_mutex_t Mutex;
@@ -65,6 +74,6 @@ typedef struct {
     os_event* FreeEvents;
     os_hot_reload* FreeHotReload;
     os_library* FreeLibrary;
-} osx_base;
+} posix_base;
 
 #endif

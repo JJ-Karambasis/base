@@ -17,6 +17,16 @@ export_function gdi* GDI_Get() {
 	return G_GDI;
 }
 
+export_function b32 GDI_Set_Device_Context(gdi_device* Device) {
+	return GDI_Backend_Set_Device_Context(Device);
+}
+
+function gdi_device_context* GDI_Get_Device_Context() {
+	gdi* GDI = GDI_Get();
+	Assert(GDI->DeviceContext);
+	return GDI->DeviceContext;
+}
+
 #ifdef DEBUG_BUILD
 function inline b32 GDI_Is_Type_(gdi_handle Handle, gdi_object_type Type) {
 	return !GDI_Is_Null(Handle) && Handle.Type == Type;
@@ -28,7 +38,8 @@ function inline b32 GDI_Is_Type_(gdi_handle Handle, gdi_object_type Type) {
 
 function inline arena* GDI_Frame_Arena() {
 	gdi* GDI = GDI_Get();
-	return GDI->FrameArena;
+	Assert(GDI->DeviceContext);
+	return GDI->DeviceContext->FrameArena;
 }
 
 /* Resource creation. Mostly validation on the front end*/
@@ -44,6 +55,11 @@ export_function void GDI_Delete_Texture(gdi_handle Texture) {
 	if (!GDI_Is_Null(Texture)) {
 		GDI_Backend_Delete_Texture(Texture);
 	}
+}
+
+export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture) {
+	Assert(GDI_Is_Type(Texture, TEXTURE));
+	return GDI_Backend_Get_Texture_Info(Texture);
 }
 
 export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo) {
@@ -66,6 +82,12 @@ export_function void GDI_Delete_Texture_View(gdi_handle TextureView) {
 	if (!GDI_Is_Null(TextureView)) {
 		GDI_Backend_Delete_Texture_View(TextureView);
 	}
+}
+
+export_function gdi_handle GDI_Get_Texture_View_Texture(gdi_handle TextureView) {
+	Assert(GDI_Is_Type(TextureView, TEXTURE_VIEW));
+	if(GDI_Is_Null(TextureView)) return GDI_Null_Handle();
+	return GDI_Backend_Get_Texture_View_Texture(TextureView);
 }
 
 export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo) {
@@ -191,21 +213,21 @@ export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain) 
 
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass) {
-	gdi* GDI = GDI_Get();
-	gdi_pass* Pass = Arena_Push_Struct(GDI->FrameArena, gdi_pass);
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
 	Pass->Type = GDI_PASS_TYPE_RENDER;
 	Pass->RenderPass = RenderPass;
-	SLL_Push_Back(GDI->FirstPass, GDI->LastPass, Pass);
+	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 }
 
 export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi_handle_array BufferWrites, gdi_dispatch_array Dispatches) {
-	gdi* GDI = GDI_Get();
-	gdi_pass* Pass = Arena_Push_Struct(GDI->FrameArena, gdi_pass);
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
 	Pass->Type = GDI_PASS_TYPE_COMPUTE;
-	Pass->ComputePass.TextureWrites = TextureWrites;
-	Pass->ComputePass.BufferWrites  = BufferWrites;
-	Pass->ComputePass.Dispatches    = Dispatches;
-	SLL_Push_Back(GDI->FirstPass, GDI->LastPass, Pass);
+	Pass->ComputePass.TextureWrites = GDI_Handle_Array_Copy((allocator*)Context->FrameArena, TextureWrites.Ptr, TextureWrites.Count);
+	Pass->ComputePass.BufferWrites  = GDI_Handle_Array_Copy((allocator*)Context->FrameArena, BufferWrites.Ptr, BufferWrites.Count);
+	Pass->ComputePass.Dispatches    = GDI_Dispatch_Array_Copy((allocator*)Context->FrameArena, Dispatches.Ptr, Dispatches.Count);
+	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 }
 
 export_function void GDI_Render(const gdi_render_params* RenderParams) {
@@ -215,8 +237,8 @@ export_function void GDI_Render(const gdi_render_params* RenderParams) {
 	}
 #endif
 	
-	gdi* GDI = GDI_Get();
-	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&Context->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		if (!ImGDI->IsReset) {
 			GDI_Unmap_Buffer(ImGDI->VtxBuffer);
 			GDI_Unmap_Buffer(ImGDI->IdxBuffer);
@@ -225,11 +247,11 @@ export_function void GDI_Render(const gdi_render_params* RenderParams) {
 	
 	GDI_Backend_Render(RenderParams);
 
-	Arena_Clear(GDI->FrameArena);
-	GDI->FirstPass = NULL;
-	GDI->LastPass = NULL;
+	Arena_Clear(Context->FrameArena);
+	Context->FirstPass = NULL;
+	Context->LastPass = NULL;
 
-	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM); ImGDI; ImGDI = ImGDI->Next) {
+	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&Context->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		ImGDI->IdxBufferUsed = 0;
 		ImGDI->VtxBufferUsed = 0;
 		ImGDI->LastIdxBufferUsed = 0;
@@ -312,13 +334,9 @@ export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s
 	}
 }
 
-export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset) {
+function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
 	gdi_draw_state* PrevState    = &RenderPass->PrevState;
-
-	CurrentState->IdxCount  = IdxCount;
-	CurrentState->IdxOffset = IdxOffset;
-	CurrentState->VtxOffset = VtxOffset;
 
 	if (RenderPass->Offset + (sizeof(gdi_draw_state)+sizeof(u32)) > RenderPass->Memory.CommitSize) {
 		Commit_New_Size(&RenderPass->Memory, RenderPass->Offset + sizeof(gdi_draw_state));
@@ -391,15 +409,21 @@ export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, 
 		Stream += sizeof(u32);
 	}
 
-	if (PrevState->IdxCount != CurrentState->IdxCount) {
-		*Bitfield |= GDI_RENDER_PASS_IDX_COUNT_BIT;
-		Memory_Copy(Stream, &CurrentState->IdxCount, sizeof(u32));
+	if(PrevState->DrawType != CurrentState->DrawType) {
+		*Bitfield |= GDI_RENDER_PASS_DRAW_TYPE_BIT;
+		Memory_Copy(Stream, &CurrentState->DrawType, sizeof(gdi_draw_type));
+		Stream += sizeof(gdi_draw_type);
+	}
+
+	if (PrevState->PrimitiveCount != CurrentState->PrimitiveCount) {
+		*Bitfield |= GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT;
+		Memory_Copy(Stream, &CurrentState->PrimitiveCount, sizeof(u32));
 		Stream += sizeof(u32);
 	}
 
-	if (PrevState->IdxOffset != CurrentState->IdxOffset) {
-		*Bitfield |= GDI_RENDER_PASS_IDX_OFFSET_BIT;
-		Memory_Copy(Stream, &CurrentState->IdxOffset, sizeof(u32));
+	if (PrevState->PrimitiveOffset != CurrentState->PrimitiveOffset) {
+		*Bitfield |= GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT;
+		Memory_Copy(Stream, &CurrentState->PrimitiveOffset, sizeof(u32));
 		Stream += sizeof(u32);
 	}
 
@@ -419,6 +443,27 @@ export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, 
 
 	*PrevState = *CurrentState;
 	RenderPass->Offset += (Stream - (u8*)Bitfield);
+}
+
+export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset) {
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+
+	CurrentState->DrawType  = GDI_DRAW_TYPE_IDX;
+	CurrentState->PrimitiveCount  = IdxCount;
+	CurrentState->PrimitiveOffset = IdxOffset;
+	CurrentState->VtxOffset = VtxOffset;
+
+	Render_Draw_Common(RenderPass);
+}
+
+export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset) {
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+
+	CurrentState->DrawType  = GDI_DRAW_TYPE_VTX;
+	CurrentState->PrimitiveCount  = VtxCount;
+	CurrentState->PrimitiveOffset = VtxOffset;
+
+	Render_Draw_Common(RenderPass);
 }
 
 function void GDI_Pool_Init_Raw(gdi_pool* Pool, u16* IndicesPtr, gdi_id* IDsPtr, u16 Capacity) {

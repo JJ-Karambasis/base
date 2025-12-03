@@ -31,6 +31,18 @@ function inline v2& operator*=(v2& A, f32 B) {
 	return A;
 }
 
+function inline v2i operator+(v2i A, s32 B) {
+	return V2i(A.x+B, A.y+B);
+}
+
+function inline v2i operator-(v2i A, s32 B) {
+	return V2i(A.x-B, A.y-B);
+}
+
+function inline v2i operator/(v2i A, s32 B) {
+	return V2i(A.x/B, A.y/B);
+}
+
 function inline bool operator!=(v2i A, v2i B) {
 	return A.x != B.x || A.y != B.y;
 }
@@ -65,6 +77,11 @@ function inline m4 operator*(const m4_affine& A, const m4& B) {
 	return Result;
 }
 
+function inline v4 operator*(v4 A, const m4& B) {
+    v4 Result = V4_Mul_M4(A, &B);
+    return Result;
+}
+
 template <typename type>
 struct span {
 	const type* Ptr = NULL;
@@ -97,7 +114,12 @@ struct array {
 	array(allocator* Allocator, size_t Count);
 	array(allocator* _Allocator, type* _Ptr, size_t _Count);
 
-	inline type & operator[](size_t Index) {
+	inline type& operator[](size_t Index) {
+		Assert(Index < Count);
+		return Ptr[Index];
+	}
+
+    inline const type& operator[](size_t Index) const {
 		Assert(Index < Count);
 		return Ptr[Index];
 	}

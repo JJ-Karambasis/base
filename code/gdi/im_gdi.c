@@ -1,6 +1,6 @@
 function im_gdi* IM_GDI_Get() {
-	gdi* GDI = GDI_Get();
-	im_gdi* Result = (im_gdi*)OS_TLS_Get(GDI->IMThreadLocalStorage);
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	im_gdi* Result = (im_gdi*)OS_TLS_Get(Context->IMThreadLocalStorage);
 	if (!Result) {
 		arena* Arena = Arena_Create();
 		Result = Arena_Push_Struct(Arena, im_gdi);
@@ -8,12 +8,12 @@ function im_gdi* IM_GDI_Get() {
 
 		gdi_buffer_create_info VtxBufferInfo = {
 			.Size = IM_MAX_VTX_BUFFER_SIZE,
-			.Usage = GDI_BUFFER_USAGE_VTX_BUFFER
+			.Usage = GDI_BUFFER_USAGE_VTX
 		};
 
 		gdi_buffer_create_info IdxBufferInfo = {
 			.Size = IM_MAX_IDX_BUFFER_SIZE,
-			.Usage = GDI_BUFFER_USAGE_IDX_BUFFER
+			.Usage = GDI_BUFFER_USAGE_IDX
 		};
 
 		Result->VtxBuffer = GDI_Create_Buffer(&VtxBufferInfo);
@@ -21,9 +21,9 @@ function im_gdi* IM_GDI_Get() {
 
 		/*Append to link list atomically*/
 		for(;;) {
-			im_gdi* OldTop = (im_gdi*)Atomic_Load_Ptr(&GDI->TopIM);
+			im_gdi* OldTop = (im_gdi*)Atomic_Load_Ptr(&Context->TopIM);
 			Result->Next = OldTop;
-			if(Atomic_Compare_Exchange_Ptr(&GDI->TopIM, OldTop, Result) == OldTop) {
+			if(Atomic_Compare_Exchange_Ptr(&Context->TopIM, OldTop, Result) == OldTop) {
 				break;
 			}
 		}
@@ -31,7 +31,7 @@ function im_gdi* IM_GDI_Get() {
 		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer);
 		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer);
 
-		OS_TLS_Set(GDI->IMThreadLocalStorage, Result);
+		OS_TLS_Set(Context->IMThreadLocalStorage, Result);
 	}
 
 	if (Result->IsReset) {
@@ -80,6 +80,26 @@ export_function void IM_Push_Vtx(const void* Vtx, size_t Size) {
 	im_gdi* IM = IM_GDI_Get();
 	u32 Idx = IM_Push(Vtx, Size);
 	IM_Push_Idx(Idx);
+}
+
+export_function void IM_Push_Rect2D_Color(v2 Min, v2 Max, v4 Color) {
+	im_vtx_v2_c v0 = { .P = Min, .C = Color };
+	im_vtx_v2_c v1 = { .P = V2(Min.x, Max.y), .C = Color };
+	im_vtx_v2_c v2 = { .P = Max, .C = Color };
+	im_vtx_v2_c v3 = { .P = V2(Max.x, Min.y), .C = Color };
+
+	u32 i0 = IM_Push(&v0, sizeof(im_vtx_v2_c));
+	u32 i1 = IM_Push(&v1, sizeof(im_vtx_v2_c));
+	u32 i2 = IM_Push(&v2, sizeof(im_vtx_v2_c));
+	u32 i3 = IM_Push(&v3, sizeof(im_vtx_v2_c));
+	
+	IM_Push_Idx(i0);
+	IM_Push_Idx(i1);
+	IM_Push_Idx(i2);
+
+	IM_Push_Idx(i2);
+	IM_Push_Idx(i3);
+	IM_Push_Idx(i0);
 }
 
 export_function void IM_Push_Rect2D_Color_UV(v2 Min, v2 Max, v2 UVMin, v2 UVMax, v4 Color) {

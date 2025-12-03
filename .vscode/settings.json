@@ -1,3 +1,10 @@
 {
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "files.associations": {
+        "functional": "c",
+        "xlib.h": "c",
+        "sdl.h": "c",
+        "winadapter.h": "c",
+        "vk_gdi.c": "cpp"
+    }
 }

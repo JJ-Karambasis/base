@@ -33,6 +33,10 @@ extern "C" {
 #error "Not Implemented!"
 #endif
 
+#elif defined(__linux__)
+
+#define OS_LINUX
+
 #else
 
 #error "Not Implemented!"
@@ -280,6 +284,8 @@ extern "C" {
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon);
 export_function b32 Equal_Zero_Eps_F32(f32 Value);
 export_function b32 Equal_Zero_Eps_Sq_F32(f32 SqValue);
+export_function b32 Equal_Approx_F32(f32 a, f32 b, f32 Epsilon);
+export_function b32 Equal_Approx_Eps_F32(f32 a, f32 b);
 export_function f32 Safe_Ratio(s32 x, s32 y);
 export_function f32 Sqrt_F32(f32 Value);
 export_function f32 Cos_F32(f32 Value);
@@ -426,6 +432,10 @@ typedef struct {
 			f32 __unused0__;
 			v3 yzw;
 		};
+		struct {
+			v2 xy;
+			v2 zw;
+		};
 	};
 } v4;
 
@@ -434,6 +444,9 @@ typedef struct {
 		s32 Data[4];
 		struct {
 			s32 x, y, z, w;
+		};
+		struct {
+			v2i xy, zw;
 		};
 	};
 } v4i;
@@ -456,6 +469,8 @@ export_function v4 V4_Mul_V4(v4 A, v4 B);
 
 export_function v4 V4_Color_From_U32(u32 Color);
 export_function u32 U32_Color_From_V4(v4 Color);
+
+export_function v4i V4i(s32 x, s32 y, s32 z, s32 w);
 
 typedef struct {
 	union {
@@ -743,6 +758,12 @@ type*  Ptr; \
 size_t Count; \
 } type##_array;
 
+#define Array_Define_Ptr(type) \
+typedef struct { \
+	type** Ptr; \
+	size_t Count; \
+} type##_array;
+
 #define Dynamic_Array_Define(type, name) \
 typedef struct { \
 allocator* Allocator; \
@@ -869,6 +890,7 @@ export_function thread_context* Thread_Context_Get();
 export_function arena* Scratch_Get();
 export_function void Scratch_Release();
 
+export_function random32_xor_shift Random32_XOrShift_Init();
 export_function u32 Random32_XOrShift(random32_xor_shift* Random);
 
 function inline f32 Random32_XOrShift_UNorm(random32_xor_shift* Random) {
@@ -889,6 +911,16 @@ function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min,
 function inline u32 Random32() {
 	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
 	return Random32_XOrShift(Random);
+}
+
+function inline f32 Random32_UNorm() {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift_UNorm(Random);
+}
+
+function inline f32 Random32_SNorm() {
+	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+	return Random32_XOrShift_SNorm(Random);
 }
 
 function inline s32 Random32_Range(s32 Min, s32 Max) {
@@ -954,7 +986,7 @@ export_function string String_Null_Term(const char* Ptr);
 export_function string String_FormatV(allocator* Allocator, const char* Format, va_list Args);
 export_function string String_Format(allocator* Allocator, const char* Format, ...);
 export_function string String_From_Buffer(buffer Buffer);
-export_function string String_From_Bool(b32 Bool);
+export_function string String_From_Bool(b32 Boolean);
 export_function string String_From_F64(allocator* Allocator, f64 Number);
 export_function string String_Copy(allocator* Allocator, string Str);
 export_function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex);
@@ -1224,17 +1256,17 @@ typedef struct {
 	void* Data;
 } pool_iter;
 
-inline pool_id Empty_Pool_ID() {
+inline function pool_id Empty_Pool_ID() {
 	pool_id Result;
 	Memory_Clear(&Result, sizeof(pool_id));
 	return Result;
 }
 
-inline b32 Pool_ID_Equal(pool_id A, pool_id B) {
+inline function b32 Pool_ID_Equal(pool_id A, pool_id B) {
 	return A.Index == B.Index && A.Generation == B.Generation;
 }
 
-inline b32 Pool_ID_Null(pool_id ID) {
+inline function b32 Pool_ID_Null(pool_id ID) {
 	return ID.ID == 0;
 }
 

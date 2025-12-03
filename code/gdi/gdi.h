@@ -25,6 +25,13 @@ typedef union {
 	};
 } gdi_id;
 
+Meta()
+typedef enum {
+	GDI_DEVICE_TYPE_UNKNOWN Tags(vk: VK_PHYSICAL_DEVICE_TYPE_OTHER),
+	GDI_DEVICE_TYPE_INTEGRATED Tags(vk: VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU),
+	GDI_DEVICE_TYPE_DISCRETE Tags(vk: VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+} gdi_device_type;
+
 /* Enums */
 Meta()
 typedef enum {
@@ -55,10 +62,10 @@ typedef u32 gdi_texture_usage;
 
 enum {
 	GDI_BUFFER_USAGE_NONE = 0,
-	GDI_BUFFER_USAGE_VTX_BUFFER = (1 << 0),
-	GDI_BUFFER_USAGE_IDX_BUFFER = (1 << 1),
-	GDI_BUFFER_USAGE_CONSTANT_BUFFER = (1 << 2),
-	GDI_BUFFER_USAGE_STORAGE_BUFFER = (1 << 3),
+	GDI_BUFFER_USAGE_VTX = (1 << 0),
+	GDI_BUFFER_USAGE_IDX = (1 << 1),
+	GDI_BUFFER_USAGE_CONSTANT = (1 << 2),
+	GDI_BUFFER_USAGE_STORAGE = (1 << 3),
 	GDI_BUFFER_USAGE_READBACK = (1 << 4)
 };
 typedef u32 gdi_buffer_usage;
@@ -126,6 +133,12 @@ typedef enum {
 	GDI_BLEND_INV_DST_ALPHA Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
 } gdi_blend;
 
+typedef enum {
+	GDI_DRAW_TYPE_NONE,
+	GDI_DRAW_TYPE_IDX,
+	GDI_DRAW_TYPE_VTX
+} gdi_draw_type;
+
 #ifdef DEBUG_BUILD
 typedef enum {
 	GDI_OBJECT_TYPE_NONE,
@@ -163,13 +176,27 @@ typedef struct {
 } gdi_pool;
 
 typedef struct {
+	gdi_device_type Type;
+	string 			DeviceName;
+	u32 			DeviceIndex;
+} gdi_device;
+Array_Define(gdi_device);
+
+typedef struct {
 	gdi_format 		  Format;
 	v2i 			  Dim;
 	gdi_texture_usage Usage;
 	u32 			  MipCount;
-	buffer* 		  InitialData;
+	const buffer* 	  InitialData;
 	string 			  DebugName;
 } gdi_texture_create_info;
+
+typedef struct {
+	gdi_format 		  Format;
+	v2i 	   		  Dim;
+	gdi_texture_usage Usage;
+	u32 			  MipCount;
+} gdi_texture_info;
 
 typedef struct {
 	gdi_handle Texture;
@@ -282,12 +309,26 @@ typedef void CAMetalLayer;
 #endif
 #endif
 
+#if defined(OS_WIN32)
+#include <windows.h>
+#endif
+
+#if defined(OS_LINUX)
+#undef function
+#include <X11/Xlib.h>
+#define function static
+#undef Status
+#endif
+
 typedef struct {
 #if defined(OS_WIN32)
 	HWND 	  Window;
 	HINSTANCE Instance;
 #elif defined(OS_OSX)
 	CAMetalLayer* Layer;
+#elif defined(OS_LINUX)
+	Display* Display;
+	Window Window;
 #endif
 	gdi_format Format;
 	string DebugName;
@@ -348,8 +389,9 @@ typedef struct {
 	s32 		   ScissorMinY;
 	s32 		   ScissorMaxX;
 	s32 		   ScissorMaxY;
-	u32 		   IdxCount;
-	u32 		   IdxOffset;
+	gdi_draw_type  DrawType;
+	u32 		   PrimitiveCount;
+	u32 		   PrimitiveOffset;
 	u32 		   VtxOffset;
 	u32 		   PushConstantCount;
 	u32 		   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
@@ -365,10 +407,11 @@ enum {
 	GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT = (1 << 12),
 	GDI_RENDER_PASS_SCISSOR_MAX_X_BIT = (1 << 13),
 	GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT = (1 << 14),
-	GDI_RENDER_PASS_IDX_COUNT_BIT = (1 << 15),
-	GDI_RENDER_PASS_IDX_OFFSET_BIT = (1 << 16),
-	GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 17),
-	GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 18)
+	GDI_RENDER_PASS_DRAW_TYPE_BIT = (1 << 15),
+	GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT = (1 << 16),
+	GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT = (1 << 17),
+	GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 18),
+	GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 19)
 };
 #define GDI_RENDER_PASS_SCISSOR (GDI_RENDER_PASS_SCISSOR_MIN_X_BIT|GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT|GDI_RENDER_PASS_SCISSOR_MAX_X_BIT|GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT)
 
@@ -400,7 +443,7 @@ struct gdi_pass {
 	gdi_pass* Next;
 };
 
-#define GDI_TEXTURE_READBACK_DEFINE(name) void name(gdi_handle Texture, v2i Dim, gdi_format Format, u32 MipLevel, const void* Texels, void* UserData)
+#define GDI_TEXTURE_READBACK_DEFINE(name) void name(gdi_handle Texture, v2i Dim, gdi_format Format, const void* Texels, void* UserData)
 typedef GDI_TEXTURE_READBACK_DEFINE(gdi_texture_readback_func);
 typedef struct {
 	gdi_handle 				   Texture;
@@ -425,11 +468,29 @@ typedef struct {
 } gdi_render_params;
 
 typedef struct gdi gdi;
+typedef struct {
+	gdi* GDI;
+	gdi_device* Device;
+	arena* FrameArena;
+
+	size_t ConstantBufferAlignment;
+
+	os_tls*    IMThreadLocalStorage;
+	atomic_ptr TopIM;
+
+	gdi_pass* FirstPass;
+	gdi_pass* LastPass;
+} gdi_device_context;
+
+#define GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(name) b32 name(gdi* GDI, gdi_device* Device)
+
 #define GDI_BACKEND_CREATE_TEXTURE_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_create_info* TextureInfo)
 #define GDI_BACKEND_DELETE_TEXTURE_DEFINE(name) void name(gdi* GDI, gdi_handle Texture)
+#define GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(name) gdi_texture_info name(gdi* GDI, gdi_handle Texture)
 
 #define GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_view_create_info* TextureViewInfo)
 #define GDI_BACKEND_DELETE_TEXTURE_VIEW_DEFINE(name) void name(gdi* GDI, gdi_handle TextureView)
+#define GDI_BACKEND_GET_TEXTURE_VIEW_TEXTURE_DEFINE(name) gdi_handle name(gdi* GDI, gdi_handle TextureView)
 
 #define GDI_BACKEND_CREATE_BUFFER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_buffer_create_info* BufferInfo)
 #define GDI_BACKEND_DELETE_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_handle Buffer)
@@ -459,11 +520,15 @@ typedef struct gdi gdi;
 
 #define GDI_BACKEND_RENDER_DEFINE(name) void name(gdi* GDI, const gdi_render_params* RenderParams)
 
+typedef GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(gdi_backend_set_device_context_func);
+
 typedef GDI_BACKEND_CREATE_TEXTURE_DEFINE(gdi_backend_create_texture_func);
 typedef GDI_BACKEND_DELETE_TEXTURE_DEFINE(gdi_backend_delete_texture_func);
+typedef GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(gdi_backend_get_texture_info_func);
 
 typedef GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(gdi_backend_create_texture_view_func);
 typedef GDI_BACKEND_DELETE_TEXTURE_VIEW_DEFINE(gdi_backend_delete_texture_view_func);
+typedef GDI_BACKEND_GET_TEXTURE_VIEW_TEXTURE_DEFINE(gdi_backend_get_texture_view_texture_func);
 
 typedef GDI_BACKEND_CREATE_BUFFER_DEFINE(gdi_backend_create_buffer_func);
 typedef GDI_BACKEND_DELETE_BUFFER_DEFINE(gdi_backend_delete_buffer_func);
@@ -494,11 +559,15 @@ typedef GDI_BACKEND_END_RENDER_PASS_DEFINE(gdi_backend_end_render_pass_func);
 typedef GDI_BACKEND_RENDER_DEFINE(gdi_backend_render_func);
 
 typedef struct {
+	gdi_backend_set_device_context_func* SetDeviceContextFunc;
+
 	gdi_backend_create_texture_func* CreateTextureFunc;
 	gdi_backend_delete_texture_func* DeleteTextureFunc;
+	gdi_backend_get_texture_info_func* GetTextureInfoFunc;
 
 	gdi_backend_create_texture_view_func* CreateTextureViewFunc;
 	gdi_backend_delete_texture_view_func* DeleteTextureViewFunc;
+	gdi_backend_get_texture_view_texture_func* GetTextureViewTextureFunc;
 
 	gdi_backend_create_buffer_func* CreateBufferFunc;
 	gdi_backend_delete_buffer_func* DeleteBufferFunc;
@@ -532,24 +601,19 @@ typedef struct {
 struct gdi {
 	gdi_backend_vtable* Backend;
 	arena* 				Arena;
-	arena* 				FrameArena;
-
-	string DeviceName;
-	
-	size_t ConstantBufferAlignment;
-
-	os_tls*    IMThreadLocalStorage;
-	atomic_ptr TopIM;
-
-	gdi_pass* FirstPass;
-	gdi_pass* LastPass;
+	gdi_device_array 	Devices;
+	gdi_device_context* DeviceContext;
 };
+
+#define GDI_Backend_Set_Device_Context(device) GDI_Get()->Backend->SetDeviceContextFunc(GDI_Get(), device)
 
 #define GDI_Backend_Create_Texture(info) GDI_Get()->Backend->CreateTextureFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Texture(texture) GDI_Get()->Backend->DeleteTextureFunc(GDI_Get(), texture)
+#define GDI_Backend_Get_Texture_Info(texture) GDI_Get()->Backend->GetTextureInfoFunc(GDI_Get(), texture)
 
 #define GDI_Backend_Create_Texture_View(info) GDI_Get()->Backend->CreateTextureViewFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Texture_View(texture_view) GDI_Get()->Backend->DeleteTextureViewFunc(GDI_Get(), texture_view)
+#define GDI_Backend_Get_Texture_View_Texture(texture_view) GDI_Get()->Backend->GetTextureViewTextureFunc(GDI_Get(), texture_view)
 
 #define GDI_Backend_Create_Buffer(info) GDI_Get()->Backend->CreateBufferFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Buffer(buffer) GDI_Get()->Backend->DeleteBufferFunc(GDI_Get(), buffer)
@@ -579,9 +643,7 @@ struct gdi {
 
 #define GDI_Backend_Render(render_params) GDI_Get()->Backend->RenderFunc(GDI_Get(), render_params)
 
-#define GDI_Get_View_Format() GDI_Get()->ViewFormat
-#define GDI_Get_View_Dim() GDI_Get()->ViewDim
-#define GDI_Get_View() GDI_Get()->View
+#define GDI_Get_Devices() GDI_Get()->Devices
 #define GDI_Constant_Buffer_Alignment() GDI_Get()->ConstantBufferAlignment
 
 /* Others */
@@ -594,7 +656,6 @@ function inline gdi_id GDI_Null_ID() {
 	gdi_id Result = { 0 };
 	return Result;
 }
-
 
 function inline gdi_handle GDI_Null_Handle() {
 	gdi_handle Result;
@@ -618,15 +679,18 @@ function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
 }
 
 export_function gdi_format GDI_Get_SRGB_Format(gdi_format Format);
-export_function size_t GDI_Get_Format_Size(gdi_format);
-export_function gdi* GDI_Get();
-export_function void GDI_Set(gdi* GDI);
+export_function size_t 	   GDI_Get_Format_Size(gdi_format);
+export_function gdi* 	   GDI_Get();
+export_function void 	   GDI_Set(gdi* GDI);
+export_function b32 	   GDI_Set_Device_Context(gdi_device* Device);
 
 export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
 export_function void GDI_Delete_Texture(gdi_handle Texture);
+export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture);
 export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo);
 export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Texture);
 export_function void GDI_Delete_Texture_View(gdi_handle TextureView);
+export_function gdi_handle GDI_Get_Texture_View_Texture(gdi_handle TextureView);
 export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo);
 export_function void GDI_Delete_Buffer(gdi_handle Buffer);
 export_function void* GDI_Map_Buffer(gdi_handle Buffer);
@@ -665,6 +729,7 @@ export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Cou
 export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_handle IdxBuffer, gdi_idx_format IdxFormat);
 export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s32 MinY, s32 MaxX, s32 MaxY);
 export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset);
+export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset);
 
 #include "im_gdi.h"
 

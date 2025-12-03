@@ -120,7 +120,7 @@ function b32 AKON_Parse_Value(akon_token_iter* TokenIter, akon_node_tree* NodeTr
 	b32 BoolValue;
 	if (Try_Parse_Bool(TokenIter->Token->Identifier, &BoolValue)) {
 		Node->ValueType = AKON_VALUE_TYPE_BOOL;
-		Node->Bool = BoolValue;
+		Node->Boolean = BoolValue;
 	} else if (Try_Parse_F64(TokenIter->Token->Identifier, &NumberValue)) {
 		Node->ValueType = AKON_VALUE_TYPE_NUMBER;
 		Node->Number = NumberValue;
@@ -396,7 +396,7 @@ function void AKON_Generate_String_For_Node(akon_node_tree* NodeTree, akon_node*
 			case AKON_NODE_TYPE_VALUE: {
 				switch (Child->ValueType) {
 					case AKON_VALUE_TYPE_BOOL: {
-						SStream_Writer_Add(Stream, String_From_Bool(Child->Bool));
+						SStream_Writer_Add(Stream, String_From_Bool(Child->Boolean));
 					} break;
 
 					case AKON_VALUE_TYPE_NUMBER: {
@@ -496,7 +496,7 @@ export_function b32 AKON_Node_Read_F32(akon_node* Node, f32* Value) {
 
 export_function b32 AKON_Node_Read_Bool(akon_node* Node, b32* Value) {
 	if (Node->NodeType != AKON_NODE_TYPE_VALUE || Node->ValueType != AKON_VALUE_TYPE_BOOL) return false;
-	*Value = (b32)Node->Bool;
+	*Value = (b32)Node->Boolean;
 	return true;
 }
 
@@ -545,7 +545,7 @@ export_function akon_node* AKON_Node_Write_F32(akon_node_tree* NodeTree, akon_no
 export_function akon_node* AKON_Node_Write_Bool(akon_node_tree* NodeTree, akon_node* ParentNode, b32 Value) {
 	akon_node* Node = AKON_Create_Node(NodeTree, String_Empty(), ParentNode, AKON_NODE_TYPE_VALUE);
 	Node->ValueType = AKON_VALUE_TYPE_BOOL;
-	Node->Bool = Value;
+	Node->Boolean = Value;
 	Node->Str = Value ? String_Lit("true") : String_Lit("false");
 	return Node;
 }

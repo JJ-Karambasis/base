@@ -108,6 +108,9 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkDestroySemaphore);
 	VK_FUNC(vkDeviceWaitIdle);
 	VK_FUNC(vkQueueWaitIdle);
+	VK_FUNC(vkFreeDescriptorSets);
+	VK_FUNC(vkDestroySampler);
+	VK_FUNC(vkCmdDraw);
 });
 
 
@@ -208,18 +211,18 @@ META_MACRO(VK_Resource, name) {
 		return Pool->${name:pascal}Pool.Entries + Handle.ID.Index;
 	}
 
-	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_gdi* GDI, gdi_handle Handle) -> void {
-		vk_${name}* Object = VK_${name:pascal}_Pool_Get(&GDI->ResourcePool, Handle);
+	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_device_context* Context, gdi_handle Handle) -> void {
+		vk_${name}* Object = VK_${name:pascal}_Pool_Get(&Context->ResourcePool, Handle);
 		if(Object) {
-			OS_RW_Mutex_Read_Lock(GDI->DeleteLock);
-			vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(GDI, GDI->CurrentDeleteQueue);
+			OS_RW_Mutex_Read_Lock(Context->DeleteLock);
+			vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(Context->CurrentDeleteQueue);
 			vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_${name}_delete_queue_entry);
 			Entry->Entry = *Object;
 			SLL_Push_Back(ThreadContext->${name:pascal}DeleteQueue.First, ThreadContext->${name:pascal}DeleteQueue.Last, Entry);
-			OS_RW_Mutex_Read_Unlock(GDI->DeleteLock);
+			OS_RW_Mutex_Read_Unlock(Context->DeleteLock);
 
 			Memory_Clear(Object, sizeof(vk_${name}));
-			VK_${name:pascal}_Pool_Free(&GDI->ResourcePool, Handle);
+			VK_${name:pascal}_Pool_Free(&Context->ResourcePool, Handle);
 		}
 	}
 }
@@ -252,6 +255,15 @@ META_FUNCTION(VK_Get_GDI_Format, VkFormat Format) -> gdi_format {
 	return GDI_FORMAT_NONE;
 }
 
+META_FUNCTION(VK_Get_Physical_Device_Type, VkPhysicalDeviceType Type) -> gdi_device_type {
+	switch(Type) {
+		META_FOR(gdi_device_type, flags: NoBraces) {
+			case ${META_GET_TAG_VALUE(vk):upper}: return ${META_ENTRY_NAME};
+		}
+	}
+
+	return GDI_DEVICE_TYPE_UNKNOWN;
+}
 
 META_FUNCTION(VK_Get_Filter, gdi_filter Filter) -> VkFilter {
 	static const VkFilter Filters[] = {
@@ -295,11 +307,11 @@ VK_Enum_Mapper(Primitive, gdi_primitive, VkPrimitiveTopology);
 VK_Enum_Mapper(Blend, gdi_blend, VkBlendFactor);
 VK_Enum_Mapper(Cull_Mode, gdi_cull_mode, VkCullModeFlags);
 
-META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_gdi* GDI, vk_delete_thread_context* DeleteContext) -> void {
+META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_delete_thread_context* DeleteContext) -> void {
 	META_FOR(vk_delete_thread_context) {
 		META_IF(META_NOT_CONTAINS_TAG(NoIteration)) {
 			for(${META_ENTRY_TYPE}_entry* QueueEntry = DeleteContext->${META_ENTRY_NAME}.First; QueueEntry; QueueEntry = QueueEntry->Next) {
-				VK_Delete_${META_GET_TAG_VALUE(name):pascal}_Resources(GDI, &QueueEntry->Entry);
+				VK_Delete_${META_GET_TAG_VALUE(name):pascal}_Resources(Context, &QueueEntry->Entry);
 			}
 			Memory_Clear(&DeleteContext->${META_ENTRY_NAME}, sizeof(${META_ENTRY_TYPE}));
 		}

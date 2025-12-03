@@ -18,16 +18,14 @@ bin_path="$base_path/bin"
 
 tracy_path=""
 build_debug=0
-build_clang=0
+build_clang=1
 build_asan=0
 build_cpp=0
 build_gdi=1
 build_meta=1
 build_tracy=0
-
-if [ $build_type == "osx" ]; then
-    build_clang=1
-fi
+build_tests=1
+use_xcb=0
 
 # Manual parsing
 while [[ $# -gt 0 ]]; do
@@ -66,6 +64,11 @@ while [[ $# -gt 0 ]]; do
             build_gdi=0
             shift
             ;;
+
+        -use_xcb)
+            use_xcb=1
+            shift
+            ;;
   esac
 done
 
@@ -91,7 +94,7 @@ fi
 
 clang_compile_only="-c"
 clang_warnings="-Wall -Werror -Wno-missing-braces -Wno-switch -Wno-unused-function -Wno-nullability-completeness -Wno-undefined-internal -Wno-unused-variable -Wno-unused-private-field"
-clang_flags="-g $clang_optimized_flag"
+clang_flags="-g -ferror-limit=100 $clang_optimized_flag"
 clang_out="-o"
 
 if [ $build_clang -eq 1 ]; then 
@@ -115,9 +118,10 @@ if [ $build_cpp -eq 1 ]; then
     c_ext="cpp"
 fi
 
-if [ $build_tracy -eq 1 ]; then
-    # Build tracy client here
-    test=1
+# todo(JJ): Build tracy client here
+
+if [ $build_type == "linux" ]; then
+    compile_flags="$compile_flags -D_GNU_SOURCE=1 -gdwarf-4"
 fi
 
 pushd "$bin_path"
@@ -125,38 +129,52 @@ pushd "$bin_path"
     $compiler $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/base.$c_ext"
 popd
 
-if [ $build_type == "osx" ]; then
-    pushd "$bin_path"
-        $compiler_c $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/os/osx/osx_base.c"
-    popd
-fi
+pushd "$bin_path"
+    $compiler_c $compile_flags $compile_warnings $compile_only $app_defines $app_includes "$code_path/os/posix/posix_base.c"
+popd
 
 if [ $build_meta -eq 1 ]; then
 
     pushd "$bin_path"
-        $compiler $compile_flags $compile_warnings $app_defines $app_includes "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o osx_base.o $compile_out meta_program
+        $compiler $compile_flags $compile_warnings $app_defines $app_includes "$code_path/meta_program/meta_program.$c_ext" rpmalloc.o base.o posix_base.o -lm $compile_out meta_program
     popd
+fi
+
+vulkan_flags=-DVK_USE_PLATFORM_
+if [ $build_type == "osx" ]; then
+    vulkan_flags="-DVK_USE_PLATFORM_METAL_EXT"
+else 
+    vulkan_flags="-DVK_USE_PLATFORM_XLIB_KHR"
+    if [ $use_xcb -eq 1 ]; then 
+        vulkan_flags="-DDVK_USE_PLATFORM_XCB_KHR"
+    fi
 fi
 
 if [ $build_gdi -eq 1 ]; then
     pushd "$bin_path"
         ./meta_program -d "$code_path/gdi"
-        $compiler_cpp $compile_flags $compile_warnings $compile_only $app_defines -DVK_USE_PLATFORM_METAL_EXT $app_includes -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_vma_usage.cpp"
+        $compiler_cpp $compile_flags $compile_warnings $compile_only $app_defines $vulkan_flags $app_includes -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_vma_usage.cpp"
     
         if [ $build_type == "osx" ]; then
             $compiler_objc $compile_flags $compile_warnings $compile_only $app_defines -DVK_USE_PLATFORM_METAL_EXT $app_includes -I"$code_path" -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_gdi.${objc_ext}" $compile_out gdi.o
+        elif [ $build_type == "linux" ]; then
+            $compiler $compile_flags $compile_warnings $compile_only $app_defines $vulkan_flags $app_includes -I"$code_path" -I"$code_path/third_party/Vulkan-Headers" -I"$code_path/third_party/VulkanMemoryAllocator" "$code_path/gdi/backend/vk/vk_gdi.${c_ext}" $compile_out gdi.o
         fi
-
     popd
 fi
 
-obj_files="osx_base.o base.o rpmalloc.o"
+obj_files="posix_base.o base.o rpmalloc.o"
 if [ $build_gdi -eq 1 ]; then 
     obj_files="$obj_files gdi.o vk_vma_usage.o"
 fi
 
-echo $obj_files
-
 pushd "$bin_path"
     ar rcs libbase.a $obj_files
 popd
+
+if [ $build_tests -eq 1 ]; then 
+    pushd "$bin_path"
+        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes -I"$code_path" -I"$code_path/third_party/SDL/include" "$code_path/tests/tests.cpp" -L"$code_path/third_party/SDL/build" -L"$bin_path" -lm -lSDL3 -lbase -lX11 -lstdc++ -ldxcompiler $compile_out tests 
+        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes -I"$code_path" -I"$code_path/third_party/SDL/include" "$code_path/tests/interactive_test.cpp" -L"$code_path/third_party/SDL/build" -L"$bin_path" -lm -lSDL3 -lbase -lX11 -lstdc++ $compile_out interactive_test 
+    popd
+fi

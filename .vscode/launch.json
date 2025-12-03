@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MetaProgram Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/meta_program",
+      "args": ["-d", "${workspaceFolder}/code/gdi"],
+      "cwd": "${workspaceFolder}/bin",
+      "linux": {
+        "MIMode": "gdb",
+        "miDebuggerPath": "/usr/bin/gdb"
+      }
+    },
+    {
+      "name": "Interactive Test Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/interactive_test",
+      "cwd": "${workspaceFolder}/bin",
+      "linux": {
+        "MIMode": "gdb",
+        "miDebuggerPath": "/usr/bin/gdb"
+      }      
+    },
+    {
+      "name": "Tests Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/tests",
+      "cwd": "${workspaceFolder}/bin",
+      "linux": {
+        "MIMode": "gdb",
+        "miDebuggerPath": "/usr/bin/gdb"
+      }      
+    }
+  ]
+}

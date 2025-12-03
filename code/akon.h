@@ -48,7 +48,7 @@ struct akon_node {
 	akon_value_type ValueType;
 
 	union {
-		b32 Bool;
+		b32 Boolean;
 		f64 Number;
 	};
 	string Str;

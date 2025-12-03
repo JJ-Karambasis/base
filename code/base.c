@@ -95,6 +95,14 @@ export_function b32 Equal_Zero_Eps_Sq_F32(f32 SqValue) {
     return Equal_Zero_Approx_F32(SqValue, Sq(FLT_EPSILON));
 }
 
+export_function b32 Equal_Approx_F32(f32 a, f32 b, f32 Epsilon) {
+	return Equal_Zero_Approx_F32(a-b, Epsilon);
+}
+
+export_function b32 Equal_Approx_Eps_F32(f32 a, f32 b) {
+	return Equal_Zero_Eps_F32(a-b);
+}
+
 export_function f32 Safe_Ratio(s32 x, s32 y) {
 	Assert(y != 0);
 	return (f32)x / (f32)y;
@@ -626,6 +634,11 @@ export_function u32 U32_Color_From_V4(v4 Color) {
 		((u32)(Color.y * 255.0f) << 8) |
 		((u32)(Color.z * 255.0f) << 16) |
 		((u32)(Color.w * 255.0f) << 24));
+	return Result;
+}
+
+export_function v4i V4i(s32 x, s32 y, s32 z, s32 w) {
+	v4i Result = {x, y, z, w};
 	return Result;
 }
 
@@ -1866,7 +1879,6 @@ function ALLOCATOR_FREE_MEMORY_DEFINE(Heap_Free_Memory) {
 	Heap_Free(Heap, Memory);
 }
 
-function random32_xor_shift Random32_XOrShift_Init();
 export_function thread_context* Thread_Context_Get() {
 	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
 	if (!ThreadContext) {
@@ -1904,7 +1916,7 @@ export_function void Scratch_Release() {
 	Arena_Set_Marker(ThreadContext->ScratchArenas[ScratchIndex], ThreadContext->ScratchMarkers[ScratchIndex]);
 }
 
-function random32_xor_shift Random32_XOrShift_Init() {
+export_function random32_xor_shift Random32_XOrShift_Init() {
 	random32_xor_shift Result = { 0 };
 	OS_Get_Entropy(&Result.State, sizeof(u32));
 	return Result;
@@ -2096,10 +2108,17 @@ export_function string String_Null_Term(const char* Ptr) {
 }
 
 export_function string String_FormatV(allocator* Allocator, const char* Format, va_list Args) {
+	va_list CopyArgs; 
+	va_copy(CopyArgs, Args);
 	char TmpBuffer[1];
-	int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, Args);
+	int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, CopyArgs);
+	va_end(CopyArgs);
+	
+	va_copy(CopyArgs, Args);
 	char* Buffer = Allocator_Allocate_Array(Allocator, TotalLength + 1, char);
 	stbsp_vsnprintf(Buffer, TotalLength+1, Format, Args);
+	va_end(CopyArgs);
+	
 	return Make_String(Buffer, TotalLength);
 }
 
@@ -2115,8 +2134,8 @@ export_function string String_From_Buffer(buffer Buffer) {
 	return Make_String((const char*)Buffer.Ptr, Buffer.Size);
 }
 
-export_function string String_From_Bool(b32 Bool) {
-	return Bool ? String_Lit("true") : String_Lit("false");
+export_function string String_From_Bool(b32 Boolean) {
+	return Boolean ? String_Lit("true") : String_Lit("false");
 }
 
 export_function string String_From_F64(allocator* Allocator, f64 Number) {

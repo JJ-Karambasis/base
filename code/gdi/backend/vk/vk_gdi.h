@@ -7,6 +7,7 @@
 #define VK_COLOR_COMPONENT_ALL (VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT)
 
 typedef struct vk_gdi vk_gdi;
+typedef struct vk_device_context vk_device_context;
 
 #define MINIMUM_VK_CPU_BLOCK_SIZE MB(1)
 typedef struct vk_cpu_buffer_block vk_cpu_buffer_block; 
@@ -27,7 +28,7 @@ struct vk_cpu_buffer_block {
 
 typedef struct {
 	arena* 		   		 BlockArena;
-	vk_gdi* 	   		 GDI;
+	vk_device_context* 	 Context;
 	vk_cpu_buffer_type   Type;
 	vk_cpu_buffer_block* FirstBlock;
 	vk_cpu_buffer_block* LastBlock;
@@ -209,6 +210,9 @@ typedef struct {
 
 	vk_texture_readback_array TextureReadbacks;
 	vk_buffer_readback_array BufferReadbacks;
+
+	os_event* ReadbackSubmitEvent;
+	os_event* ReadbackFinishedEvent;
 } vk_frame_context;
 
 struct vk_semaphore {
@@ -260,25 +264,26 @@ typedef struct {
 	b32 							 HasNullDescriptorFeature;
 } vk_gpu;
 
-struct vk_gdi {
-	gdi 		 			 Base;
-	
-	//Instance handles
-	os_library*  			 Library;
-	VkInstance   			 Instance;
-	VkDebugUtilsMessengerEXT DebugUtils;
+struct vk_device_context {
+	gdi_device_context Base;
 
-	//Devices
-	size_t   GPUCount;
-	vk_gpu*  GPUs;
-	vk_gpu*  TargetGPU;
+	arena* Arena;
+	arena* FrameArena;
+
+	vk_gpu* 	GPU;
+
 	VkDevice Device;
+
 	VkQueue  GraphicsQueue;
 	VkQueue  PresentQueue;
 	VkQueue  TransferQueue;
 
 	//Support device features
 	b32 HasNullDescriptor;
+
+	//Readback thread
+	atomic_b32 ReadbackIsInitialized;
+	os_thread* ReadbackThread;
 
 	//Resources
 	VmaAllocator 	 GPUAllocator;
@@ -287,9 +292,10 @@ struct vk_gdi {
 	VkDescriptorPool DescriptorPool;
 
 	//Frames
-	u64 			    FrameIndex;
-	vk_frame_context    Frames[VK_FRAME_COUNT];
-	vk_frame_context*   CurrentFrame;
+	u64 			  ReadbackFrameIndex;
+	u64 			  FrameIndex;
+	vk_frame_context  Frames[VK_FRAME_COUNT];
+	vk_frame_context* CurrentFrame;
 
 	//Deletes
 	os_rw_mutex* 	 DeleteLock;
@@ -301,6 +307,19 @@ struct vk_gdi {
 	u64 				 TransferIndex;
 	vk_transfer_context  Transfers[VK_MAX_TRANSFER_COUNT];
 	vk_transfer_context* CurrentTransfer;
+};
+
+struct vk_gdi {
+	gdi 		 			 Base;
+	
+	//Instance handles
+	os_library*  			 Library;
+	VkInstance   			 Instance;
+	VkDebugUtilsMessengerEXT DebugUtils;
+
+	//Devices
+	size_t   		 GPUCount;
+	vk_gpu*  		 GPUs;
 };
 
 
