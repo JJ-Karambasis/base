@@ -67,7 +67,7 @@ typedef struct {
 	VkSurfaceKHR Surface;
 } vk_tmp_surface;
 
-VkSurfaceKHR VK_Create_Surface(vk_device_context* GDI, HWND Window, HINSTANCE Instance) {
+VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, HWND Window, HINSTANCE Instance) {
 	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)vkGetInstanceProcAddr(GDI->Instance, "vkCreateWin32SurfaceKHR");
 	
 	VkWin32SurfaceCreateInfoKHR SurfaceCreateInfo = {
@@ -732,6 +732,7 @@ function void VK_Semaphore_Add_To_Delete_Queue(vk_device_context* Context, vk_se
 	Memory_Clear(Semaphore, sizeof(vk_semaphore));
 }
 
+function VkImageView VK_Create_Image_View(vk_device_context* Context, const VkImageViewCreateInfo* TextureViewInfo);
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
 function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swapchain, b32 AcquireNewImage) {	
 	VkSurfaceCapabilitiesKHR SurfaceCaps;
@@ -741,11 +742,6 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 
 	if (Swapchain->Dim.x == 0 || Swapchain->Dim.y == 0) {
 		return false;
-	}
-	
-	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
-		VK_Texture_Pool_Free(&Context->ResourcePool, Swapchain->Textures[i]);
-		VK_Texture_View_Add_To_Delete_Queue(Context, Swapchain->TextureViews[i]);
 	}
 
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
@@ -774,19 +770,42 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 	vkGetSwapchainImagesKHR(Context->Device, Swapchain->Swapchain, &Swapchain->ImageCount, Swapchain->Images);
 	
 	for (u32 i = 0; i < Swapchain->ImageCount; i++) {
-		Swapchain->Textures[i] = VK_Texture_Pool_Allocate(&Context->ResourcePool);
+		if (GDI_Is_Null(Swapchain->Textures[i])) {
+			Swapchain->Textures[i] = VK_Texture_Pool_Allocate(&Context->ResourcePool);
 
-		vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[i]);
-		Texture->Image = Swapchain->Images[i];
-		Texture->Dim = Swapchain->Dim;
-		Texture->Format = Swapchain->Format;
-		Texture->MipCount = 1;
-		Texture->Swapchain = Swapchain->Handle;
+			vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[i]);
+			Texture->Image = Swapchain->Images[i];
+			Texture->Dim = Swapchain->Dim;
+			Texture->Format = Swapchain->Format;
+			Texture->MipCount = 1;
+			Texture->Swapchain = Swapchain->Handle;
 
-		gdi_texture_view_create_info TextureViewCreateInfo = {
-			.Texture = Swapchain->Textures[i]
-		};
-		Swapchain->TextureViews[i] = VK_Create_Texture_View(Context->Base.GDI, &TextureViewCreateInfo);
+			gdi_texture_view_create_info TextureViewCreateInfo = {
+				.Texture = Swapchain->Textures[i]
+			};
+			Swapchain->TextureViews[i] = VK_Create_Texture_View(Context->Base.GDI, &TextureViewCreateInfo);
+		} else {
+			vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[i]);
+			Texture->Image = Swapchain->Images[i];
+			Texture->Dim = Swapchain->Dim;
+			Texture->Format = Swapchain->Format;
+			Texture->MipCount = 1;
+			Texture->Swapchain = Swapchain->Handle;
+
+			vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[i]);
+			VK_Texture_View_Add_Data_To_Delete_Queue(Context, TextureView);
+
+			VkImageViewCreateInfo ViewInfo = {
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = Texture->Image,
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = VK_Get_Format(TextureView->Format),
+				.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+			};
+
+			TextureView->ImageView = VK_Create_Image_View(Context, &ViewInfo);
+			TextureView->Texture = Swapchain->Textures[i];
+		}
 	}
 
 	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
@@ -841,12 +860,14 @@ function OS_THREAD_CALLBACK_DEFINE(VK_Readback_Thread) {
 		OS_Event_Reset(Frame->ReadbackSubmitEvent);
 
 		//Wait on the frame fence before we readback to the cpu
+		OS_Mutex_Lock(Frame->FenceLock);
 		VkResult FenceStatus = vkGetFenceStatus(Context->Device, Frame->Fence);
 		if (FenceStatus == VK_NOT_READY) {
 			vkWaitForFences(Context->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
 		} else {
 			Assert(FenceStatus == VK_SUCCESS);
 		}
+		OS_Mutex_Unlock(Frame->FenceLock);
 		
 		for (size_t i = 0; i < Frame->TextureReadbacks.Count; i++) {
 			vk_texture_readback* Readback = Frame->TextureReadbacks.Ptr + i;
@@ -1038,6 +1059,8 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		}
 
 		vkCreateFence(Context->Device, &FenceCreateInfo, VK_NULL_HANDLE, &Frame->Fence);
+
+		Frame->FenceLock = OS_Mutex_Create();
 		
 		VkSemaphoreCreateInfo SemaphoreLockInfo = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
@@ -1268,6 +1291,17 @@ function GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(VK_Get_Texture_Info) {
 	return TextureInfo;
 }
 
+function VkImageView VK_Create_Image_View(vk_device_context* Context, const VkImageViewCreateInfo* TextureViewInfo) {
+	VkImageView ImageView;
+	VkResult Status = vkCreateImageView(Context->Device, TextureViewInfo, VK_NULL_HANDLE, &ImageView);
+	if (Status != VK_SUCCESS) {
+		Debug_Log("vkCreateImageView failed!");
+		return VK_NULL_HANDLE;
+	}
+
+	return ImageView;
+}
+
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 
@@ -1293,10 +1327,8 @@ function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View) {
 		.subresourceRange = { ImageAspect, TextureViewInfo->MipOffset, MipCount, 0, 1 }
 	};
 
-	VkImageView ImageView;
-	VkResult Status = vkCreateImageView(Context->Device, &ViewInfo, VK_NULL_HANDLE, &ImageView);
-	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateImageView failed!");
+	VkImageView ImageView = VK_Create_Image_View(Context, &ViewInfo);
+	if(!ImageView) {
 		return GDI_Null_Handle();
 	}
 
@@ -2364,6 +2396,9 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 							}
 
 							if (Index != (size_t)-1) {
+								vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
+								Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
+
 								if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
 									WaitStageFlags[Index] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 									VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);									
@@ -2424,6 +2459,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 											Assert(TextureIndex < ComputePass->TextureWrites.Count);
 											gdi_handle Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
 											vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
+											vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, TextureView->Texture);
+
+											//If we are using a swapchain texture, make sure we are using the correct
+											//swapchain texture. They can be out of sync if we have window resizes and
+											//must call vkAcquireNextImage again with a different swapchain
+											if (!GDI_Is_Null(Texture->Swapchain)) {
+												vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
+												TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[Swapchain->ImageIndex]);
+											}
 
 											ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
 											ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -2509,22 +2553,6 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 							vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, View->Texture);
 							Assert(Texture);
 
-							gdi_clear_color* ClearState = RenderPass->ClearColors+i;
-
-							VkRenderingAttachmentInfoKHR AttachmentInfo = {
-								.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
-								.imageView = View->ImageView,
-								.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-								.loadOp	= ClearState->ShouldClear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
-								.storeOp = VK_ATTACHMENT_STORE_OP_STORE
-							};
-
-							if (ClearState->ShouldClear) {
-								Memory_Copy(AttachmentInfo.clearValue.color.float32, ClearState->F32, sizeof(ClearState->F32));
-							}
-
-							ColorAttachments[ColorAttachmentCount++] = AttachmentInfo;
-
 							if (!GDI_Is_Null(Texture->Swapchain)) {
 								size_t Index = (size_t)-1;
 								for (size_t j = 0; j < Swapchains->Count; j++) {
@@ -2533,7 +2561,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 										break;
 									}
 								}
+
 								if (Index != (size_t)-1) {
+									//If we are using a swapchain texture, make sure we are using the correct
+									//swapchain texture. They can be out of sync if we have window resizes and
+									//must call vkAcquireNextImage again with a different swapchain
+									vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
+									Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
+									View = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[Swapchain->ImageIndex]);
+
 									if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
 										WaitStageFlags[Index] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 										VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);									
@@ -2550,6 +2586,22 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 									VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_SHADER_READ);
 								}
 							}
+
+							gdi_clear_color* ClearState = RenderPass->ClearColors+i;
+
+							VkRenderingAttachmentInfoKHR AttachmentInfo = {
+								.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+								.imageView = View->ImageView,
+								.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+								.loadOp	= ClearState->ShouldClear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+								.storeOp = VK_ATTACHMENT_STORE_OP_STORE
+							};
+
+							if (ClearState->ShouldClear) {
+								Memory_Copy(AttachmentInfo.clearValue.color.float32, ClearState->F32, sizeof(ClearState->F32));
+							}
+
+							ColorAttachments[ColorAttachmentCount++] = AttachmentInfo;
 						}
 					}
 
@@ -2828,22 +2880,25 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 
 	//Wait on the render fence now. We always have the render frame count less than
 	//the transfer, so waiting on the render is also a wait on the transfers
+	OS_Mutex_Lock(Frame->FenceLock);
 	VkResult FenceStatus = vkGetFenceStatus(Context->Device, Frame->Fence);
 	if (FenceStatus == VK_NOT_READY) {
 		vkWaitForFences(Context->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
 	} else {
 		Assert(FenceStatus == VK_SUCCESS);
 	}
+	OS_Mutex_Unlock(Frame->FenceLock);
+	
+	//Wait for readbacks before we reset the arena
+	OS_Event_Wait(Frame->ReadbackFinishedEvent);
+	OS_Event_Reset(Frame->ReadbackFinishedEvent);
+
 	vkResetFences(Context->Device, 1, &Frame->Fence);
 
 	//Delete the entries in the delete now that we have waited on the frame and then
 	//safely set that delete queue as the current delete queue atomically
 	vk_delete_queue* DeleteQueue = Context->DeleteQueues + FrameIndex;
 	VK_Delete_Queued_Resources(Context, DeleteQueue);
-
-	//Readbacks before we reset the arena
-	OS_Event_Wait(Frame->ReadbackFinishedEvent);
-	OS_Event_Reset(Frame->ReadbackFinishedEvent);
 
 	OS_RW_Mutex_Write_Lock(Context->DeleteLock);
 	Context->CurrentDeleteQueue = DeleteQueue;
@@ -3371,10 +3426,11 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	for(size_t i = 0; i < GDI->GPUCount; i++) {
 		gdi_device Device = {
-			.DeviceIndex = i,
+			.DeviceIndex = (u32)i,
 			.Type = VK_Get_Physical_Device_Type(GDI->GPUs[i].Properties.deviceType),
 			.DeviceName = String_Copy((allocator*)GDI->Base.Arena, String_Null_Term(GDI->GPUs[i].Properties.deviceName))
 		};
+		Devices.Ptr[i] = Device;
 	}
 
 	GDI->Base.Devices = Devices;

@@ -211,16 +211,19 @@ META_MACRO(VK_Resource, name) {
 		return Pool->${name:pascal}Pool.Entries + Handle.ID.Index;
 	}
 
+	META_FUNCTION(VK_${name:pascal}_Add_Data_To_Delete_Queue, vk_device_context* Context, vk_${name}* Object)->void {
+		OS_RW_Mutex_Read_Lock(Context->DeleteLock);
+		vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(Context->CurrentDeleteQueue);
+		vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_${name}_delete_queue_entry);
+		Entry->Entry = *Object;
+		SLL_Push_Back(ThreadContext->${name:pascal}DeleteQueue.First, ThreadContext->${name:pascal}DeleteQueue.Last, Entry);
+		OS_RW_Mutex_Read_Unlock(Context->DeleteLock);
+	}
+
 	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_device_context* Context, gdi_handle Handle) -> void {
 		vk_${name}* Object = VK_${name:pascal}_Pool_Get(&Context->ResourcePool, Handle);
 		if(Object) {
-			OS_RW_Mutex_Read_Lock(Context->DeleteLock);
-			vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(Context->CurrentDeleteQueue);
-			vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_${name}_delete_queue_entry);
-			Entry->Entry = *Object;
-			SLL_Push_Back(ThreadContext->${name:pascal}DeleteQueue.First, ThreadContext->${name:pascal}DeleteQueue.Last, Entry);
-			OS_RW_Mutex_Read_Unlock(Context->DeleteLock);
-
+			VK_${name:pascal}_Add_Data_To_Delete_Queue(Context, Object);
 			Memory_Clear(Object, sizeof(vk_${name}));
 			VK_${name:pascal}_Pool_Free(&Context->ResourcePool, Handle);
 		}
@@ -321,7 +324,7 @@ META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_
 }
 
 META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlags2KHR {
-	static const VkPipelineStageFlags2KHR Entries[] = {
+	const VkPipelineStageFlags2KHR Entries[] = {
 		META_FOR(vk_resource_state, flags: NoBraces) {
 			${META_GET_TAG_VALUE(stage):upper},
 		}
@@ -331,7 +334,7 @@ META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlag
 }
 
 META_FUNCTION(VK_Get_Access_Mask, vk_resource_state State) -> VkAccessFlags2KHR {
-	static const VkAccessFlags2KHR Entries[] = {
+	const VkAccessFlags2KHR Entries[] = {
 		META_FOR(vk_resource_state, flags: NoBraces) {
 			${META_GET_TAG_VALUE(access):upper},
 		}

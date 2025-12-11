@@ -201,6 +201,7 @@ Array_Define(vk_buffer_readback);
 typedef struct {
 	arena* 			 Arena;
 	VkFence 		 Fence;
+	os_mutex*        FenceLock;
 	VkSemaphore      RenderLock;
 	VkSemaphore 	 TransferLock;
 	VkCommandPool    CmdPool;
