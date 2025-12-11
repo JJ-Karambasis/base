@@ -1,3 +1,6 @@
 [submodule "code/third_party/SDL"]
 	path = code/third_party/SDL
 	url = https://github.com/libsdl-org/SDL.git
+[submodule "code/third_party/DirectXShaderCompiler"]
+	path = code/third_party/DirectXShaderCompiler
+	url = https://github.com/microsoft/DirectXShaderCompiler.git

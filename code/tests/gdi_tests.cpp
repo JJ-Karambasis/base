@@ -180,7 +180,7 @@ function IDxcBlob* Compile_Shader(string Source, string Target, string EntryPoin
     gdi_tests* Tests = GDI_Get_Tests();
     
     IDxcBlobEncoding* SourceBlob;
-    HRESULT Status = Tests->Utils->CreateBlob(Source.Ptr, Source.Size, DXC_CP_UTF8, &SourceBlob);
+    HRESULT Status = Tests->Utils->CreateBlob(Source.Ptr, (u32)Source.Size, DXC_CP_UTF8, &SourceBlob);
     if(FAILED(Status)) return NULL;
 
     scratch Scratch;
@@ -206,7 +206,7 @@ function IDxcBlob* Compile_Shader(string Source, string Target, string EntryPoin
     };
 
     IDxcResult* CompilerResult;
-    Status = Tests->Compiler->Compile(&SourceBuffer, Args.Ptr, Args.Count, Tests->IncludeHandler, __uuidof(IDxcResult), (void**)&CompilerResult);
+    Status = Tests->Compiler->Compile(&SourceBuffer, Args.Ptr, (u32)Args.Count, Tests->IncludeHandler, __uuidof(IDxcResult), (void**)&CompilerResult);
     if(FAILED(Status)) return NULL;
 
     IDxcBlobUtf8* Errors;
@@ -330,7 +330,7 @@ UTEST(gdi, SimpleTest) {
         v2i Min = (TextureInfo.Dim/2)-4;
         v2i Max = (TextureInfo.Dim/2)+4;
 
-        m4 Orthographic = M4_Orthographic(0, TextureInfo.Dim.x, TextureInfo.Dim.y, 0, -10, 10);
+        m4 Orthographic = M4_Orthographic(0, (f32)TextureInfo.Dim.x, (f32)TextureInfo.Dim.y, 0, -10, 10);
 
         v4 MinV4 = V4_From_V3(V3_From_V2(V2_From_V2i(Min)), 1.0f)*Orthographic;
         v4 MaxV4 = V4_From_V3(V3_From_V2(V2_From_V2i(Max)), 1.0f)*Orthographic;
@@ -456,7 +456,7 @@ UTEST(gdi, SimpleBindGroupTest) {
     }));
     gdi_texture_info TextureInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
 
-    m4 Orthographic = M4_Orthographic(0, TextureInfo.Dim.x, TextureInfo.Dim.y, 0, -10, 10);
+    m4 Orthographic = M4_Orthographic(0, (f32)TextureInfo.Dim.x, (f32)TextureInfo.Dim.y, 0, -10, 10);
     Orthographic = M4_Transpose(&Orthographic);
     
     gpu_buffer MatrixBuffer;
@@ -649,7 +649,7 @@ UTEST(gdi, BindlessTextureTest) {
 
     gdi_texture_info TextureInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
 
-    m4 Orthographic = M4_Orthographic(0, TextureInfo.Dim.x, TextureInfo.Dim.y, 0, -10, 10);
+    m4 Orthographic = M4_Orthographic(0, (f32)TextureInfo.Dim.x, (f32)TextureInfo.Dim.y, 0, -10, 10);
     Orthographic = M4_Transpose(&Orthographic);
     
     gpu_buffer MatrixBuffer;

@@ -1,0 +1,10 @@
+// raddbg 0.9.22 project file
+
+recent_file: path: "code/tests/tests.cpp"
+recent_file: path: "code/tests/utest.h"
+target:
+{
+  executable: "bin/tests.exe"
+  working_directory: "bin/"
+  enabled: 1
+}

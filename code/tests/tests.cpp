@@ -1,10 +1,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-#include <dxc/dxcapi.h>
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
-#include <third_party/stb/stb_image_write.h>
 #include <base.h>
+#include <dxc/dxcapi.h>
+#include <third_party/stb/stb_image_write.h>
 #include <gdi/gdi.h>
 #include "utest.h"
 
@@ -15,7 +13,11 @@
 UTEST_STATE();
 int main(int ArgCount, const char** Args) {
 	Base_Init();
-	SDL_Init(SDL_INIT_VIDEO);
-
-	return utest_main(ArgCount, Args);
+	int Result = utest_main(ArgCount, Args);
+	return Result;
 }
+
+#ifdef OS_WIN32
+#pragma comment(lib, "base.lib")
+#pragma comment(lib, "dxcompiler.lib")
+#endif

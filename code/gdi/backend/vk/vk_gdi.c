@@ -62,9 +62,22 @@ global string G_RequiredDeviceExtensions[] = {
 
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 
+typedef LRESULT win32_def_window_proc_a(HWND, UINT, WPARAM, LPARAM);
+typedef ATOM win32_register_class_a(const WNDCLASSA*);
+typedef BOOL win32_unregister_class_a(LPCSTR, HINSTANCE);
+typedef HWND win32_create_window_ex_a(DWORD, LPCSTR, LPCSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, LPVOID);
+typedef BOOL win32_destroy_window(HWND);
+
 typedef struct {
 	HWND Window;
 	VkSurfaceKHR Surface;
+
+	HMODULE User32Library;
+	win32_def_window_proc_a* DefWindowProcA;
+	win32_register_class_a* RegisterClassA;
+	win32_unregister_class_a* UnregisterClassA;
+	win32_create_window_ex_a* CreateWindowExA;
+	win32_destroy_window* DestroyWindow;
 } vk_tmp_surface;
 
 VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, HWND Window, HINSTANCE Instance) {
@@ -90,21 +103,33 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 	vk_tmp_surface Result;
 	Memory_Clear(&Result, sizeof(vk_tmp_surface));
 
+	Result.User32Library = LoadLibraryA("user32.dll");
+	if (!Result.User32Library) {
+		Debug_Log("Failed to load user32.dll");
+		return Result;
+	}
+
+	Result.DefWindowProcA = (win32_def_window_proc_a*)GetProcAddress(Result.User32Library, "DefWindowProcA");
+	Result.RegisterClassA = (win32_register_class_a*)GetProcAddress(Result.User32Library, "RegisterClassA");
+	Result.UnregisterClassA = (win32_unregister_class_a*)GetProcAddress(Result.User32Library, "UnregisterClassA");
+	Result.CreateWindowExA = (win32_create_window_ex_a*)GetProcAddress(Result.User32Library, "CreateWindowExA");
+	Result.DestroyWindow = (win32_destroy_window*)GetProcAddress(Result.User32Library, "DestroyWindow");
+
 	// Create a minimal window class
     WNDCLASSA WindowClass = {
-		.lpfnWndProc = DefWindowProcA,
+		.lpfnWndProc = Result.DefWindowProcA,
 		.hInstance = GetModuleHandle(NULL),
 		.lpszClassName = "GDI_DummyVulkanWindow"
 	};
     
-    if (!RegisterClassA(&WindowClass)) {
+    if (!Result.RegisterClassA(&WindowClass)) {
 		Debug_Log("Failed to register window class");
 		return Result;
     }
 
-	HWND Window = CreateWindowA(WindowClass.lpszClassName, "Dummy", 
-                              	   WS_POPUP, 0, 0, 1, 1, 
-								   NULL, NULL, WindowClass.hInstance, NULL);
+	HWND Window = Result.CreateWindowA(WindowClass.lpszClassName, "Dummy", 
+                              	   	   WS_POPUP, 0, 0, 1, 1, 
+								   	   NULL, NULL, WindowClass.hInstance, NULL);
     
     if (!Window) {
 		//todo: Need to cleanup resources
@@ -125,8 +150,9 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 
 function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
 	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
-	DestroyWindow(Surface->Window);
-	UnregisterClassA("GDI_DummyVulkanWindow", GetModuleHandle(NULL));
+	Surface->DestroyWindow(Surface->Window);
+	Surface->UnregisterClassA("GDI_DummyVulkanWindow", GetModuleHandle(NULL));
+	FreeLibrary(Surface->User32Library);
 }
 
 #elif defined(VK_USE_PLATFORM_METAL_EXT)

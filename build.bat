@@ -8,6 +8,7 @@ set build_clang=0
 set build_asan=0
 set build_cpp=0
 set build_gdi=1
+set build_tests=0
 
 set base_path=%~dp0
 set code_path=%base_path%\code
@@ -44,6 +45,10 @@ if /i "%~1"=="-cpp" (
 
 if /i "%~1"=="-no_gdi" (
 	set build_gdi=0
+)
+
+if /i "%~1"=="-tests" (
+	set build_tests=1
 )
 
 shift
@@ -104,7 +109,7 @@ set clang_link=
 
 set msvc_dll=-LD
 set msvc_compile_only=/c
-set msvc_warnings=/Wall /WX /wd4061 /wd4062 /wd4063 /wd4100 /wd4127 /wd4189 /wd4191 /wd4201 /wd4255 /wd4324 /wd4355 /wd4365 /wd4456 /wd4464 /wd4505 /wd4530 /wd4577 /wd4625 /wd4626 /wd4668 /wd4710 /wd4711 /wd4820 /wd5026 /wd5027 /wd5045 /wd5246 /wd5250 /wd5262
+set msvc_warnings=/Wall /WX /wd4061 /wd4062 /wd4063 /wd4100 /wd4127 /wd4189 /wd4191 /wd4201 /wd4255 /wd4324 /wd4355 /wd4365 /wd4456 /wd4464 /wd4505 /wd4530 /wd4577 /wd4625 /wd4626 /wd4668 /wd4710 /wd4711 /wd4820 /wd4996 /wd5204 /wd5026 /wd5027 /wd5045 /wd5246 /wd5250 /wd5262
 set msvc_flags=/nologo /FC /Z7 /experimental:c11atomics %msvc_optimized_flag%
 set msvc_out=/out:
 set msvc_link=/link /opt:ref /incremental:no
@@ -198,3 +203,31 @@ if %build_gdi% == 1 (
 pushd "%bin_path%"
 	lib /nologo /out:base.lib %obj_files%
 popd
+
+if %build_tests% == 0 (
+	goto skip_tests
+)
+
+REM If we are building tests, we need to make sure directx shader compiler has been built
+set dxc_base_path=%code_path%\third_party\DirectXShaderCompiler
+set dxc_path=%dxc_base_path%\bin\Release
+
+if exist %dxc_path%\lib\dxcompiler.lib (
+	goto skip_dxc
+)
+
+pushd %dxc_base_path%
+	cmake -S . -B bin -G "Visual Studio 17 2022" -C cmake/caches/PredefinedParams.cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=None -DLLVM_INCLUDE_TESTS=OFF -DENABLE_SPIRV_CODEGEN=ON -DHLSL_INCLUDE_TESTS=OFF
+	cmake --build bin --config Release
+popd
+
+:skip_dxc
+
+copy %dxc_path%\lib\dxcompiler.lib %bin_path%\dxcompiler.lib
+copy %dxc_path%\bin\dxcompiler.dll %bin_path%\dxcompiler.dll
+
+pushd "%bin_path%"
+	%compiler_cpp% %compile_flags% %compile_warnings% %app_defines% %app_includes% -I%code_path% -I%dxc_base_path%\include "%code_path%\tests\tests.cpp" %compile_link% %compile_out%tests.exe
+popd
+
+:skip_tests
