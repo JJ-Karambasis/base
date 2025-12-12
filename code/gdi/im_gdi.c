@@ -8,12 +8,12 @@ function im_gdi* IM_GDI_Get() {
 
 		gdi_buffer_create_info VtxBufferInfo = {
 			.Size = IM_MAX_VTX_BUFFER_SIZE,
-			.Usage = GDI_BUFFER_USAGE_VTX
+			.Usage = GDI_BUFFER_USAGE_VTX|GDI_BUFFER_USAGE_DYNAMIC
 		};
 
 		gdi_buffer_create_info IdxBufferInfo = {
 			.Size = IM_MAX_IDX_BUFFER_SIZE,
-			.Usage = GDI_BUFFER_USAGE_IDX
+			.Usage = GDI_BUFFER_USAGE_IDX|GDI_BUFFER_USAGE_DYNAMIC
 		};
 
 		Result->VtxBuffer = GDI_Create_Buffer(&VtxBufferInfo);

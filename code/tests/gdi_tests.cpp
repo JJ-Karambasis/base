@@ -73,10 +73,22 @@ function b32 Create_Layouts(gdi_tests* Tests) {
 
 global gdi_tests* G_GDITests;
 
+function GDI_LOG_DEFINE(GDI_Test_Log) {
+	Debug_Log("%.*s", Message.Size, Message.Ptr);
+	Assert(Type == GDI_LOG_TYPE_INFO);
+}
+
 function b32 GDI_Tests_Setup() {
     gdi_tests* Tests = Allocator_Allocate_Struct(Default_Allocator_Get(), gdi_tests);
 
-    Tests->GDI = GDI_Init(Base_Get());
+	gdi_init_info InitInfo = {
+		.Base = Base_Get(),
+		.LogCallbacks = {
+			.LogFunc = GDI_Test_Log
+		}
+	};
+
+    Tests->GDI = GDI_Init(&InitInfo);
     if(!Tests->GDI) return false;
 
     gdi_device_array Devices = GDI_Get_Devices();
@@ -846,6 +858,57 @@ UTEST(gdi, BindlessTextureTest) {
     GDI_Delete_Bind_Group_Layout(Layout);
 }
 
+const char* G_BoxRectShader = R"(
+
+	struct box_data {
+	int4   MinMax;
+	float4 Color;
+	};
+
+	[[vk::image_format("rgba8")]]
+	RWTexture2D<float4> Texture : register(u0, space0);
+
+	StructuredBuffer<box_data> Boxes : register(t0, space1);
+
+	struct const_data {
+	int BoxCount;
+	};
+
+	[[vk::push_constant]]
+	ConstantBuffer<const_data> ConstData : register(b1, space1);
+
+
+	[numthreads(8, 8, 1)]
+	void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+	uint2 Coords = ThreadID.xy;
+
+	int HitBox = false;
+	float4 BoxColor = float4(0, 0, 0, 0);
+
+	for(int i = 0; i < ConstData.BoxCount; i++) {
+	box_data BoxData = Boxes[i];
+
+	int2 Min = BoxData.MinMax.xy;
+	int2 Max = BoxData.MinMax.zw;
+
+	if(Coords.x >= Min.x && Coords.y >= Min.y &&
+	Coords.x < Max.x && Coords.y < Max.y) {
+                        
+	HitBox = true;
+	BoxColor = BoxData.Color;
+	break;
+	}
+	}
+
+	if(HitBox) {
+	Texture[Coords] = BoxColor;
+	} else {
+	Texture[Coords] = float4(1.0f, 0.0f, 0.0f, 1.0f);
+	}
+	}
+
+)";
+
 UTEST(gdi, SimpleComputeTest) {
     struct const_data {
         v2i Min;
@@ -858,32 +921,28 @@ UTEST(gdi, SimpleComputeTest) {
     gdi_handle Shader;
     {
         const char* ShaderCode = R"(
-   
-        struct const_data {
-            int2 Min;
-            int2 Max;
-        };
+		struct const_data {
+			int2 Min;
+			int2 Max;
+		};
 
-        [[vk::image_format("rgba8")]]
-        RWTexture2D<float4> Texture : register(u0, space0);
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Texture : register(u0, space0);
 
-        [[vk::push_constant]]
-        ConstantBuffer<const_data> ConstData : register(b0, space1);
+		[[vk::push_constant]]
+		ConstantBuffer<const_data> ConstData : register(b0, space1);
 
-        [numthreads(8, 8, 1)]
-        void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
-            uint2 Coords = ThreadID.xy;
-            if(Coords.x >= ConstData.Min.x && Coords.y >= ConstData.Min.y &&
-            Coords.x < ConstData.Max.x && Coords.y < ConstData.Max.y) {
-
-                Texture[Coords] = float4(0.0f, 0.0f, 1.0f, 1.0f);
-
-            } else {
-                Texture[Coords] = float4(1.0f, 0.0f, 0.0f, 1.0f);
-            }
-        }
-
-        )";
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			uint2 Coords = ThreadID.xy;
+			if(Coords.x >= ConstData.Min.x && Coords.y >= ConstData.Min.y &&
+			Coords.x < ConstData.Max.x && Coords.y < ConstData.Max.y) {
+				Texture[Coords] = float4(0.0f, 0.0f, 1.0f, 1.0f);
+			} else {
+				Texture[Coords] = float4(1.0f, 0.0f, 0.0f, 1.0f);
+			}
+		}
+		)";
     
         IDxcBlob* ComputeShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
         ASSERT_TRUE(ComputeShader);
@@ -975,17 +1034,17 @@ UTEST(gdi, SimpleComputeTest) {
     GDI_Delete_Shader(Shader);
 }
 
+struct box_data {
+	v4i MinMax;
+	v4 Color;
+};
+
 UTEST(gdi, ComputeRenderTest) {
     gdi_tests* Tests = GDI_Get_Tests();
     ASSERT_TRUE(Tests);
 
     struct const_data {
         s32 BoxCount;
-    };
-
-    struct box_data {
-        v4i MinMax;
-        v4 Color;
     };
 
     scratch Scratch;
@@ -1047,81 +1106,33 @@ UTEST(gdi, ComputeRenderTest) {
     //Build the shaders
     gdi_handle ComputeShader;
     gdi_handle RenderShader;
-    {
-        {
-            const char* ShaderCode = R"(
+    {        
+		{
+			const char* ShaderCode = G_BoxRectShader;
 
-            struct box_data {
-                int4   MinMax;
-                float4 Color;
-            };
+			IDxcBlob* CompShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+			ASSERT_TRUE(CompShader);
 
-            [[vk::image_format("rgba8")]]
-            RWTexture2D<float4> Texture : register(u0, space0);
+			gdi_bind_group_binding Binding = {
+				.Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
+				.Count = 1
+			};
 
-            StructuredBuffer<box_data> Boxes : register(t0, space1);
+			gdi_shader_create_info CreateInfo = {
+				.CS = { .Ptr = (u8*)CompShader->GetBufferPointer(), .Size = CompShader->GetBufferSize()},
+				.BindGroupLayouts = { .Ptr = &ComputeLayout, .Count = 1 },
+				.WritableBindings = { .Ptr = &Binding, .Count = 1},
+				.PushConstantCount = sizeof(const_data)/sizeof(u32),
+				.DebugName = String_Lit("Compute Shader")
+			};
 
-            struct const_data {
-                int BoxCount;
-            };
-
-            [[vk::push_constant]]
-            ConstantBuffer<const_data> ConstData : register(b1, space1);
-
-
-            [numthreads(8, 8, 1)]
-            void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
-                uint2 Coords = ThreadID.xy;
-
-                int HitBox = false;
-                float4 BoxColor = float4(0, 0, 0, 0);
-
-                for(int i = 0; i < ConstData.BoxCount; i++) {
-                    box_data BoxData = Boxes[i];
-
-                    int2 Min = BoxData.MinMax.xy;
-                    int2 Max = BoxData.MinMax.zw;
-
-                    if(Coords.x >= Min.x && Coords.y >= Min.y &&
-                    Coords.x < Max.x && Coords.y < Max.y) {
-                        
-                        HitBox = true;
-                        BoxColor = BoxData.Color;
-                        break;
-                    }
-                }
-
-                if(HitBox) {
-                    Texture[Coords] = BoxColor;
-                } else {
-                    Texture[Coords] = float4(1.0f, 0.0f, 0.0f, 1.0f);
-                }
-            }
-
-            )";
-
-            IDxcBlob* CompShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
-            ASSERT_TRUE(CompShader);
-
-            gdi_bind_group_binding Binding = {
-                .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
-                .Count = 1
-            };
-
-            gdi_shader_create_info CreateInfo = {
-                .CS = { .Ptr = (u8*)CompShader->GetBufferPointer(), .Size = CompShader->GetBufferSize()},
-                .BindGroupLayouts = { .Ptr = &ComputeLayout, .Count = 1 },
-                .WritableBindings = { .Ptr = &Binding, .Count = 1},
-                .PushConstantCount = sizeof(const_data)/sizeof(u32),
-                .DebugName = String_Lit("Compute Shader")
-            };
-
-            ComputeShader = GDI_Create_Shader(&CreateInfo);
+			ComputeShader = GDI_Create_Shader(&CreateInfo);
             
-            ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+			ASSERT_FALSE(GDI_Is_Null(ComputeShader));
 
-            CompShader->Release();
-        }
+			CompShader->Release();
+		}
+
 
         {
             const char* ShaderCode = R"(
@@ -1323,4 +1334,205 @@ UTEST(gdi, ComputeRenderTest) {
             Texels++;
         }
     }
+}
+
+struct simple_dynamic_buffer_test_context {
+	box_data* BoxData;
+	size_t    BoxCount;
+
+	size_t FrameIndex;
+	size_t FrameCount;
+
+	os_event* Event;
+};
+
+function GDI_TEXTURE_READBACK_DEFINE(Simple_Dynamic_Buffer_Readback) {
+	simple_dynamic_buffer_test_context* Context = (simple_dynamic_buffer_test_context *)UserData;
+
+	u32* TexelsAt = (u32*)Texels;
+    for(s32 y = 0; y < Dim.y; y++) {
+        for(s32 x = 0; x < Dim.x; x++) {
+
+			u32 Texel = *TexelsAt++;
+
+            b32 HitRect = false;
+            v4 HitColor = V4_Zero();
+            for(size_t i = 0; i < Context->BoxCount; i++) {
+                box_data Box = Context->BoxData[i];
+
+                v2i Min = Box.MinMax.xy;
+                v2i Max = Box.MinMax.zw;
+
+                if(x >= Min.x && y >= Min.y && x < Max.x && y < Max.y) {
+                    HitRect = true;
+                    HitColor = Box.Color;
+                    break;
+                }
+            }
+
+            if(HitRect) {
+                f32 Epsilon = 1.0f/255.0f;
+                v4 TexelColor = V4_Color_From_U32(Texel);
+                Assert(Equal_Approx_F32(TexelColor.x, HitColor.x, Epsilon));
+                Assert(Equal_Approx_F32(TexelColor.y, HitColor.y, Epsilon));
+                Assert(Equal_Approx_F32(TexelColor.z, HitColor.z, Epsilon));
+                Assert(Equal_Approx_F32(TexelColor.w, HitColor.w, Epsilon));
+            } else {
+                Assert(Texel == 0xFF0000FF);
+            }
+        }
+    }
+
+	if (Context->FrameIndex == (Context->FrameCount-1)) {
+		OS_Event_Signal(Context->Event);
+	}
+}
+
+UTEST(gdi, DynamicBufferTest) {
+	struct const_data {
+        s32 BoxCount;
+    };
+
+	scratch Scratch;
+
+	//First create the layout
+	gdi_handle Layout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC, .Count = 1}
+		};
+
+		gdi_bind_group_layout_create_info CreateInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings)}
+		};
+
+		Layout = GDI_Create_Bind_Group_Layout(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(Layout));
+	}
+
+    //Then create the shader
+    gdi_handle Shader;
+	{
+		const char* ShaderCode = G_BoxRectShader;
+
+		IDxcBlob* CompShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CompShader);
+
+		gdi_bind_group_binding Binding = {
+			.Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
+			.Count = 1
+		};
+
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CompShader->GetBufferPointer(), .Size = CompShader->GetBufferSize()},
+			.BindGroupLayouts = { .Ptr = &Layout, .Count = 1 },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1},
+			.PushConstantCount = sizeof(const_data)/sizeof(u32),
+			.DebugName = String_Lit("Compute Shader")
+		};
+
+		Shader = GDI_Create_Shader(&CreateInfo);
+            
+		ASSERT_FALSE(GDI_Is_Null(Shader));
+
+		CompShader->Release();
+	}
+
+	texture Texture;
+    ASSERT_TRUE(Texture_Create(&Texture, {
+        .Format = GDI_FORMAT_R8G8B8A8_UNORM,
+        .Dim = V2i(128, 128),
+        .Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+    }));
+
+    gdi_texture_info TextureInfo = GDI_Get_Texture_Info(Texture.Handle);
+
+	//Build the bindless buffer and bind group
+	u32 BoxDataCount = 64;
+    gdi_handle BindlessBuffer;
+    gdi_handle BindlessBindGroup;
+    {
+        gdi_buffer_create_info BufferInfo = {
+            .Size = BoxDataCount*sizeof(box_data),
+            .Usage = GDI_BUFFER_USAGE_STORAGE|GDI_BUFFER_USAGE_DYNAMIC,
+        };
+
+        BindlessBuffer = GDI_Create_Buffer(&BufferInfo);
+        ASSERT_FALSE(GDI_Is_Null(BindlessBuffer));
+
+        gdi_bind_group_buffer BindGroupBuffer = { .Buffer = BindlessBuffer };
+        gdi_bind_group_create_info BindGroupInfo = {
+            .Layout = Layout,
+            .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1}
+        };
+
+        BindlessBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+        ASSERT_FALSE(GDI_Is_Null(BindlessBindGroup));
+    }
+
+	size_t FrameCount = 10;
+	os_event* Event = OS_Event_Create();
+
+	for (size_t i = 0; i < FrameCount; i++) {
+
+		v2i Offset = V2i((s32)((i % 2 == 0) ? i * 3 : 0), (s32)((i % 2 == 1) ? i * 3 : 0));
+		box_data* BoxData = Arena_Push_Array(Scratch.Arena, BoxDataCount, box_data);
+
+		v2i P = V2i(0, -8)+Offset;
+        for(size_t i = 0; i < BoxDataCount; i++) {
+            if((i % 8) == 0) {
+                P.y += 8;
+                P.x = 0;
+            }
+            
+            v2i Min = P;
+            v2i Max = Min+4;
+
+            BoxData[i] = {
+                .MinMax = V4i(Min.x, Min.y, Max.x, Max.y),
+                .Color = V4(Random32_UNorm(), Random32_UNorm(), Random32_UNorm(), 1.0f)
+            };
+
+            P.x += 8;
+        }
+
+		void* MappedData = GDI_Map_Buffer(BindlessBuffer);
+		Memory_Copy(MappedData, BoxData, BoxDataCount * sizeof(box_data));
+		GDI_Unmap_Buffer(BindlessBuffer);
+
+		const_data ConstData = {
+			.BoxCount = (s32)BoxDataCount
+		};
+
+		gdi_dispatch Dispatch = {
+			.Shader = Shader,
+			.BindGroups = { BindlessBindGroup },
+			.PushConstantCount = sizeof(const_data)/sizeof(u32),
+			.ThreadGroupCount = V3i(Ceil_U32((f32)TextureInfo.Dim.x/8.0f), Ceil_U32((f32)TextureInfo.Dim.y/8.0f), 1)
+		};
+		Memory_Copy(Dispatch.PushConstants, &ConstData, sizeof(const_data));
+		GDI_Submit_Compute_Pass({.Ptr = &Texture.View, .Count = 1}, {}, { .Ptr = &Dispatch, .Count = 1});
+	
+		simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
+		TestContext->BoxData = BoxData;
+		TestContext->BoxCount = BoxDataCount;
+		TestContext->FrameIndex = i;
+		TestContext->FrameCount = FrameCount;
+		TestContext->Event = Event;
+
+		gdi_texture_readback TextureReadback = {
+			.Texture = Texture.Handle,
+			.UserData = TestContext,
+			.ReadbackFunc = Simple_Dynamic_Buffer_Readback
+		};
+
+		gdi_render_params RenderParams = {
+			.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1}
+		};
+
+		GDI_Render(&RenderParams);
+	}
+
+	OS_Event_Wait(Event);
+	OS_Event_Delete(Event);
 }

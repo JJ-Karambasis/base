@@ -1,0 +1,17 @@
+GDI:
+* Test 
+	1. blend states
+	2. Test depth state
+	3. Test wireframe
+	4. Test cullmode
+	5. Test multiple render targets
+	6. Test bind group writes
+* Dynamic buffers
+* Optimize upload buffer
+* Instancing
+* Bind Group Copies
+* Indirect Draws
+* Mesh shaders
+* Hardware Raytracing
+* D3D12 backend
+* Metal backend

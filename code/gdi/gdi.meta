@@ -45,3 +45,28 @@ META_FUNCTION(GDI_Is_Bind_Group_Type_Writable, gdi_bind_group_type Type) -> b32 
 	Assert(Type < Array_Count(IsWritable));
 	return IsWritable[Type];
 }
+
+META_FUNCTION(GDI_Get_Log_Type_Str, gdi_log_type Type) -> string {
+	switch (Type) {
+		META_FOR(gdi_log_type) {
+			case $ { META_ENTRY_NAME }: {
+				return String_Lit("${META_ENTRY_SHORT_NAME}");
+			} break;
+		}
+	}
+	return String_Empty();
+}
+
+META_FUNCTION(GDI_Is_Bind_Group_Type_Dynamic, gdi_bind_group_type Type)->b32 {
+	static const b32 IsWritable[] = {
+		META_FOR(gdi_bind_group_type, flags: NoBraces) {
+			META_IF(META_CONTAINS_TAG(dynamic)) {
+				true,
+			} META_ELSE {
+				false,
+			}
+		}
+	};
+	Assert(Type < Array_Count(IsWritable));
+	return IsWritable[Type];
+}

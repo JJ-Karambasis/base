@@ -35,6 +35,10 @@ function inline v2i operator+(v2i A, s32 B) {
 	return V2i(A.x+B, A.y+B);
 }
 
+function inline v2i operator+(v2i A, v2i B) {
+	return V2i(A.x+B.x, A.y+B.y);
+}
+
 function inline v2i operator-(v2i A, s32 B) {
 	return V2i(A.x-B, A.y-B);
 }

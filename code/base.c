@@ -39,6 +39,8 @@ export_function allocator* Default_Allocator_Get() {
 }
 
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Default_Allocate_Memory) {
+	if (!Size) return NULL;
+
 	if (ClearFlag == CLEAR_FLAG_YES) return rpzalloc(Size);
 	else return rpmalloc(Size);
 }
@@ -1839,6 +1841,7 @@ export_function void Heap_Delete(heap* Heap) {
 }
 
 export_function void* Heap_Alloc_Aligned_No_Clear(heap* Heap, size_t Size, size_t Alignment) {
+	if (!Size) return NULL;
 	void* Result = rpmalloc_heap_aligned_alloc(Heap->Heap, Alignment, Size);
 	return Result;
 }

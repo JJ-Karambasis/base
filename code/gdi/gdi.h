@@ -66,7 +66,8 @@ enum {
 	GDI_BUFFER_USAGE_IDX = (1 << 1),
 	GDI_BUFFER_USAGE_CONSTANT = (1 << 2),
 	GDI_BUFFER_USAGE_STORAGE = (1 << 3),
-	GDI_BUFFER_USAGE_READBACK = (1 << 4)
+	GDI_BUFFER_USAGE_READBACK = (1 << 4),
+	GDI_BUFFER_USAGE_DYNAMIC = (1 << 5)
 };
 typedef u32 gdi_buffer_usage;
 
@@ -90,7 +91,9 @@ typedef enum {
 	GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, is_writable: false),
 	GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER, is_writable: false),
 	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, is_writable: true),
-	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, is_writable: true)
+	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, is_writable: true),
+	GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, is_writable: true, dynamic),
+	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, is_writable: true, dynamic)
 } gdi_bind_group_type;
 
 Meta()
@@ -138,6 +141,13 @@ typedef enum {
 	GDI_DRAW_TYPE_IDX,
 	GDI_DRAW_TYPE_VTX
 } gdi_draw_type;
+
+Meta()
+typedef enum {
+	GDI_LOG_TYPE_INFO,
+	GDI_LOG_TYPE_WARNING,
+	GDI_LOG_TYPE_ERROR
+} gdi_log_type;
 
 #ifdef DEBUG_BUILD
 typedef enum {
@@ -467,6 +477,19 @@ typedef struct {
 	gdi_handle_array 		   Swapchains;
 } gdi_render_params;
 
+#define GDI_LOG_DEFINE(name) void name(gdi_log_type Type, string Message, void* UserData)
+typedef GDI_LOG_DEFINE(gdi_log_func);
+
+typedef struct {
+	gdi_log_func* LogFunc;
+	void* 		  UserData;
+} gdi_log_callbacks;
+
+typedef struct {
+	base* 			  Base;
+	gdi_log_callbacks LogCallbacks;
+} gdi_init_info;
+
 typedef struct gdi gdi;
 typedef struct {
 	gdi* GDI;
@@ -648,7 +671,7 @@ struct gdi {
 
 /* Others */
 
-#define GDI_INIT_DEFINE(name) gdi* name(base* Base)
+#define GDI_INIT_DEFINE(name) gdi* name(const gdi_init_info* InitInfo)
 export_function GDI_INIT_DEFINE(GDI_Init);
 
 /*Quick access helper lookups*/

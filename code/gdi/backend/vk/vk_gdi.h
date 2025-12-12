@@ -63,7 +63,10 @@ typedef struct {
 	VkBuffer 	  	   Buffer;
 	VmaAllocation 	   Allocation;
 	VkDeviceSize  	   Size;
-	vk_cpu_buffer_push MappedUpload;
+	VkDeviceSize 	   TotalSize;
+	gdi_buffer_usage   Usage;
+	vk_cpu_buffer_push MappedUpload; //Used if usage is not dynamic
+	u8*                MappedPtr; //Used if usage is dynamic
 } vk_buffer;
 
 typedef struct {
@@ -73,11 +76,13 @@ typedef struct {
 typedef struct {
 	VkDescriptorSetLayout Layout;
 	gdi_bind_group_binding_array Bindings;
+	size_t DynamicBindingCount;
 } vk_bind_group_layout;
 
 typedef struct {
 	VkDescriptorSet Set;
 	gdi_handle      Layout;
+	u32_array 	    DynamicSizes;
 } vk_bind_group;
 
 typedef struct {

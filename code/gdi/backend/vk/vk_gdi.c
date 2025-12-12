@@ -22,6 +22,7 @@
 #include <gdi/gdi.c>
 
 Dynamic_Array_Implement(char_ptr, char*, Char_Ptr);
+Dynamic_Array_Implement_Type(u32, U32);
 Dynamic_Array_Implement(vk_image_memory_barrier, VkImageMemoryBarrier, VK_Image_Memory_Barrier);
 Dynamic_Array_Implement(vk_image_memory_barrier2, VkImageMemoryBarrier2KHR, VK_Image_Memory_Barrier2);
 Dynamic_Array_Implement(vk_write_descriptor_set, VkWriteDescriptorSet, VK_Write_Descriptor_Set);
@@ -60,6 +61,27 @@ global string G_RequiredDeviceExtensions[] = {
 #endif
 };
 
+global gdi_log_func* G_LogFunc;
+global void* G_LogUserData;
+
+function GDI_LOG_DEFINE(GDI_Default_Log_Callback) {
+	string LogTypeStr = GDI_Get_Log_Type_Str(Type);
+	Debug_Log("GDI %.*s: %.*s", LogTypeStr.Size, LogTypeStr.Ptr, Message.Size, Message.Ptr);
+}
+
+function void GDI_Log(gdi_log_type Type, const char* Format, ...) {
+	arena* Scratch = Scratch_Get();
+	va_list List;
+	va_start(List, Format);
+	string Message = String_FormatV((allocator*)Scratch, Format, List);
+	va_end(List);
+
+	G_LogFunc(Type, Message, G_LogUserData);
+}
+
+#define GDI_Log_Warning(...) GDI_Log(GDI_LOG_TYPE_WARNING, __VA_ARGS__)
+#define GDI_Log_Error(...) GDI_Log(GDI_LOG_TYPE_ERROR, __VA_ARGS__)
+
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 
 typedef LRESULT win32_def_window_proc_a(HWND, UINT, WPARAM, LPARAM);
@@ -92,7 +114,7 @@ VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, HWND Window, HINSTANCE Instance) {
 	VkSurfaceKHR Surface;
 	VkResult Status = vkCreateWin32SurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateWin32SurfaceKHR failed!");
+		GDI_Log_Error("vkCreateWin32SurfaceKHR failed!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -105,7 +127,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 
 	Result.User32Library = LoadLibraryA("user32.dll");
 	if (!Result.User32Library) {
-		Debug_Log("Failed to load user32.dll");
+		GDI_Log_Error("Failed to load user32.dll");
 		return Result;
 	}
 
@@ -123,7 +145,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 	};
     
     if (!Result.RegisterClassA(&WindowClass)) {
-		Debug_Log("Failed to register window class");
+		GDI_Log_Error("Failed to register window class");
 		return Result;
     }
 
@@ -133,7 +155,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
     
     if (!Window) {
 		//todo: Need to cleanup resources
-        Debug_Log("Failed to create window");
+        GDI_Log_Error("Failed to create window");
         return Result;
     }
 
@@ -173,7 +195,7 @@ function VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, CAMetalLayer* Layer) {
     VkSurfaceKHR Surface;
 	VkResult Status = vkCreateMetalSurfaceEXT(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
 	if(Status != VK_SUCCESS) {
-		Debug_Log("vkCreateMetalSurfaceEXT failed!");
+		GDI_Log_Error("vkCreateMetalSurfaceEXT failed!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -190,7 +212,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
                                          backing:NSBackingStoreBuffered
                                          defer:NO];
     if(Window == nil) {
-        Debug_Log("Failed to create window");
+        GDI_Log_Error("Failed to create window");
         return Result;
     }
 
@@ -200,7 +222,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
     CAMetalLayer* Layer = [CAMetalLayer layer];
     if(Layer == nil) {
         //todo: Need to cleanup resources
-        Debug_Log("Failed to create the metal layer");
+        GDI_Log_Error("Failed to create the metal layer");
         return Result;
     }
     
@@ -242,7 +264,7 @@ function VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, Display* Display, Window Wi
     VkSurfaceKHR Surface;
 	VkResult Status = vkCreateXlibSurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
 	if(Status != VK_SUCCESS) {
-		Debug_Log("vkCreateXlibSurfaceKHR failed!");
+		GDI_Log_Error("vkCreateXlibSurfaceKHR failed!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -255,7 +277,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 
 	Display* Display = XOpenDisplay(NULL);
 	if(!Display) {
-		Debug_Log("Failed to open X Display");
+		GDI_Log_Error("Failed to open X Display");
 		return Result;
 	}
 
@@ -430,7 +452,7 @@ function vk_cpu_buffer_block* VK_CPU_Buffer_Create_Block(vk_cpu_buffer* CpuBuffe
 	VmaAllocationInfo AllocInfo;
 	VkResult Status = vmaCreateBuffer(CpuBuffer->Context->GPUAllocator, &BufferInfo, &AllocateInfo, &Buffer, &Allocation, &AllocInfo);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vmaCreateBuffer failed!");
+		GDI_Log_Error("vmaCreateBuffer failed!");
 		return NULL;
 	}
 
@@ -500,7 +522,7 @@ function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_device_co
 		};
 		VkResult Status = vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_NULL_HANDLE, &ThreadContext->CmdPool);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateCommandPool failed!");
+			GDI_Log_Error("vkCreateCommandPool failed!");
 			return NULL;
 		}
 
@@ -513,7 +535,7 @@ function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_device_co
 
 		Status = vkAllocateCommandBuffers(Context->Device, &CommandBufferAllocateInfo, &ThreadContext->CmdBuffer);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkAllocateCommandBuffers failed!");
+			GDI_Log_Error("vkAllocateCommandBuffers failed!");
 			return NULL;
 		}
 
@@ -577,6 +599,11 @@ function void VK_Delete_Texture_View_Resources(vk_device_context* Context, vk_te
 }
 
 function void VK_Delete_Buffer_Resources(vk_device_context* Context, vk_buffer* Buffer) {
+	if (Buffer->MappedPtr != NULL) {
+		Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
+		vmaUnmapMemory(Context->GPUAllocator, Buffer->Allocation);
+	}
+
 	vmaDestroyBuffer(Context->GPUAllocator, Buffer->Buffer, Buffer->Allocation);
 }
 
@@ -642,17 +669,17 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 
 	b32 HasFeatures = true;
 	if (!DescriptorIndexingFeature->descriptorBindingSampledImageUpdateAfterBind) {
-		Debug_Log("Missing vulkan feature 'Descriptor Indexing' for device '%s'", DeviceProperties.deviceName);
+		GDI_Log_Warning("Missing vulkan feature 'Descriptor Indexing' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
 
 	if (!Synchronization2Feature->synchronization2) {
-		Debug_Log("Missing vulkan feature 'Synchronization 2' for device '%s'", DeviceProperties.deviceName);
+		GDI_Log_Warning("Missing vulkan feature 'Synchronization 2' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
 
 	if (!DynamicRenderingFeature->dynamicRendering) {
-		Debug_Log("Missing vulkan feature 'Dynamic Rendering' for device '%s'", DeviceProperties.deviceName);
+		GDI_Log_Warning("Missing vulkan feature 'Dynamic Rendering' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
 
@@ -680,7 +707,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	b32 HasExtensions = true;
 	for (size_t j = 0; j < Array_Count(G_RequiredDeviceExtensions); j++) {
 		if (!HasRequiredDeviceExtensions[j]) {
-			Debug_Log("Missing vulkan device extension '%.*s' for device '%s'", G_RequiredDeviceExtensions[j].Size, G_RequiredDeviceExtensions[j].Ptr, DeviceProperties.deviceName);
+			GDI_Log_Warning("Missing vulkan device extension '%.*s' for device '%s'", G_RequiredDeviceExtensions[j].Size, G_RequiredDeviceExtensions[j].Ptr, DeviceProperties.deviceName);
 			HasExtensions = false;
 		}
 	}
@@ -737,10 +764,10 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 
 				Result = true;
 			} else {
-				Debug_Log("Could not find a valid presentation queue family index for device '%s'", DeviceProperties.deviceName);
+				GDI_Log_Warning("Could not find a valid presentation queue family index for device '%s'", DeviceProperties.deviceName);
 			}
 		} else {
-			Debug_Log("Could not find a valid graphics queue family index for device '%s'", DeviceProperties.deviceName);
+			GDI_Log_Warning("Could not find a valid graphics queue family index for device '%s'", DeviceProperties.deviceName);
 		}
 	}
 
@@ -789,7 +816,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 	VkResult Status = vkCreateSwapchainKHR(Context->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &Swapchain->Swapchain);
 
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateSwapchainKHR failed!");
+		GDI_Log_Error("vkCreateSwapchainKHR failed!");
 		return false;
 	}
 
@@ -844,7 +871,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		};
 		VkResult Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i].Handle);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateSemaphore failed!");
+			GDI_Log_Error("vkCreateSemaphore failed!");
 			return false;
 		}
 	}
@@ -853,7 +880,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
 									   Swapchain->Locks[Context->CurrentFrame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkAcquireNextImageKHR failed");
+			GDI_Log_Error("vkAcquireNextImageKHR failed");
 			return false;
 		}
 	}
@@ -872,7 +899,7 @@ VkDebugUtilsObjectNameInfoEXT NameInfo = { \
 .pObjectName = name_str.Ptr \
 }; \
 if (vkSetDebugUtilsObjectNameEXT(Context->Device, &NameInfo) != VK_SUCCESS) { \
-Debug_Log("WARNING: Could not set the vulkan debug name for " type_str " %.*s", name_str.Size, name_str.Ptr); \
+GDI_Log_Error("WARNING: Could not set the vulkan debug name for " type_str " %.*s", name_str.Size, name_str.Ptr); \
 } \
 }
 
@@ -956,7 +983,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 
 	VkResult Status = vkCreateDevice(TargetGPU->PhysicalDevice, &DeviceCreateInfo, VK_NULL_HANDLE, &Context->Device);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateDevice failed to create device '%s'", TargetGPU->Properties.deviceName);
+		GDI_Log_Error("vkCreateDevice failed to create device '%s'", TargetGPU->Properties.deviceName);
 		return NULL;
 	}
 
@@ -1010,7 +1037,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 
 	Status = vmaCreateAllocator(&GPUAllocatorInfo, &Context->GPUAllocator);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vmaCreateAllocator failed!");
+		GDI_Log_Error("vmaCreateAllocator failed!");
 		return NULL;
 	}
 
@@ -1031,7 +1058,9 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, EntryCount },
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, EntryCount },
 		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, EntryCount },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EntryCount }
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EntryCount },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, EntryCount },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, EntryCount }
 	};
 
 	VkDescriptorPoolCreateInfo DescriptorPoolInfo = {
@@ -1044,7 +1073,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 
 	Status = vkCreateDescriptorPool(Context->Device, &DescriptorPoolInfo, VK_NULL_HANDLE, &Context->DescriptorPool);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateDescriptorPool failed!");
+		GDI_Log_Error("vkCreateDescriptorPool failed!");
 		return NULL;
 	}
 
@@ -1093,13 +1122,13 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		};
 		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->RenderLock);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateSemaphore failed!");
+			GDI_Log_Error("vkCreateSemaphore failed!");
 			return NULL;
 		}
 
 		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->TransferLock);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateSemaphore failed!");
+			GDI_Log_Error("vkCreateSemaphore failed!");
 			return NULL;
 		}
 
@@ -1230,7 +1259,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	VmaAllocation Allocation;
 	VkResult Status = vmaCreateImage(Context->GPUAllocator, &ImageCreateInfo, &AllocateInfo, &Image, &Allocation, NULL);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vmaCreateImage failed");
+		GDI_Log_Error("vmaCreateImage failed");
 		return GDI_Null_Handle();
 	}
 
@@ -1321,7 +1350,7 @@ function VkImageView VK_Create_Image_View(vk_device_context* Context, const VkIm
 	VkImageView ImageView;
 	VkResult Status = vkCreateImageView(Context->Device, TextureViewInfo, VK_NULL_HANDLE, &ImageView);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateImageView failed!");
+		GDI_Log_Error("vkCreateImageView failed!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -1386,13 +1415,18 @@ function GDI_BACKEND_MAP_BUFFER_DEFINE(VK_Map_Buffer) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vk_frame_context* Frame = Context->CurrentFrame;
 	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Buffer);
+
 	if (VkBuffer) {
-		OS_RW_Mutex_Read_Lock(Context->TransferLock);
-		vk_transfer_context* Transfer = Context->CurrentTransfer;
-		vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
-		vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, VkBuffer->Size);
-		VkBuffer->MappedUpload = Upload;
-		return Upload.Ptr;
+		if (VkBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+			return VkBuffer->MappedPtr + (VkBuffer->Size * Frame->Index);
+		} else {
+			OS_RW_Mutex_Read_Lock(Context->TransferLock);
+			vk_transfer_context* Transfer = Context->CurrentTransfer;
+			vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
+			vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, VkBuffer->Size);
+			VkBuffer->MappedUpload = Upload;
+			return Upload.Ptr;
+		}
 	}
 
 	return NULL;
@@ -1402,19 +1436,25 @@ function GDI_BACKEND_UNMAP_BUFFER_DEFINE(VK_Unmap_Buffer) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vk_frame_context* Frame = Context->CurrentFrame;
 	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Buffer);
-	if (VkBuffer && VkBuffer->MappedUpload.Ptr) {
-		vk_transfer_context* Transfer = Context->CurrentTransfer;
-		vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
+	if (VkBuffer) {
+		if (VkBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+			//Does nothing
+		} else {
+			if (VkBuffer->MappedUpload.Ptr) {
+				vk_transfer_context* Transfer = Context->CurrentTransfer;
+				vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
 
-		vk_cpu_buffer_push Upload = VkBuffer->MappedUpload;
-		VkBufferCopy Region = {
-			.srcOffset = Upload.Offset,
-			.size = VkBuffer->Size
-		};
+				vk_cpu_buffer_push Upload = VkBuffer->MappedUpload;
+				VkBufferCopy Region = {
+					.srcOffset = Upload.Offset,
+					.size = VkBuffer->Size
+				};
 
-		vkCmdCopyBuffer(ThreadContext->CmdBuffer, Upload.Buffer, VkBuffer->Buffer, 1, &Region);
-		Memory_Clear(&VkBuffer->MappedUpload, sizeof(vk_cpu_buffer_push));
-		OS_RW_Mutex_Read_Unlock(Context->TransferLock);
+				vkCmdCopyBuffer(ThreadContext->CmdBuffer, Upload.Buffer, VkBuffer->Buffer, 1, &Region);
+				Memory_Clear(&VkBuffer->MappedUpload, sizeof(vk_cpu_buffer_push));
+				OS_RW_Mutex_Read_Unlock(Context->TransferLock);
+			}
+		}
 	}
 }
  
@@ -1443,22 +1483,45 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 		BufferUsage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	}
 
+	//If we have a dynamic buffer, we need to allocate space for all 
+	//frames that will store data in the buffer
+
+	size_t TotalSize = BufferInfo->Size;
+
+	VmaAllocationCreateFlags AllocationFlags = 0;
+	if (BufferInfo->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+		TotalSize *= VK_FRAME_COUNT;
+		AllocationFlags = VMA_ALLOCATION_CREATE_MAPPED_BIT|VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+	}
+
 	VkBufferCreateInfo BufferCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = BufferInfo->Size,
+		.size = TotalSize,
 		.usage = BufferUsage
 	};
 
 	VmaAllocationCreateInfo AllocateInfo = {
-		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+		.flags = AllocationFlags
 	};
 
 	VkBuffer Handle;
 	VmaAllocation Allocation;
 	VkResult Status = vmaCreateBuffer(Context->GPUAllocator, &BufferCreateInfo, &AllocateInfo, &Handle, &Allocation, NULL);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vmaCreateBuffer failed");
+		GDI_Log_Error("vmaCreateBuffer failed");
 		return GDI_Null_Handle();
+	}
+
+	u8* MappedPtr = NULL;
+	if (BufferInfo->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+		//Dynamic buffers can map their buffers and persist them throughout the entire buffers lifecycle
+		Status = vmaMapMemory(Context->GPUAllocator, Allocation, (void**)&MappedPtr);
+		if (Status != VK_SUCCESS) {
+			GDI_Log_Error("vmaMapMemory failed!");
+			vmaDestroyBuffer(Context->GPUAllocator, Handle, Allocation);
+			return GDI_Null_Handle();
+		}
 	}
 
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_BUFFER, "buffer", Handle, BufferInfo->DebugName);
@@ -1468,6 +1531,9 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	Buffer->Buffer = Handle;
 	Buffer->Allocation = Allocation;
 	Buffer->Size = BufferInfo->Size;
+	Buffer->TotalSize = TotalSize;
+	Buffer->Usage = BufferInfo->Usage;
+	Buffer->MappedPtr = MappedPtr;
 
 	return Result;
 }
@@ -1494,7 +1560,7 @@ function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
 	VkSampler Handle;
 	VkResult Status = vkCreateSampler(Context->Device, &CreateInfo, VK_NULL_HANDLE, &Handle);
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateSampler failed!");
+		GDI_Log_Error("vkCreateSampler failed!");
 		return GDI_Null_Handle();
 	}
 
@@ -1517,6 +1583,8 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 
 	VkDescriptorSetLayoutBinding* Bindings = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorSetLayoutBinding);
 	VkDescriptorBindingFlagsEXT* BindingFlags = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorBindingFlagsEXT);
+	
+	size_t DynamicBindingCount = 0;
 	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
 
 		VkDescriptorSetLayoutBinding Binding = {
@@ -1526,8 +1594,19 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 			.stageFlags = VK_SHADER_STAGE_ALL
 		};
 
+		if (GDI_Is_Bind_Group_Type_Dynamic(BindGroupLayoutInfo->Bindings.Ptr[i].Type)) {
+			DynamicBindingCount++;
+		}
+
 		Bindings[i] = Binding;
-		BindingFlags[i] = BindGroupLayoutInfo->Bindings.Ptr[i].Type == GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER ? 0 : VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+
+		VkDescriptorBindingFlagsEXT BindingFlag = 0;
+		if (BindGroupLayoutInfo->Bindings.Ptr[i].Type != GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER &&
+			!GDI_Is_Bind_Group_Type_Dynamic(BindGroupLayoutInfo->Bindings.Ptr[i].Type)) {
+			BindingFlag = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+		}
+
+		BindingFlags[i] = BindingFlag;
 	}
 
 	VkDescriptorSetLayoutBindingFlagsCreateInfoEXT BindingFlagsInfo = {
@@ -1549,7 +1628,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	Scratch_Release();
 	
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateDescriptorSetLayout failed!");
+		GDI_Log_Error("vkCreateDescriptorSetLayout failed!");
 		return GDI_Null_Handle();
 	}
 
@@ -1559,6 +1638,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, Result);
 	Layout->Layout = SetLayout;
 	Layout->Bindings = GDI_Bind_Group_Binding_Array_Copy(Default_Allocator_Get(), BindGroupLayoutInfo->Bindings.Ptr, BindGroupLayoutInfo->Bindings.Count);
+	Layout->DynamicBindingCount = DynamicBindingCount;
 
 	return Result;
 }
@@ -1587,7 +1667,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	OS_Mutex_Unlock(Context->DescriptorLock);
 
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkAllocateDescriptorSets failed!");
+		GDI_Log_Error("vkAllocateDescriptorSets failed!");
 		return GDI_Null_Handle();
 	}
 
@@ -1598,6 +1678,10 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 
 	BindGroup->Set = Set;
 	BindGroup->Layout = BindGroupInfo->Layout;
+
+	BindGroup->DynamicSizes.Ptr = Allocator_Allocate_Array(Default_Allocator_Get(), Layout->DynamicBindingCount, u32);
+	BindGroup->DynamicSizes.Count = Layout->DynamicBindingCount;
+	size_t DynamicSizesCount = 0;
 
 	if (BindGroupInfo->Buffers.Count || BindGroupInfo->TextureViews.Count || BindGroupInfo->Samplers.Count) {
 
@@ -1650,7 +1734,9 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 				} break;
 
 				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER:
-				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER: {
+				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER:
+				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC: 
+				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC: {
 					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorBufferInfo);
 
 					for (size_t i = 0; i < Binding->Count; i++) {
@@ -1661,7 +1747,11 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 
 						BufferInfo[i].buffer = Buffer->Buffer;
 						BufferInfo[i].offset = BindGroupBuffer.Offset;
-						BufferInfo[i].range = BindGroupBuffer.Size == 0 ? VK_WHOLE_SIZE : BindGroupBuffer.Size;
+						BufferInfo[i].range = BindGroupBuffer.Size == 0 ? Buffer->Size : BindGroupBuffer.Size;
+						
+						if (GDI_Is_Bind_Group_Type_Dynamic(Binding->Type)) {
+							BindGroup->DynamicSizes.Ptr[DynamicSizesCount++] = (u32)Buffer->Size;
+						}
 					}
 
 					WriteDescriptorSet.pBufferInfo = BufferInfo;
@@ -1691,6 +1781,10 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 		
 		arena* Scratch = Scratch_Get();
 		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+		
+		u32_array DynamicSizes;
+		DynamicSizes.Ptr = Allocator_Allocate_Array(Default_Allocator_Get(), Layout->Bindings.Count, u32);
+		DynamicSizes.Count = Layout->DynamicBindingCount;
 
 		for (size_t i = 0; i < BindGroupWriteInfo->Writes.Count; i++) {
 			gdi_bind_group_write* Write = BindGroupWriteInfo->Writes.Ptr + i;
@@ -1734,7 +1828,11 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 					WriteDescriptorSet.pImageInfo = ImageInfo;
 				} break;
 
-				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: {
+				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: 
+				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER:
+				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC:
+				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC:
+				{
 					WriteDescriptorSet.descriptorCount = (u32)Write->Buffers.Count;
 					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Write->Buffers.Count, VkDescriptorBufferInfo);
 
@@ -1745,7 +1843,11 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 
 						BufferInfo[i].buffer = Buffer->Buffer;
 						BufferInfo[i].offset = BindGroupBuffer.Offset;
-						BufferInfo[i].range  = BindGroupBuffer.Size == 0 ? VK_WHOLE_SIZE : BindGroupBuffer.Size;
+						BufferInfo[i].range  = BindGroupBuffer.Size == 0 ? Buffer->Size : BindGroupBuffer.Size;
+											
+						if (GDI_Is_Bind_Group_Type_Dynamic(Binding->Type)) {
+							DynamicSizes.Ptr[Write->Binding] = (u32)Buffer->Size;
+						}
 					}
 
 					WriteDescriptorSet.pBufferInfo = BufferInfo;
@@ -1758,6 +1860,14 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 
 			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
 		}
+
+		size_t DynamicSizeIndex = 0;
+		for (size_t i = 0; i < DynamicSizes.Count; i++) {
+			if (DynamicSizes.Ptr[i] != 0) {
+				BindGroup->DynamicSizes.Ptr[DynamicSizeIndex++] = DynamicSizes.Ptr[i];
+			}
+		}
+		Assert(DynamicSizeIndex <= BindGroup->DynamicSizes.Count);
 
 		vkUpdateDescriptorSets(Context->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
 		Scratch_Release();
@@ -1803,7 +1913,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 		Scratch_Release();
 
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkCreateDescriptorSetLayout failed!");
+			GDI_Log_Error("vkCreateDescriptorSetLayout failed!");
 			return GDI_Null_Handle();
 		}
 
@@ -2054,7 +2164,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 				Shader->DEBUGType = GDI_PASS_TYPE_RENDER;
 #endif
 			} else {
-				Debug_Log("vkCreateGraphicsPipelines failed!");
+				GDI_Log_Error("vkCreateGraphicsPipelines failed!");
 				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_NULL_HANDLE);
 			}
 			
@@ -2096,7 +2206,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 				Shader->DEBUGType = GDI_PASS_TYPE_COMPUTE;
 #endif
 			} else {
-				Debug_Log("vkCreateComputePipelines failed!");
+				GDI_Log_Error("vkCreateComputePipelines failed!");
 				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_NULL_HANDLE);
 				if (WritableLayout) {
 					vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_NULL_HANDLE);
@@ -2106,7 +2216,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			vkDestroyShaderModule(Context->Device, CSModule, VK_NULL_HANDLE);
 		}
 	} else {
-		Debug_Log("vkCreatePipelineLayout failed!");
+		GDI_Log_Error("vkCreatePipelineLayout failed!");
 		
 		if (WritableLayout) {
 			vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_NULL_HANDLE);
@@ -2152,7 +2262,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Context->GPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
 
 	if (SurfaceCaps.minImageCount < 2) {
-		Debug_Log("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
+		GDI_Log_Error("Surface must have two or more images! Found %d", SurfaceCaps.maxImageCount);
 		goto error;
 	}
 
@@ -2271,7 +2381,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 	{
 		VkResult Status = vkResetCommandPool(Context->Device, TransferContext->CmdPool, 0);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkResetCommandPool failed");
+			GDI_Log_Error("vkResetCommandPool failed");
 			return false;
 		}
 
@@ -2282,7 +2392,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 
 		Status = vkBeginCommandBuffer(TransferContext->CmdBuffer, &BeginInfo);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkBeginCommandBuffer failed");
+			GDI_Log_Error("vkBeginCommandBuffer failed");
 			return false;
 		}
 
@@ -2330,7 +2440,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		Scratch_Release();
 
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkEndCommandBuffer failed!");
+			GDI_Log_Error("vkEndCommandBuffer failed!");
 			return false;
 		}
 
@@ -2352,7 +2462,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		Status = vkQueueSubmit(Context->TransferQueue, 1, &SubmitInfo, TransferFence);
 		if (Status != VK_SUCCESS) {
 			Assert(false);
-			Debug_Log("vkQueueSubmit failed");
+			GDI_Log_Error("vkQueueSubmit failed");
 			return false;
 		}
 	}
@@ -2364,7 +2474,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 	{
 		Status = vkResetCommandPool(Context->Device, Frame->CmdPool, 0);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkResetCommandPool failed");
+			GDI_Log_Error("vkResetCommandPool failed");
 			return false;
 		}
 
@@ -2375,7 +2485,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 
 		Status = vkBeginCommandBuffer(Frame->CmdBuffer, &BeginInfo);
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkBeginCommandBuffer failed");
+			GDI_Log_Error("vkBeginCommandBuffer failed");
 			return false;
 		}
 
@@ -2533,15 +2643,20 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 						u32 DescriptorSetCount = 0;
 						VkDescriptorSet DescriptorSets[GDI_MAX_BIND_GROUP_COUNT - 1];
 
+						dynamic_u32_array DynamicOffsets = Dynamic_U32_Array_Init((allocator*)Scratch);
+
 						for (u32 i = 0; i < GDI_MAX_BIND_GROUP_COUNT - 1; i++) {
 							vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Dispatch->BindGroups[i]);
 							if (BindGroup) {
 								DescriptorSets[DescriptorSetCount++] = BindGroup->Set;
+								for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
+									Dynamic_U32_Array_Add(&DynamicOffsets, BindGroup->DynamicSizes.Ptr[i]*Frame->Index);
+								}
 							}
 						}
 
 						if (DescriptorSetCount) {
-							vkCmdBindDescriptorSets(Frame->CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, 0, VK_NULL_HANDLE);
+							vkCmdBindDescriptorSets(Frame->CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, (u32)DynamicOffsets.Count, DynamicOffsets.Ptr);
 						}
 
 						if (Dispatch->PushConstantCount) {
@@ -2808,7 +2923,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		Scratch_Release();
 
 		if (Status != VK_SUCCESS) {
-			Debug_Log("vkEndCommandBuffer failed");
+			GDI_Log_Error("vkEndCommandBuffer failed");
 			return false;
 		}
 
@@ -2831,7 +2946,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 			Status = vkQueueSubmit(Context->GraphicsQueue, 1, &SubmitInfo, Frame->Fence);
 			if (Status != VK_SUCCESS) {
 				Assert(false);
-				Debug_Log("vkQueueSubmit failed");
+				GDI_Log_Error("vkQueueSubmit failed");
 				return false;
 			}
 		}
@@ -2874,7 +2989,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 					}
 				}
 			} else if (Status != VK_SUCCESS) {
-				Debug_Log("vkQueuePresentKHR failed");
+				GDI_Log_Error("vkQueuePresentKHR failed");
 			}
 		}
 
@@ -2943,7 +3058,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
 				VK_Recreate_Swapchain(Context, Swapchain, true);
 			} else if (Status != VK_SUCCESS) {
-				Debug_Log("vkAcquireNextImageKHR failed");
+				GDI_Log_Error("vkAcquireNextImageKHR failed");
 				return false;
 			}
 		}
@@ -3040,6 +3155,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Context->CurrentTransfer);
 	vk_render_pass* VkRenderPass = (vk_render_pass*)RenderPass;
+	vk_frame_context* Frame = Context->CurrentFrame;
 
 	u32 ColorFormatCount = 0;
 	VkFormat ColorFormats[GDI_MAX_RENDER_TARGET_COUNT];
@@ -3130,8 +3246,15 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			}
 
 			if (BindGroup) {
-				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, 0, NULL);
+				arena* Scratch = Scratch_Get();
+				u32* DynamicOffset = Arena_Push_Array(Scratch, BindGroup->DynamicSizes.Count, u32);
+				for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
+					DynamicOffset[i] = BindGroup->DynamicSizes.Ptr[i]*Frame->Index;
+				}
+
+				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, (u32)BindGroup->DynamicSizes.Count, DynamicOffset);
 				BindGroups[i] = BindGroup;
+				Scratch_Release();
 			}
 		}
 
@@ -3265,13 +3388,26 @@ global gdi_backend_vtable VK_Backend_VTable = {
 
 function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity, VkDebugUtilsMessageTypeFlagsEXT MessageTypes,
 									const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void* UserData) {
-	Debug_Log("%s", CallbackData->pMessage);
-	Assert(false);
+	gdi_log_type LogType = GDI_LOG_TYPE_INFO;
+	if (MessageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+		LogType = GDI_LOG_TYPE_WARNING;
+	} else if (MessageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+		LogType = GDI_LOG_TYPE_ERROR;
+	}
+
+	GDI_Log(LogType, "%s", CallbackData->pMessage);
 	return VK_FALSE;
 }
 
 export_function GDI_INIT_DEFINE(GDI_Init) {
-	Base_Set(Base);
+	Base_Set(InitInfo->Base);
+
+	G_LogFunc = InitInfo->LogCallbacks.LogFunc;
+	G_LogUserData = InitInfo->LogCallbacks.UserData;
+	if (!G_LogFunc) {
+		G_LogFunc = GDI_Default_Log_Callback;
+	}
+
 	arena* Arena = Arena_Create();
 	vk_gdi* GDI = Arena_Push_Struct(Arena, vk_gdi);
 	GDI->Base.Backend = &VK_Backend_VTable;
@@ -3291,7 +3427,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	GDI->Library = OS_Library_Create(LibraryPath);
 	if (!GDI->Library) {
-		Debug_Log("Failed to load %.*s", LibraryPath.Size, LibraryPath.Ptr);
+		GDI_Log_Error("Failed to load %.*s", LibraryPath.Size, LibraryPath.Ptr);
 		return NULL;
 	}
 
@@ -3369,24 +3505,24 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	Scratch_Release();
 
 	if (Status != VK_SUCCESS) {
-		Debug_Log("vkCreateInstance failed!");
+		GDI_Log_Error("vkCreateInstance failed!");
 		return NULL;
 	}
 
 #ifdef DEBUG_BUILD
 	if (!HasValidationLayers) {
-		Debug_Log("Missing vulkan validation layers");
+		GDI_Log_Warning("Missing vulkan validation layers");
 	}
 
 	if (!HasDebugUtil) {
-		Debug_Log("Missing vulkan debug utility extension");
+		GDI_Log_Warning("Missing vulkan debug utility extension");
 	}
 #endif
 
 	b32 HasExtensions = true;
 	for (size_t i = 0; i < Array_Count(G_RequiredInstanceExtensions); i++) {
 		if (!HasRequiredInstanceExtensions[i]) {
-			Debug_Log("Missing vulkan instance extension '%.*s'", G_RequiredInstanceExtensions[i].Size, G_RequiredInstanceExtensions[i].Ptr);
+			GDI_Log_Error("Missing vulkan instance extension '%.*s'", G_RequiredInstanceExtensions[i].Size, G_RequiredInstanceExtensions[i].Ptr);
 			HasExtensions = false;
 		}
 	}
@@ -3405,7 +3541,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		};
 
 		if (vkCreateDebugUtilsMessengerEXT(GDI->Instance, &DebugUtilsCreateInfo, VK_NULL_HANDLE, &GDI->DebugUtils) != VK_SUCCESS) {
-			Debug_Log("vkCreateDebugUtilsMessengerEXT failed!");
+			GDI_Log_Warning("vkCreateDebugUtilsMessengerEXT failed!");
 		}
 	}
 #endif
@@ -3416,7 +3552,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 
 	vk_tmp_surface Surface = VK_Create_Tmp_Surface(GDI);
 	if (Surface.Surface == VK_NULL_HANDLE) {
-		Debug_Log("Failed to create the vulkan tmp surface");
+		GDI_Log_Error("Failed to create the vulkan tmp surface");
 		return NULL;
 	}
 
@@ -3441,7 +3577,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	VK_Delete_Tmp_Surface(GDI, &Surface);
 
 	if (!GDI->GPUCount) {
-		Debug_Log("No valid GPUs");
+		GDI_Log_Error("No valid GPUs");
 		return NULL;
 	}
 
