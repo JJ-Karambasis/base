@@ -20,3 +20,6 @@
 bin/
 
 meta/
+
+found.txt
+ignored.txt
