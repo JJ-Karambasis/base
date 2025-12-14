@@ -18,22 +18,53 @@ function win32_base* Win32_Get() {
 
 function OS_RESERVE_MEMORY_DEFINE(Win32_Reserve_Memory) {
 	void* Result = VirtualAlloc(NULL, ReserveSize, MEM_RESERVE, PAGE_READWRITE);
+	if (Result) {
+		os_base* Base = (os_base*)Win32_Get();
+		Atomic_Add_U64(&Base->ReservedAmount, ReserveSize);
+		Atomic_Increment_U64(&Base->ReservedCount);
+	}
 	return Result;
 }
 
 function OS_COMMIT_MEMORY_DEFINE(Win32_Commit_Memory) {
 	void* Result = VirtualAlloc(BaseAddress, CommitSize, MEM_COMMIT, PAGE_READWRITE);
+	if (Result) {
+		os_base* Base = (os_base*)Win32_Get();
+		Atomic_Add_U64(&Base->CommittedAmount, CommitSize);
+		Atomic_Increment_U64(&Base->CommittedCount);
+	}
 	return Result;
 }
 
 function OS_DECOMMIT_MEMORY_DEFINE(Win32_Decommit_Memory) {
 	if (BaseAddress) {
+		os_base* Base = (os_base*)Win32_Get();
+		Atomic_Sub_U64(&Base->CommittedAmount, DecommitSize);
+		Atomic_Decrement_U64(&Base->CommittedCount);
 		VirtualFree(BaseAddress, DecommitSize, MEM_DECOMMIT);
 	}
 }
 
 function OS_RELEASE_MEMORY_DEFINE(Win32_Release_Memory) {
 	if (BaseAddress) {
+		os_base* Base = (os_base*)Win32_Get();
+		
+		MEMORY_BASIC_INFORMATION MemoryInfo;
+		u8* CurrentAddress = (u8*)BaseAddress;
+		u8* EndAddress = CurrentAddress + ReleaseSize;
+
+		while (CurrentAddress < EndAddress) {
+			VirtualQuery(CurrentAddress, &MemoryInfo, sizeof(MemoryInfo));
+			if (MemoryInfo.State == MEM_COMMIT) {
+				Atomic_Sub_U64(&Base->CommittedAmount, MemoryInfo.RegionSize);
+			}
+
+			CurrentAddress = Offset_Pointer(MemoryInfo.BaseAddress, MemoryInfo.RegionSize);
+		}
+
+
+		Atomic_Sub_U64(&Base->ReservedAmount, ReleaseSize);
+		Atomic_Decrement_U64(&Base->ReservedCount);
 		VirtualFree(BaseAddress, 0, MEM_RELEASE);
 	}
 }
@@ -81,11 +112,13 @@ function OS_OPEN_FILE_DEFINE(Win32_Open_File) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		Result = Win32->FreeFiles;
 		if (Result) SLL_Pop_Front(Win32->FreeFiles);
-		else Result = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_file);
+		else Result = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_file);
 		LeaveCriticalSection(&Win32->ResourceLock);
 
 		Memory_Clear(Result, sizeof(os_file));
 		Result->Handle = Handle;
+
+		Atomic_Increment_U64(&Win32->Base.AllocatedFileCount);
 	} else {
 		//todo: Diagnostic and error logging 
 		Debug_Log("CreateFileW failed!");
@@ -156,6 +189,8 @@ function OS_CLOSE_FILE_DEFINE(Win32_Close_File) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	SLL_Push_Front(Win32->FreeFiles, File);
 	LeaveCriticalSection(&Win32->ResourceLock);
+	
+	Atomic_Decrement_U64(&Win32->Base.AllocatedFileCount);
 }
 
 function void Win32_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_array* Array, string Directory, b32 Recursive) {
@@ -245,11 +280,13 @@ function OS_TLS_CREATE_DEFINE(Win32_TLS_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_tls* TLS = Win32->FreeTLS;
 	if (TLS) SLL_Pop_Front(Win32->FreeTLS);
-	else TLS = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_tls);
+	else TLS = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_tls);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(TLS, sizeof(os_tls));
 	TLS->Index = TlsAlloc();
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedTLSCount);
 
 	return TLS;
 }
@@ -262,6 +299,8 @@ function OS_TLS_DELETE_DEFINE(Win32_TLS_Delete) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	SLL_Push_Front(Win32->FreeTLS, TLS);
 	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Atomic_Decrement_U64(&Win32->Base.AllocatedTLSCount);
 }
 
 function OS_TLS_GET_DEFINE(Win32_TLS_Get) {
@@ -274,7 +313,10 @@ function OS_TLS_SET_DEFINE(Win32_TLS_Set) {
 
 function DWORD Win32_Thread_Callback(LPVOID Parameter) {
 	os_thread* Thread = (os_thread*)Parameter;
+	rpmalloc_thread_initialize();
 	Thread->Callback(Thread, Thread->UserData);
+	Thread_Context_Remove();
+	rpmalloc_thread_finalize();
 	return 0;
 }
 
@@ -284,7 +326,7 @@ function OS_THREAD_CREATE_DEFINE(Win32_Thread_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_thread* Thread = Win32->FreeThreads;
 	if (Thread) SLL_Pop_Front(Win32->FreeThreads);
-	else Thread = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_thread);
+	else Thread = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_thread);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Thread, sizeof(os_thread));
@@ -296,6 +338,29 @@ function OS_THREAD_CREATE_DEFINE(Win32_Thread_Create) {
 		SLL_Push_Front(Win32->FreeThreads, Thread);
 		LeaveCriticalSection(&Win32->ResourceLock);
 		Thread = NULL;
+	} else {
+		if (!String_Is_Empty(DebugName)) {
+			//Make sure its null terminated
+			arena* Scratch = Scratch_Get();
+			DebugName = String_Copy((allocator*)Scratch, DebugName);
+
+			THREADNAME_INFO ThreadInfo = {
+				.dwType = 0x1000,
+				.szName = DebugName.Ptr,
+				.dwThreadID = Thread->ThreadID
+			};
+
+			__try {
+				RaiseException(MS_VC_EXCEPTION, 0, sizeof(ThreadInfo) / sizeof(ULONG_PTR), (ULONG_PTR*)&ThreadInfo);
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER) {
+			}
+		  
+
+			Scratch_Release();
+		}
+
+		Atomic_Increment_U64(&Win32->Base.AllocatedThreadCount);
 	}
 
 	return Thread;
@@ -310,6 +375,8 @@ function OS_THREAD_JOIN_DEFINE(Win32_Thread_Join) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		SLL_Push_Front(Win32->FreeThreads, Thread);
 		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedThreadCount);
 	}
 }
 
@@ -327,11 +394,13 @@ function OS_MUTEX_CREATE_DEFINE(Win32_Mutex_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_mutex* Mutex = Win32->FreeMutex;
 	if (Mutex) SLL_Pop_Front(Win32->FreeMutex);
-	else Mutex = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_mutex);
+	else Mutex = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_mutex);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Mutex, sizeof(os_mutex));
 	InitializeCriticalSection(&Mutex->CriticalSection);
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedMutexCount);
 
 	return Mutex;
 }
@@ -344,6 +413,8 @@ function OS_MUTEX_DELETE_DEFINE(Win32_Mutex_Delete) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	SLL_Push_Front(Win32->FreeMutex, Mutex);
 	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Atomic_Decrement_U64(&Win32->Base.AllocatedMutexCount);
 }
 
 function OS_MUTEX_LOCK_DEFINE(Win32_Mutex_Lock) {
@@ -360,11 +431,13 @@ function OS_RW_MUTEX_CREATE_DEFINE(Win32_RW_Mutex_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_rw_mutex* Mutex = Win32->FreeRWMutex;
 	if (Mutex) SLL_Pop_Front(Win32->FreeRWMutex);
-	else Mutex = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_rw_mutex);
+	else Mutex = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_rw_mutex);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Mutex, sizeof(os_rw_mutex));
 	InitializeSRWLock(&Mutex->SRWLock);
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedRWMutexCount);
 
 	return Mutex;
 }
@@ -374,6 +447,8 @@ function OS_RW_MUTEX_DELETE_DEFINE(Win32_RW_Mutex_Delete) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	SLL_Push_Front(Win32->FreeRWMutex, Mutex);
 	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Atomic_Decrement_U64(&Win32->Base.AllocatedRWMutexCount);
 }
 
 function OS_RW_MUTEX_LOCK_DEFINE(Win32_RW_Mutex_Read_Lock) {
@@ -400,11 +475,13 @@ function OS_SEMAPHORE_CREATE_DEFINE(Win32_Semaphore_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_semaphore* Semaphore = Win32->FreeSemaphores;
 	if (Semaphore) SLL_Pop_Front(Win32->FreeSemaphores);
-	else Semaphore = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_semaphore);
+	else Semaphore = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_semaphore);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Semaphore, sizeof(os_semaphore));
 	Semaphore->Handle = Handle;
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedSemaphoresCount);
 
 	return Semaphore;
 }
@@ -417,6 +494,8 @@ function OS_SEMAPHORE_DELETE_DEFINE(Win32_Semaphore_Delete) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		SLL_Push_Front(Win32->FreeSemaphores, Semaphore);
 		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedSemaphoresCount);
 	}
 }
 
@@ -446,11 +525,14 @@ function OS_EVENT_CREATE_DEFINE(Win32_Event_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_event* Event = Win32->FreeEvents;
 	if (Event) SLL_Pop_Front(Win32->FreeEvents);
-	else Event = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_event);
+	else Event = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_event);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Event, sizeof(os_event));
 	Event->Handle = Handle;
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedEventsCount);
+
 	return Event;
 }
 
@@ -462,6 +544,8 @@ function OS_EVENT_DELETE_DEFINE(Win32_Event_Delete) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		SLL_Push_Front(Win32->FreeEvents, Event);
 		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedEventsCount);
 	}
 }
 
@@ -491,12 +575,14 @@ function OS_HOT_RELOAD_CREATE_DEFINE(Win32_Hot_Reload_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_hot_reload* HotReload = Win32->FreeHotReload;
 	if (HotReload) SLL_Pop_Front(Win32->FreeHotReload);
-	else HotReload = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_hot_reload);
+	else HotReload = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_hot_reload);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(HotReload, sizeof(os_hot_reload));
 	HotReload->LastWriteTime = FileAttributes.ftLastWriteTime;
 	HotReload->FilePath = FilePathW;
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedHotReloadCount);
 
 	return HotReload;
 }
@@ -508,6 +594,8 @@ function OS_HOT_RELOAD_DELETE_DEFINE(Win32_Hot_Reload_Delete) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		SLL_Push_Front(Win32->FreeHotReload, HotReload);
 		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedHotReloadCount);
 	}
 }
 
@@ -537,11 +625,13 @@ function OS_LIBRARY_CREATE_DEFINE(Win32_Library_Create) {
 	EnterCriticalSection(&Win32->ResourceLock);
 	os_library* Result = Win32->FreeLibrary;
 	if (Result) SLL_Pop_Front(Win32->FreeLibrary);
-	else Result = Arena_Push_Struct_No_Clear(Win32->ResourceArena, os_library);
+	else Result = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_library);
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Memory_Clear(Result, sizeof(os_library));
 	Result->Library = Library;
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedLibraryCount);
 
 	return Result;
 }
@@ -554,6 +644,8 @@ function OS_LIBRARY_DELETE_DEFINE(Win32_Library_Delete) {
 		EnterCriticalSection(&Win32->ResourceLock);
 		SLL_Push_Front(Win32->FreeLibrary, Library);
 		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedLibraryCount);
 	}
 }
 
@@ -709,17 +801,31 @@ void OS_Base_Init(base* Base) {
 	G_Win32 = &Win32;
 
 	Base->OSBase = (os_base*)&Win32;
-	rpmalloc_initialize(&Memory_VTable);
 
-	Win32.ResourceArena = Arena_Create();
+	rpmalloc_config_t Config = {
+		.unmap_on_finalize = true
+	};
+
+	rpmalloc_initialize_config(&Memory_VTable, &Config);
+
 	InitializeCriticalSection(&Win32.ResourceLock);
+	InitializeSRWLock(&Win32.ArenaLock.SRWLock);
+	Base->ArenaLock = &Win32.ArenaLock;
+	Win32.Base.ResourceArena = Arena_Create(String_Lit("OS Base Resources"));
 
 	Base->ThreadContextTLS = OS_TLS_Create();
+	Base->ThreadContextLock = OS_Mutex_Create();
 
 	arena* Scratch = Scratch_Get();
 	string ExecutablePath = Win32_Get_Executable_Path((allocator*)Scratch);
-	Win32.Base.ProgramPath = String_Copy((allocator*)Win32.ResourceArena, String_Get_Directory_Path(ExecutablePath));
+	Win32.Base.ProgramPath = String_Copy((allocator*)Win32.Base.ResourceArena, String_Get_Directory_Path(ExecutablePath));
 	Scratch_Release();
+}
+
+void OS_Base_Shutdown(base* Base) {
+	win32_base* Win32 = (win32_base*)Base->OSBase;
+
+	DeleteCriticalSection(&Win32->ResourceLock);
 }
 
 #pragma comment(lib, "bcrypt.lib")

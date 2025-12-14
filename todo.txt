@@ -6,7 +6,7 @@ GDI:
 	4. Test cullmode
 	5. Test multiple render targets
 	6. Test bind group writes
-* Dynamic buffers
+	7. Multithreading tests
 * Optimize upload buffer
 * Instancing
 * Bind Group Copies
@@ -15,3 +15,11 @@ GDI:
 * Hardware Raytracing
 * D3D12 backend
 * Metal backend
+
+Base:
+* Condition Variables
+* Heap Lists
+* Allocator stat tracking
+* Tracking of os resources
+* Update posix
+* Lightweight Semaphore

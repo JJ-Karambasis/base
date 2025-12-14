@@ -59,7 +59,7 @@ typedef struct os_thread os_thread;
 #define OS_THREAD_CALLBACK_DEFINE(name) void name(os_thread* Thread, void* UserData)
 typedef OS_THREAD_CALLBACK_DEFINE(os_thread_callback_func);
 
-#define OS_THREAD_CREATE_DEFINE(name) os_thread* name(os_thread_callback_func* Callback, void* UserData)
+#define OS_THREAD_CREATE_DEFINE(name) os_thread* name(string DebugName, os_thread_callback_func* Callback, void* UserData)
 #define OS_THREAD_JOIN_DEFINE(name) void name(os_thread* Thread)
 #define OS_THREAD_GET_ID_DEFINE(name) u64 name(os_thread* Thread)
 #define OS_GET_CURRENT_THREAD_ID_DEFINE(name) u64 name()
@@ -209,6 +209,23 @@ typedef struct {
 	size_t PageSize;
 	size_t ProcessorThreadCount;
 	string ProgramPath;
+
+	atomic_u64 ReservedAmount;
+	atomic_u64 CommittedAmount;
+	atomic_u64 ReservedCount;
+	atomic_u64 CommittedCount;
+
+	atomic_u64 AllocatedFileCount;
+	atomic_u64 AllocatedTLSCount;
+	atomic_u64 AllocatedThreadCount;
+	atomic_u64 AllocatedMutexCount;
+	atomic_u64 AllocatedRWMutexCount;
+	atomic_u64 AllocatedSemaphoresCount;
+	atomic_u64 AllocatedEventsCount;
+	atomic_u64 AllocatedHotReloadCount;
+	atomic_u64 AllocatedLibraryCount;
+
+	arena* ResourceArena;
 } os_base;
 
 #define OS_Program_Path() (Base_Get()->OSBase->ProgramPath)
@@ -240,7 +257,7 @@ typedef struct {
 #define OS_TLS_Get(tls) Base_Get()->OSBase->VTable->TLSGetFunc(tls)
 #define OS_TLS_Set(tls, data) Base_Get()->OSBase->VTable->TLSSetFunc(tls, data)
 
-#define OS_Thread_Create(callback, user_data) Base_Get()->OSBase->VTable->ThreadCreateFunc(callback, user_data)
+#define OS_Thread_Create(debug_name, callback, user_data) Base_Get()->OSBase->VTable->ThreadCreateFunc(debug_name, callback, user_data)
 #define OS_Thread_Join(thread) Base_Get()->OSBase->VTable->ThreadJoinFunc(thread)
 #define OS_Thread_Get_ID(thread) Base_Get()->OSBase->VTable->ThreadGetIdFunc(thread)
 #define OS_Get_Current_Thread_ID() Base_Get()->OSBase->VTable->GetCurrentThreadIdFunc()
@@ -279,5 +296,23 @@ typedef struct {
 
 #define OS_Get_Entropy(buffer, size) Base_Get()->OSBase->VTable->GetEntropyFunc(buffer, size)
 #define OS_Sleep(nanoseconds) Base_Get()->OSBase->VTable->SleepFunc(nanoseconds)
+
+typedef struct {
+	u64 ReservedAmount;
+	u64 CommittedAmount;
+	u64 ReservedCount;
+	u64 CommittedCount;
+
+	u64 AllocatedFileCount;
+	u64 AllocatedTLSCount;
+	u64 AllocatedThreadCount;
+	u64 AllocatedMutexCount;
+	u64 AllocatedRWMutexCount;
+	u64 AllocatedSemaphoresCount;
+	u64 AllocatedEventsCount;
+	u64 AllocatedHotReloadCount;
+	u64 AllocatedLibraryCount;
+} os_memory_stats;
+
 
 #endif

@@ -662,26 +662,41 @@ typedef enum {
 	CLEAR_FLAG_YES
 } clear_flag;
 
+//Need to define string early since the allocator uses it for the debug name
+typedef struct {
+	const char* Ptr;
+	size_t Size;
+} string;
+
+typedef struct {
+	size_t AllocatedAmount;
+} allocator_stats;
+
 typedef struct allocator allocator;
 #define ALLOCATOR_ALLOCATE_MEMORY_DEFINE(name) void* name(allocator* Allocator, size_t Size, clear_flag ClearFlag)
 #define ALLOCATOR_FREE_MEMORY_DEFINE(name) void name(allocator* Allocator, void* Memory)
+#define ALLOCATOR_GET_STATS_DEFINE(name) allocator_stats name(allocator* Allocator)
 
 typedef ALLOCATOR_ALLOCATE_MEMORY_DEFINE(allocator_allocate_memory_func);
 typedef ALLOCATOR_FREE_MEMORY_DEFINE(allocator_free_memory_func);
+typedef ALLOCATOR_GET_STATS_DEFINE(allocator_get_stats_func);
 
 typedef struct {
 	allocator_allocate_memory_func* AllocateMemoryFunc;
 	allocator_free_memory_func* 	FreeMemoryFunc;
+	allocator_get_stats_func* 		GetStatsFunc;
 } allocator_vtable;
 
 struct allocator {
 	allocator_vtable* VTable;
+	string 			  DebugName;
 };
 
 export_function allocator* Default_Allocator_Get();
 
 #define Allocator_Allocate_Memory(allocator, size) (allocator)->VTable->AllocateMemoryFunc(allocator, size, CLEAR_FLAG_YES)
 #define Allocator_Free_Memory(allocator, memory) (allocator)->VTable->FreeMemoryFunc(allocator, memory)
+#define Allocator_Get_Stats(allocator) (allocator)->VTable->GetStatsFunc(allocator)
 
 #define Allocator_Allocate_Struct(allocator, type) (type *)Allocator_Allocate_Memory(allocator, sizeof(type))
 #define Allocator_Allocate_Array(allocator, count, type) (type *)Allocator_Allocate_Memory(allocator, sizeof(type)*(count))
@@ -699,7 +714,8 @@ typedef enum {
 	ARENA_TYPE_ALLOCATOR
 } arena_type;
 
-typedef struct {
+typedef struct arena arena;
+struct arena {
 	allocator  Base;
 	arena_type Type;
 	union {
@@ -715,7 +731,10 @@ typedef struct {
 			arena_block* CurrentBlock;
 		};
 	};
-} arena;
+	
+	arena* Next;
+	arena* Prev;
+};
 
 typedef struct {
 	arena* 		 Arena;
@@ -723,9 +742,9 @@ typedef struct {
 	size_t 		 Used;
 } arena_marker;
 
-export_function arena* Arena_Create_With_Size(size_t ReserveSize);
-export_function arena* Arena_Create();
-export_function arena* Arena_Create_With_Allocator(allocator* Allocator);
+export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSize);
+export_function arena* Arena_Create(string DebugName);
+export_function arena* Arena_Create_With_Allocator(string DebugName, allocator* Allocator);
 export_function void Arena_Delete(arena* Arena);
 export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Alignment);
 export_function void* Arena_Push_Aligned(arena* Arena, size_t Size, size_t Alignment);
@@ -881,15 +900,20 @@ typedef struct {
 	u32 State;
 } random32_xor_shift;
 
+typedef struct thread_context thread_context;
+
 #define MAX_SCRATCH_COUNT 64
-typedef struct {
+struct thread_context {
 	random32_xor_shift Random32;
 	size_t 		 	   ScratchIndex;
 	arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
 	arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];
-} thread_context;
+	thread_context*    Next;
+	thread_context*    Prev;
+};
 
 export_function thread_context* Thread_Context_Get();
+export_function void Thread_Context_Remove();
 export_function arena* Scratch_Get();
 export_function void Scratch_Release();
 
@@ -943,11 +967,6 @@ typedef struct {
 	u8*    Ptr;
 	size_t Size;
 } buffer;
-
-typedef struct {
-	const char* Ptr;
-	size_t Size;
-} string;
 
 export_function buffer Make_Buffer(void* Data, size_t Size);
 export_function buffer Buffer_From_String(string String);
@@ -1370,19 +1389,35 @@ export_function b32 Write_Entire_File(string Path, buffer Data);
 #define Write_Entire_File_Str(path, content) Write_Entire_File(path, Buffer_From_String(content))
 
 typedef struct {
-	os_tls*   ThreadContextTLS;
+	os_tls*   		ThreadContextTLS;
+	os_mutex* 		ThreadContextLock;
+	thread_context* FirstThread;
+	thread_context* LastThread;
+	size_t 			ThreadCount;
+
 	allocator DefaultAllocator;
 	os_base*  OSBase;
 	allocator_vtable* ArenaVTable;
 	allocator_vtable* HeapVTable;
 	os_thread_callback_func* JobSystemThreadCallback;
+
+	os_rw_mutex* ArenaLock;
+	size_t 		 ArenaCount;
+	arena* 		 FirstArena;
+	arena* 		 LastArena;
 } base;
 
 export_function void Base_Set(base* Base);
 export_function base* Base_Get();
 export_function base* Base_Init();
+export_function os_memory_stats Base_Shutdown();
 
-#include "akon.h"
+export_function os_memory_stats OS_Get_Memory_Stats();
+export_function arena* Begin_Arena_List();
+export_function void End_Arena_List();
+
+#define Get_Arena_Count() Base_Get()->ArenaCount
+
 #include "job.h"
 #include "profiler.h"
 

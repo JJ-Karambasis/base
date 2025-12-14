@@ -21,6 +21,7 @@ extern "C" {
 global base* G_Base;
 
 void OS_Base_Init(base* Base);
+void OS_Base_Shutdown(base* Base);
 
 export_function void Base_Set(base* Base) {
 	G_Base = Base;
@@ -74,6 +75,7 @@ export_function base* Base_Init() {
 	if(!Base_Get()) {
 		local base Base;
 		Base.DefaultAllocator.VTable = &Default_Allocator_VTable;
+		Base.DefaultAllocator.DebugName = String_Lit("Default");
 		Base.ArenaVTable = &Arena_VTable;
 		Base.HeapVTable = &Heap_VTable;
 		Base.JobSystemThreadCallback = Job_System_Thread_Callback;
@@ -83,6 +85,71 @@ export_function base* Base_Init() {
 	}
 
 	return Base_Get();
+}
+
+export_function os_memory_stats Base_Shutdown() {
+	base* Base = Base_Get();
+	os_base* OSBase = Base->OSBase;
+
+	//Delete thread contexts
+	thread_context* ThreadContext = Base->FirstThread;
+	while (ThreadContext) {
+		thread_context* ThreadContextToDelete = ThreadContext;
+		ThreadContext = ThreadContext->Next;
+		//Scratch arenas will be deleted when we delete all arenas
+		Allocator_Free_Memory(Default_Allocator_Get(), ThreadContextToDelete);
+	}
+	Base->FirstThread = NULL;
+	Base->LastThread = NULL;
+	Base->ThreadCount = 0;
+
+	if (Base->ThreadContextLock) {
+		OS_Mutex_Delete(Base->ThreadContextLock);
+	}
+
+	if (Base->ThreadContextTLS) {
+		OS_TLS_Delete(Base->ThreadContextTLS);
+	}
+
+	//Delete remaining arenas
+	arena* Arena = Base->FirstArena;
+	while (Arena) {
+		arena* ArenaToDelete = Arena;
+		Arena = Arena->Next;
+		Arena_Delete(ArenaToDelete);
+	}
+	Base->FirstArena = NULL;
+	Base->LastArena = NULL;
+	Base->ArenaCount = 0;
+
+	OS_Base_Shutdown(Base);
+	rpmalloc_finalize();
+
+	os_memory_stats Result = OS_Get_Memory_Stats();
+	G_Base = NULL;
+
+	return Result;
+}
+
+export_function os_memory_stats OS_Get_Memory_Stats() {
+	os_base* Base = Base_Get()->OSBase;
+	os_memory_stats Result = {
+		.ReservedAmount = Atomic_Load_U64(&Base->ReservedAmount),
+		.CommittedAmount = Atomic_Load_U64(&Base->CommittedAmount),
+		.ReservedCount = Atomic_Load_U64(&Base->ReservedCount),
+		.CommittedCount = Atomic_Load_U64(&Base->CommittedCount),
+
+		.AllocatedFileCount = Atomic_Load_U64(&Base->AllocatedFileCount),
+		.AllocatedTLSCount = Atomic_Load_U64(&Base->AllocatedTLSCount),
+		.AllocatedThreadCount = Atomic_Load_U64(&Base->AllocatedThreadCount),
+		.AllocatedMutexCount = Atomic_Load_U64(&Base->AllocatedMutexCount),
+		.AllocatedRWMutexCount = Atomic_Load_U64(&Base->AllocatedRWMutexCount),
+		.AllocatedSemaphoresCount = Atomic_Load_U64(&Base->AllocatedSemaphoresCount),
+		.AllocatedEventsCount = Atomic_Load_U64(&Base->AllocatedEventsCount),
+		.AllocatedHotReloadCount = Atomic_Load_U64(&Base->AllocatedHotReloadCount),
+		.AllocatedLibraryCount = Atomic_Load_U64(&Base->AllocatedLibraryCount)
+	};
+	return Result;
 }
 
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon) {
@@ -1612,7 +1679,35 @@ export_function b32 Buffer_Is_Empty(buffer Buffer) {
 	return !Buffer.Size || !Buffer.Ptr;
 }
 
-export_function arena* Arena_Create_With_Size(size_t ReserveSize) {
+function void Allocator_Set_Name(allocator* Allocator, string DebugName) {
+	if (!String_Is_Empty(DebugName)) {
+		Allocator->DebugName = String_Copy(Default_Allocator_Get(), DebugName);
+	}
+}
+
+function void Allocator_Free_Name(allocator* Allocator) {
+	if (!String_Is_Empty(Allocator->DebugName)) {
+		Allocator_Free_Memory(Default_Allocator_Get(), (void*)Allocator->DebugName.Ptr);
+	}
+}
+
+function void Arena_Add_To_Global_List(arena* Arena) {
+	base* Base = Base_Get();
+	OS_RW_Mutex_Write_Lock(Base->ArenaLock);
+	DLL_Push_Back(Base->FirstArena, Base->LastArena, Arena);
+	Base->ArenaCount++;
+	OS_RW_Mutex_Write_Unlock(Base->ArenaLock);
+}
+
+function void Arena_Remove_From_Global_List(arena* Arena) {
+	base* Base = Base_Get();
+	OS_RW_Mutex_Write_Lock(Base->ArenaLock);
+	DLL_Remove(Base->FirstArena, Base->LastArena, Arena);
+	Base->ArenaCount--;
+	OS_RW_Mutex_Write_Unlock(Base->ArenaLock);
+}
+
+export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSize) {
 	base* Base = Base_Get();
 
 	memory_reserve MemoryReserve = Make_Memory_Reserve(ReserveSize + sizeof(arena));
@@ -1630,26 +1725,35 @@ export_function arena* Arena_Create_With_Size(size_t ReserveSize) {
 	Arena->Reserve 	   = MemoryReserve;
 	Arena->Used        = sizeof(arena);
 
+	Allocator_Set_Name((allocator*)Arena, DebugName);
+	Arena_Add_To_Global_List(Arena);
+
 	return Arena;
 }
 
-export_function arena* Arena_Create() {
-	arena* Result = Arena_Create_With_Size(GB(1));
+export_function arena* Arena_Create(string DebugName) {
+	arena* Result = Arena_Create_With_Size(DebugName, GB(1));
 	return Result;
 }
 
-export_function arena* Arena_Create_With_Allocator(allocator* Allocator) {
+export_function arena* Arena_Create_With_Allocator(string DebugName, allocator* Allocator) {
 	base* Base = Base_Get();
 
 	arena* Arena = Allocator_Allocate_Struct(Allocator, arena);
 	Arena->Base.VTable = Base->ArenaVTable;
 	Arena->Type = ARENA_TYPE_ALLOCATOR;
 	Arena->Allocator = Allocator;
+	Allocator_Set_Name((allocator*)Arena, DebugName);
+	Arena_Add_To_Global_List(Arena);
+
 	return Arena;
 }
 
 export_function void Arena_Delete(arena* Arena) {
 	if (Arena) {
+		Arena_Remove_From_Global_List(Arena);
+		Allocator_Free_Name((allocator*)Arena);
+
 		if (Arena->Type == ARENA_TYPE_VIRTUAL) {
 			if (Arena->Reserve.BaseAddress) {
 				Delete_Memory_Reserve(&Arena->Reserve);
@@ -1666,8 +1770,22 @@ export_function void Arena_Delete(arena* Arena) {
 			Arena->CurrentBlock = NULL;
 			Arena->LastBlock = NULL;
 			Arena->Allocator = NULL;
+
+			Allocator_Free_Memory(Allocator, Arena);
 		}
 	}
+}
+
+export_function arena* Begin_Arena_List() {
+	base* Base = Base_Get();
+	OS_RW_Mutex_Read_Lock(Base->ArenaLock);
+	arena* Result = Base->FirstArena;
+	return Result;
+}
+
+export_function void End_Arena_List() {
+	base* Base = Base_Get();
+	OS_RW_Mutex_Read_Unlock(Base->ArenaLock);
 }
 
 function arena_block* Arena_Get_Current_Block(arena* Arena, size_t Size, size_t Alignment) {
@@ -1886,10 +2004,41 @@ export_function thread_context* Thread_Context_Get() {
 	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
 	if (!ThreadContext) {
 		ThreadContext = Allocator_Allocate_Struct(Default_Allocator_Get(), thread_context);
+
+		//Add to global list
+		OS_Mutex_Lock(G_Base->ThreadContextLock);
+		DLL_Push_Back(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
+		G_Base->ThreadCount++;
+		OS_Mutex_Unlock(G_Base->ThreadContextLock);
+		
 		OS_TLS_Set(G_Base->ThreadContextTLS, ThreadContext);
 		ThreadContext->Random32 = Random32_XOrShift_Init();
 	}
 	return ThreadContext;
+}
+
+export_function void Thread_Context_Remove() {
+	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
+	if (ThreadContext) {
+
+		//Remove from global list
+		OS_Mutex_Lock(G_Base->ThreadContextLock);
+		DLL_Remove(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
+		G_Base->ThreadCount--;
+		OS_Mutex_Unlock(G_Base->ThreadContextLock);
+
+		//Delete all the scratch arenas
+		for (size_t i = 0; i < MAX_SCRATCH_COUNT; i++) {
+			if (ThreadContext->ScratchArenas[i]) {
+				Arena_Delete(ThreadContext->ScratchArenas[i]);
+				ThreadContext->ScratchArenas[i] = NULL;
+			}
+		}
+
+		//Free the memory
+		Allocator_Free_Memory(Default_Allocator_Get(), ThreadContext);
+		OS_TLS_Set(G_Base->ThreadContextTLS, NULL);
+	}
 }
 
 #ifdef DEBUG_BUILD
@@ -1905,7 +2054,9 @@ export_function arena* Scratch_Get() {
 
 	size_t ScratchIndex = ThreadContext->ScratchIndex++;
 	if (!ThreadContext->ScratchArenas[ScratchIndex]) {
-		ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create();
+		char ScratchName[1024];
+		int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", ScratchIndex);
+		ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create(Make_String(ScratchName, TotalLength));
 	}
 
 	ThreadContext->ScratchMarkers[ScratchIndex] = Arena_Get_Marker(ThreadContext->ScratchArenas[ScratchIndex]);
@@ -3740,7 +3891,6 @@ export_function b32 Write_Entire_File(string Path, buffer Data) {
 	return Result;
 }
 
-#include "akon.c"
 #include "profiler.c"
 
 #ifdef __cplusplus

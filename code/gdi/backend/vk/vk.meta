@@ -111,6 +111,9 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkFreeDescriptorSets);
 	VK_FUNC(vkDestroySampler);
 	VK_FUNC(vkCmdDraw);
+	VK_FUNC(vkDestroyFence);
+	VK_FUNC(vkDestroyCommandPool);
+	VK_FUNC(vkDestroyDescriptorPool);
 });
 
 
@@ -185,6 +188,12 @@ META_MACRO(VK_Resource, name) {
 		GDI_Pool_Init_Raw(&Pool->Pool, IndicesPtr, IDsPtr, Array_Count(Pool->Entries));
 	}
 
+	META_FUNCTION(VK_${name:pascal}_Pool_Free_All, vk_device_context* Context, vk_${name}_pool* Pool) -> void {
+		for (size_t i = 0; i < Array_Count(Pool->Entries); i++) {
+			VK_Delete_${name:pascal}_Resources(Context, &Pool->Entries[i]);
+		}
+	}
+
 	META_FUNCTION(VK_${name:pascal}_Pool_Allocate, vk_resource_pool* Pool) -> gdi_handle {
 		gdi_id ID = GDI_Pool_Allocate(&Pool->${name:pascal}Pool.Pool);
 		if(GDI_ID_Is_Null(ID)) return GDI_Null_Handle(); 
@@ -244,6 +253,12 @@ META_STRUCT(vk_resource_pool) {
 META_FUNCTION(VK_Resource_Pool_Init, vk_resource_pool* Pool, arena* Arena) -> void {
 	META_FOR(vk_resource_pool) {
 		VK_${META_GET_TAG_VALUE(name):pascal}_Pool_Init(&Pool->${META_ENTRY_NAME}, Arena);
+	}
+}
+
+META_FUNCTION(VK_Resource_Pool_Free_All, vk_device_context* Context, vk_resource_pool* Pool)->void {
+	META_FOR(vk_resource_pool) {
+		VK_${META_GET_TAG_VALUE(name):pascal}_Pool_Free_All(Context, &Pool->${META_ENTRY_NAME});
 	}
 }
 

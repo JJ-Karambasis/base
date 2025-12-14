@@ -57,17 +57,6 @@ function b32 Create_Layouts(gdi_tests* Tests) {
         if(GDI_Is_Null(Tests->BufferLayout)) return false;
     }
 
-    //Compute render layout
-    {
-        gdi_bind_group_binding Bindings[] = {
-            { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 64 },
-        };
-
-        gdi_bind_group_layout_create_info LayoutInfo = {
-            .Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings)}
-        };
-    }
-
     return true;
 }
 
@@ -124,6 +113,20 @@ function gdi_tests* GDI_Get_Tests() {
         GDI_Tests_Setup();
     }
     return G_GDITests;
+}
+
+function void GDI_Delete_Tests() {
+	if (G_GDITests) {
+		GDI_Delete_Bind_Group_Layout(G_GDITests->BufferLayout);
+
+		G_GDITests->IncludeHandler->Release();
+		G_GDITests->Utils->Release();
+		G_GDITests->Compiler->Release();
+
+		GDI_Shutdown(0);
+
+		Allocator_Free_Memory(Default_Allocator_Get(), G_GDITests);
+	}
 }
 
 function b32 Texture_Create(texture* Texture, const texture_create_info& CreateInfo) {
@@ -225,14 +228,19 @@ function IDxcBlob* Compile_Shader(string Source, string Target, string EntryPoin
     CompilerResult->GetOutput(DXC_OUT_ERRORS, __uuidof(IDxcBlobUtf8), (void**)&Errors, NULL);
     if(Errors && Errors->GetStringLength()) {
         Debug_Log("%.*s", Errors->GetStringLength(), Errors->GetStringPointer());
-    }
+		Errors->Release();
+	}
 
     CompilerResult->GetStatus(&Status);
     if(FAILED(Status)) return NULL;
 
     IDxcBlob* Result;
     CompilerResult->GetOutput(DXC_OUT_OBJECT, __uuidof(IDxcBlob), (void**)&Result, NULL);
-    return Result;
+
+	SourceBlob->Release();
+	CompilerResult->Release();
+	
+	return Result;
 }
 
 struct simple_test_context {
@@ -1296,6 +1304,7 @@ UTEST(gdi, ComputeRenderTest) {
 
     OS_Event_Wait(TestContext.Event);
     OS_Event_Reset(TestContext.Event);
+	OS_Event_Delete(TestContext.Event);
 
     ASSERT_EQ(TestContext.Format, ComputeTextureInfo.Format);
     ASSERT_EQ(TestContext.Dim.x, ComputeTextureInfo.Dim.x);
@@ -1334,6 +1343,17 @@ UTEST(gdi, ComputeRenderTest) {
             Texels++;
         }
     }
+
+	GDI_Delete_Bind_Group(TextureBindGroupSwitch);
+	GDI_Delete_Bind_Group(TextureBindGroup);
+	Texture_Delete(&RenderTexture);
+	Texture_Delete(&ComputeTexture);
+	GDI_Delete_Bind_Group(BindlessBindGroup);
+	GDI_Delete_Buffer(BindlessBuffer);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(RenderLayout);
+	GDI_Delete_Bind_Group_Layout(ComputeLayout);
 }
 
 struct simple_dynamic_buffer_test_context {
@@ -1535,4 +1555,10 @@ UTEST(gdi, DynamicBufferTest) {
 
 	OS_Event_Wait(Event);
 	OS_Event_Delete(Event);
+
+	GDI_Delete_Buffer(BindlessBuffer);
+	GDI_Delete_Bind_Group(BindlessBindGroup);
+	Texture_Delete(&Texture);
+	GDI_Delete_Shader(Shader);
+	GDI_Delete_Bind_Group_Layout(Layout);
 }

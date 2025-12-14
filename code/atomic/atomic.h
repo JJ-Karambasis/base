@@ -42,6 +42,8 @@ export_function u64 Atomic_Load_U64(atomic_u64* Atomic);
 export_function void Atomic_Store_U64(atomic_u64* Atomic, u64 Value);
 export_function u64 Atomic_Increment_U64(atomic_u64* Atomic);
 export_function u64 Atomic_Decrement_U64(atomic_u64* Atomic);
+export_function u64 Atomic_Add_U64(atomic_u64* Atomic, u64 Value);
+export_function u64 Atomic_Sub_U64(atomic_u64* Atomic, u64 Value);
 export_function u64 Atomic_Compare_Exchange_U64(atomic_u64* Atomic, u64 OldValue, u64 NewValue);
 export_function b32 Atomic_Load_B32(atomic_b32* Atomic);
 export_function void Atomic_Store_B32(atomic_b32* Atomic, b32 Value);

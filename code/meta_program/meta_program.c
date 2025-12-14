@@ -11,7 +11,7 @@ Dynamic_Array_Implement_Type(string, String);
 
 int main(int ArgCount, const char** Args) {
 	Base_Init();
-	arena* Arena = Arena_Create();
+	arena* Arena = Arena_Create(String_Lit("Main Storage"));
 	Source_Parser_Init_Globals(Arena);
 	Meta_Parser_Init_Globals(Arena);
 	G_ErrorStream = SStream_Writer_Begin((allocator*)Arena);

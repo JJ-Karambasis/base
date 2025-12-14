@@ -71,6 +71,12 @@ enum {
 };
 typedef u32 gdi_buffer_usage;
 
+enum {
+	GDI_SHUTDOWN_FLAG_NONE = 0,
+	GDI_SHUTDOWN_FLAG_FREE_RESOURCES = (1 << 0)
+};
+typedef u32 gdi_shutdown_flags;
+
 Meta()
 typedef enum {
 	GDI_FILTER_NEAREST,
@@ -543,6 +549,8 @@ typedef struct {
 
 #define GDI_BACKEND_RENDER_DEFINE(name) void name(gdi* GDI, const gdi_render_params* RenderParams)
 
+#define GDI_BACKEND_SHUTDOWN_DEFINE(name) void name(gdi* GDI, gdi_shutdown_flags Flags)
+
 typedef GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(gdi_backend_set_device_context_func);
 
 typedef GDI_BACKEND_CREATE_TEXTURE_DEFINE(gdi_backend_create_texture_func);
@@ -580,6 +588,8 @@ typedef GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(gdi_backend_begin_render_pass_func)
 typedef GDI_BACKEND_END_RENDER_PASS_DEFINE(gdi_backend_end_render_pass_func);
 
 typedef GDI_BACKEND_RENDER_DEFINE(gdi_backend_render_func);
+
+typedef GDI_BACKEND_SHUTDOWN_DEFINE(gdi_backend_shutdown_func);
 
 typedef struct {
 	gdi_backend_set_device_context_func* SetDeviceContextFunc;
@@ -619,13 +629,14 @@ typedef struct {
 	gdi_backend_end_render_pass_func* EndRenderPassFunc;
 
 	gdi_backend_render_func* RenderFunc;
+	gdi_backend_shutdown_func* ShutdownFunc;
 } gdi_backend_vtable;
 
 struct gdi {
-	gdi_backend_vtable* Backend;
-	arena* 				Arena;
-	gdi_device_array 	Devices;
-	gdi_device_context* DeviceContext;
+	gdi_backend_vtable*   Backend;
+	arena* 				  Arena;
+	gdi_device_array 	  Devices;
+	gdi_device_context*   DeviceContext;
 };
 
 #define GDI_Backend_Set_Device_Context(device) GDI_Get()->Backend->SetDeviceContextFunc(GDI_Get(), device)
@@ -665,6 +676,8 @@ struct gdi {
 #define GDI_Backend_End_Render_Pass(render_pass) GDI_Get()->Backend->EndRenderPassFunc(GDI_Get(), render_pass)
 
 #define GDI_Backend_Render(render_params) GDI_Get()->Backend->RenderFunc(GDI_Get(), render_params)
+
+#define GDI_Shutdown(flags) GDI_Get()->Backend->ShutdownFunc(GDI_Get(), flags)
 
 #define GDI_Get_Devices() GDI_Get()->Devices
 #define GDI_Constant_Buffer_Alignment() GDI_Get()->ConstantBufferAlignment

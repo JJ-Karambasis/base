@@ -1,7 +1,7 @@
 #ifndef VK_GDI_H
 #define VK_GDI_H
 
-#define VK_FRAME_COUNT 2
+#define VK_FRAME_COUNT (2)
 #define VK_MAX_TRANSFER_COUNT (VK_FRAME_COUNT+1)
 
 #define VK_COLOR_COMPONENT_ALL (VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT)
@@ -166,6 +166,9 @@ struct vk_transfer_thread_context {
 	VkCommandPool   CmdPool;
 	VkCommandBuffer CmdBuffer;
 	vk_cpu_buffer   UploadBuffer;
+
+	//CONFIRM(JJ): Why did we put these in the transfer thread context?
+	//Was it for the extra frame?
 	vk_render_pass* FreeRenderPasses;
 	vk_render_pass* RenderPassesToDelete;
 
@@ -216,9 +219,6 @@ typedef struct {
 
 	vk_texture_readback_array TextureReadbacks;
 	vk_buffer_readback_array BufferReadbacks;
-
-	os_event* ReadbackSubmitEvent;
-	os_event* ReadbackFinishedEvent;
 } vk_frame_context;
 
 struct vk_semaphore {
@@ -288,8 +288,10 @@ struct vk_device_context {
 	b32 HasNullDescriptor;
 
 	//Readback thread
-	atomic_b32 ReadbackIsInitialized;
-	os_thread* ReadbackThread;
+	atomic_b32 	  ReadbackIsInitialized;
+	os_thread* 	  ReadbackThread;
+	os_semaphore* ReadbackSignalSemaphore;
+	os_semaphore* ReadbackFinishedSemaphore;
 
 	//Resources
 	VmaAllocator 	 GPUAllocator;
@@ -299,7 +301,7 @@ struct vk_device_context {
 
 	//Frames
 	u64 			  ReadbackFrameIndex;
-	u64 			  FrameIndex;
+	atomic_u64 		  FrameIndex;
 	vk_frame_context  Frames[VK_FRAME_COUNT];
 	vk_frame_context* CurrentFrame;
 

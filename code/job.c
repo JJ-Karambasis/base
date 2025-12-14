@@ -481,7 +481,12 @@ export_function job_system* Job_System_Create(u32 MaxJobCount, u32 ThreadCount, 
     for(i = 0; i < JobSystem->ThreadCount; i++) {
         job_system_thread* Thread = JobSystem->Threads + i;
         Thread->JobSystem = JobSystem;
-		Thread->Thread = OS_Thread_Create(Base_Get()->JobSystemThreadCallback, Thread);
+
+		arena* Scratch = Scratch_Get();
+		string ThreadName = String_Format((allocator*)Scratch, "Job System %u", i);
+		Thread->Thread = OS_Thread_Create(ThreadName, Base_Get()->JobSystemThreadCallback, Thread);
+		Scratch_Release();
+		
 		if(!Thread->Thread) {
             /*todo: cleanup resources*/
             return NULL;

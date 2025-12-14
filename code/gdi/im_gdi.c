@@ -2,7 +2,7 @@ function im_gdi* IM_GDI_Get() {
 	gdi_device_context* Context = GDI_Get_Device_Context();
 	im_gdi* Result = (im_gdi*)OS_TLS_Get(Context->IMThreadLocalStorage);
 	if (!Result) {
-		arena* Arena = Arena_Create();
+		arena* Arena = Arena_Create(String_Lit("IM GDI"));
 		Result = Arena_Push_Struct(Arena, im_gdi);
 		Result->Arena = Arena;
 

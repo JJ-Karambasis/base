@@ -82,6 +82,69 @@ function void GDI_Log(gdi_log_type Type, const char* Format, ...) {
 #define GDI_Log_Warning(...) GDI_Log(GDI_LOG_TYPE_WARNING, __VA_ARGS__)
 #define GDI_Log_Error(...) GDI_Log(GDI_LOG_TYPE_ERROR, __VA_ARGS__)
 
+typedef struct {
+    size_t ByteSize;
+} vk_aligned_block;
+
+function void* VKAPI_PTR VK_Alloc(void* UserData, size_t ByteSize, size_t Alignment, VkSystemAllocationScope AllocationScope) {
+    Assert(Alignment > 0 && Is_Pow2(Alignment));
+
+    size_t Offset = Alignment - 1 + sizeof(void*);
+    vk_aligned_block* Block = (vk_aligned_block*)Allocator_Allocate_Memory(Default_Allocator_Get(), ByteSize+Offset+sizeof(vk_aligned_block));
+    if(!Block) return NULL;
+
+    Block->ByteSize = ByteSize;
+
+    void* P1  = Block+1;
+    void** P2 = (void**)(((size_t)(P1) + Offset) & ~(Alignment - 1));
+    P2[-1] = P1;
+        
+    return P2;
+}
+
+function void* VKAPI_PTR VK_Realloc(void* UserData, void* Original, size_t Size, size_t Alignment, VkSystemAllocationScope AllocationScope) {
+    if(!Original) return VK_Alloc(UserData, Size, Alignment, AllocationScope);
+    Assert(Alignment > 0 && Is_Pow2(Alignment));
+        
+    void* OriginalUnaligned = ((void**)Original)[-1];
+    vk_aligned_block* OriginalBlock = ((vk_aligned_block*)OriginalUnaligned)-1;
+
+    size_t Offset = Alignment - 1 + sizeof(void*);
+
+    vk_aligned_block* NewBlock = (vk_aligned_block*)Allocator_Allocate_Memory(Default_Allocator_Get(), Size+Offset+sizeof(vk_aligned_block));
+    NewBlock->ByteSize = Size;
+
+    void* P1  = NewBlock+1;
+    void** P2 = (void**)(((size_t)(P1) + Offset) & ~(Alignment - 1));
+    P2[-1] = P1;
+
+    Memory_Copy(P2, Original, Min(NewBlock->ByteSize, OriginalBlock->ByteSize));
+
+    Allocator_Free_Memory(Default_Allocator_Get(), OriginalBlock);
+
+    return P2;
+}
+
+function void VKAPI_PTR VK_Free(void* UserData, void* Memory) {
+    if(Memory) {
+        void* OriginalUnaligned = ((void**)Memory)[-1];
+        vk_aligned_block* Block = ((vk_aligned_block*)OriginalUnaligned)-1;
+		Allocator_Free_Memory(Default_Allocator_Get(), Block);
+    }
+}
+
+global VkAllocationCallbacks G_AllocationCallback;
+
+void VK_Set_Allocator() {
+	G_AllocationCallback.pfnAllocation = VK_Alloc;
+	G_AllocationCallback.pfnReallocation = VK_Realloc;
+	G_AllocationCallback.pfnFree = VK_Free;
+}
+
+const VkAllocationCallbacks* VK_Get_Allocator() {
+    return &G_AllocationCallback;
+}
+
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 
 typedef LRESULT win32_def_window_proc_a(HWND, UINT, WPARAM, LPARAM);
@@ -112,7 +175,7 @@ VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, HWND Window, HINSTANCE Instance) {
 	};
 
 	VkSurfaceKHR Surface;
-	VkResult Status = vkCreateWin32SurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
+	VkResult Status = vkCreateWin32SurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_Get_Allocator(), &Surface);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateWin32SurfaceKHR failed!");
 		return VK_NULL_HANDLE;
@@ -171,7 +234,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 }
 
 function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
-	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
+	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_Get_Allocator());
 	Surface->DestroyWindow(Surface->Window);
 	Surface->UnregisterClassA("GDI_DummyVulkanWindow", GetModuleHandle(NULL));
 	FreeLibrary(Surface->User32Library);
@@ -193,7 +256,7 @@ function VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, CAMetalLayer* Layer) {
 	};
 
     VkSurfaceKHR Surface;
-	VkResult Status = vkCreateMetalSurfaceEXT(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
+	VkResult Status = vkCreateMetalSurfaceEXT(GDI->Instance, &SurfaceCreateInfo, VK_Get_Allocator(), &Surface);
 	if(Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateMetalSurfaceEXT failed!");
 		return VK_NULL_HANDLE;
@@ -240,7 +303,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 }
 
 function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
-	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
+	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_Get_Allocator());
 	[Surface->Layer release];
     [Surface->Window release];
 }
@@ -262,7 +325,7 @@ function VkSurfaceKHR VK_Create_Surface(vk_gdi* GDI, Display* Display, Window Wi
 	};
 
     VkSurfaceKHR Surface;
-	VkResult Status = vkCreateXlibSurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_NULL_HANDLE, &Surface);
+	VkResult Status = vkCreateXlibSurfaceKHR(GDI->Instance, &SurfaceCreateInfo, VK_Get_Allocator(), &Surface);
 	if(Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateXlibSurfaceKHR failed!");
 		return VK_NULL_HANDLE;
@@ -295,7 +358,7 @@ function vk_tmp_surface VK_Create_Tmp_Surface(vk_gdi* GDI) {
 }
 
 function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
-	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_NULL_HANDLE);
+	vkDestroySurfaceKHR(GDI->Instance, Surface->Surface, VK_Get_Allocator());
 	XCloseDisplay(Surface->Display);
 }
 
@@ -402,6 +465,34 @@ function inline vk_cpu_buffer VK_CPU_Buffer_Init(vk_device_context* Context, are
 	return Result;
 }
 
+function void VK_CPU_Buffer_Release(vk_cpu_buffer* CpuBuffer) {
+	vk_cpu_buffer_block* Block = CpuBuffer->FirstBlock;
+	while (Block) {
+		vk_cpu_buffer_block* BlockToDelete = Block;
+		Block = Block->Next;
+
+		if (BlockToDelete->Buffer != VK_NULL_HANDLE) {
+			vmaDestroyBuffer(CpuBuffer->Context->GPUAllocator, BlockToDelete->Buffer, BlockToDelete->Allocation);
+
+			BlockToDelete->Allocation = VK_NULL_HANDLE;
+			BlockToDelete->Buffer = VK_NULL_HANDLE;
+
+			BlockToDelete->Start = NULL;
+			BlockToDelete->End = NULL;
+			BlockToDelete->Current = NULL;
+		}
+	}
+
+	if (CpuBuffer->BlockArena) {
+		CpuBuffer->BlockArena = NULL;
+	}
+
+	CpuBuffer->FirstBlock = NULL;
+	CpuBuffer->LastBlock = NULL;
+	CpuBuffer->CurrentBlock = NULL;
+}
+
+
 function void VK_CPU_Buffer_Clear(vk_cpu_buffer* CpuBuffer) {
 	for (vk_cpu_buffer_block* Block = CpuBuffer->FirstBlock; Block; Block = Block->Next) {
 		Block->Current = Block->Start;
@@ -488,7 +579,7 @@ function vk_cpu_buffer_push VK_CPU_Buffer_Push(vk_cpu_buffer* CpuBuffer, VkDevic
 function vk_delete_thread_context* VK_Get_Delete_Thread_Context(vk_delete_queue* DeleteQueue) {
 	vk_delete_thread_context* ThreadContext = (vk_delete_thread_context*)OS_TLS_Get(DeleteQueue->ThreadContextTLS);
 	if (!ThreadContext) {
-		arena* Arena = Arena_Create();
+		arena* Arena = Arena_Create(String_Lit("VK Delete Context"));
 		ThreadContext = Arena_Push_Struct(Arena, vk_delete_thread_context);
 		ThreadContext->Arena = Arena;
 		ThreadContext->ArenaMarker = Arena_Get_Marker(ThreadContext->Arena);
@@ -510,17 +601,17 @@ function vk_delete_thread_context* VK_Get_Delete_Thread_Context(vk_delete_queue*
 function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_device_context* Context, vk_transfer_context* Transfer) {
 	vk_transfer_thread_context* ThreadContext = (vk_transfer_thread_context*)OS_TLS_Get(Transfer->ThreadContextTLS);
 	if (!ThreadContext) {
-		arena* Arena = Arena_Create();
+		arena* Arena = Arena_Create(String_Lit("VK Transfer Context"));
 		ThreadContext = Arena_Push_Struct(Arena, vk_transfer_thread_context);
 		ThreadContext->Arena = Arena;
-		ThreadContext->TempArena = Arena_Create();
+		ThreadContext->TempArena = Arena_Create(String_Lit("VK Transfer Context Temp"));
 		ThreadContext->NeedsReset = true;
 		
 		VkCommandPoolCreateInfo CommandPoolCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.queueFamilyIndex = Context->GPU->GraphicsQueueFamilyIndex
 		};
-		VkResult Status = vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_NULL_HANDLE, &ThreadContext->CmdPool);
+		VkResult Status = vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &ThreadContext->CmdPool);
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vkCreateCommandPool failed!");
 			return NULL;
@@ -591,44 +682,74 @@ function void VK_Delete_Queued_Resources(vk_device_context* Context, vk_delete_q
 }
 
 function void VK_Delete_Texture_Resources(vk_device_context* Context, vk_texture* Texture) {
-	vmaDestroyImage(Context->GPUAllocator, Texture->Image, Texture->Allocation);
+	if (Texture->Image != VK_NULL_HANDLE) {
+		vmaDestroyImage(Context->GPUAllocator, Texture->Image, Texture->Allocation);
+		Texture->Image = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Texture_View_Resources(vk_device_context* Context, vk_texture_view* TextureView) {
-	vkDestroyImageView(Context->Device, TextureView->ImageView, VK_NULL_HANDLE);
+	if (TextureView->ImageView != VK_NULL_HANDLE) {
+		vkDestroyImageView(Context->Device, TextureView->ImageView, VK_Get_Allocator());
+		TextureView->ImageView = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Buffer_Resources(vk_device_context* Context, vk_buffer* Buffer) {
+	
 	if (Buffer->MappedPtr != NULL) {
 		Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
 		vmaUnmapMemory(Context->GPUAllocator, Buffer->Allocation);
+		Buffer->MappedPtr = NULL;
 	}
 
-	vmaDestroyBuffer(Context->GPUAllocator, Buffer->Buffer, Buffer->Allocation);
+	if (Buffer->Buffer != VK_NULL_HANDLE) {
+		vmaDestroyBuffer(Context->GPUAllocator, Buffer->Buffer, Buffer->Allocation);
+		Buffer->Buffer = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Sampler_Resources(vk_device_context* Context, vk_sampler* Sampler) {
-	vkDestroySampler(Context->Device, Sampler->Sampler, VK_NULL_HANDLE);
+	if (Sampler->Sampler != VK_NULL_HANDLE) {
+		vkDestroySampler(Context->Device, Sampler->Sampler, VK_Get_Allocator());
+		Sampler->Sampler = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Bind_Group_Layout_Resources(vk_device_context* Context, vk_bind_group_layout* BindGroupLayout) {
-	Allocator_Free_Memory(Default_Allocator_Get(), BindGroupLayout->Bindings.Ptr);
-	vkDestroyDescriptorSetLayout(Context->Device, BindGroupLayout->Layout, VK_NULL_HANDLE);
+	if (!GDI_Bind_Group_Binding_Array_Is_Empty(BindGroupLayout->Bindings)) {
+		Allocator_Free_Memory(Default_Allocator_Get(), BindGroupLayout->Bindings.Ptr);
+	}
+
+	if (BindGroupLayout->Layout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(Context->Device, BindGroupLayout->Layout, VK_Get_Allocator());
+		BindGroupLayout->Layout = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Bind_Group_Resources(vk_device_context* Context, vk_bind_group* BindGroup) {
-	OS_Mutex_Lock(Context->DescriptorLock);
-	vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, 1, &BindGroup->Set);
-	OS_Mutex_Unlock(Context->DescriptorLock);
+	if (BindGroup->Set != VK_NULL_HANDLE) {
+		OS_Mutex_Lock(Context->DescriptorLock);
+		vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, 1, &BindGroup->Set);
+		OS_Mutex_Unlock(Context->DescriptorLock);
+		BindGroup->Set = VK_NULL_HANDLE;
+	}
 }
 
 function void VK_Delete_Shader_Resources(vk_device_context* Context, vk_shader* Shader) {
-	vkDestroyPipeline(Context->Device, Shader->Pipeline, VK_NULL_HANDLE);
+	if (Shader->Pipeline != VK_NULL_HANDLE) {
+		vkDestroyPipeline(Context->Device, Shader->Pipeline, VK_Get_Allocator());
+		Shader->Pipeline = VK_NULL_HANDLE;
+	}
 
-	vkDestroyPipelineLayout(Context->Device, Shader->Layout, VK_NULL_HANDLE);
+	if (Shader->Layout != VK_NULL_HANDLE) {
+		vkDestroyPipelineLayout(Context->Device, Shader->Layout, VK_Get_Allocator());
+		Shader->Layout = VK_NULL_HANDLE;
+	}
 
-	if (Shader->WritableLayout) {
-		vkDestroyDescriptorSetLayout(Context->Device, Shader->WritableLayout, VK_NULL_HANDLE);
+	if (Shader->WritableLayout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(Context->Device, Shader->WritableLayout, VK_Get_Allocator());
+		Shader->WritableLayout = VK_NULL_HANDLE;
 	}
 
 	if (!GDI_Bind_Group_Binding_Array_Is_Empty(Shader->WritableBindings)) {
@@ -636,12 +757,49 @@ function void VK_Delete_Shader_Resources(vk_device_context* Context, vk_shader* 
 	}
 }
 
-function void VK_Delete_Swapchain_Resources(vk_device_context* Context, vk_swapchain* Swapchain) {
-	Not_Implemented;
+function void VK_Delete_Semaphore_Resources(vk_device_context* Context, vk_semaphore* Semaphore) {
+	if (Semaphore->Handle != VK_NULL_HANDLE) {
+		vkDestroySemaphore(Context->Device, Semaphore->Handle, VK_Get_Allocator());
+		Semaphore->Handle = VK_NULL_HANDLE;
+	}
 }
 
-function void VK_Delete_Semaphore_Resources(vk_device_context* Context, vk_semaphore* Semaphore) {
-	vkDestroySemaphore(Context->Device, Semaphore->Handle, VK_NULL_HANDLE);
+function void VK_Delete_Swapchain_Resources(vk_device_context* Context, vk_swapchain* Swapchain) {
+	vk_gdi* GDI = (vk_gdi*)Context->Base.GDI;
+
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		VK_Delete_Semaphore_Resources(Context, &Swapchain->Locks[i]);
+	}
+
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[i]);
+		if (TextureView) {
+			VK_Delete_Texture_View_Resources(Context, TextureView);
+			VK_Texture_View_Pool_Free(&Context->ResourcePool, Swapchain->TextureViews[i]);
+		}
+	}
+
+	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+		VK_Texture_Pool_Free(&Context->ResourcePool, Swapchain->Textures[i]);
+	}
+
+	if (Swapchain->Images != VK_NULL_HANDLE) {
+		Allocator_Free_Memory(Default_Allocator_Get(), Swapchain->Images);
+		Swapchain->Images = NULL;
+		Swapchain->Textures = NULL;
+		Swapchain->TextureViews = NULL;
+		Swapchain->Locks = NULL;
+	}
+
+	if (Swapchain->Swapchain != VK_NULL_HANDLE) {
+		vkDestroySwapchainKHR(Context->Device, Swapchain->Swapchain, VK_Get_Allocator());
+		Swapchain->Swapchain = VK_NULL_HANDLE;
+	}
+		
+	if (Swapchain->Surface) {
+		vkDestroySurfaceKHR(GDI->Instance, Swapchain->Surface, VK_Get_Allocator());
+		Swapchain->Surface = VK_NULL_HANDLE;
+	}
 }
 
 function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice, VkSurfaceKHR Surface) {
@@ -813,7 +971,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		.oldSwapchain = Swapchain->Swapchain
 	};
 
-	VkResult Status = vkCreateSwapchainKHR(Context->Device, &SwapchainCreateInfo, VK_NULL_HANDLE, &Swapchain->Swapchain);
+	VkResult Status = vkCreateSwapchainKHR(Context->Device, &SwapchainCreateInfo, VK_Get_Allocator(), &Swapchain->Swapchain);
 
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateSwapchainKHR failed!");
@@ -869,7 +1027,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		VkSemaphoreCreateInfo SemaphoreLockInfo = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
 		};
-		VkResult Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Swapchain->Locks[i].Handle);
+		VkResult Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_Get_Allocator(), &Swapchain->Locks[i].Handle);
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vkCreateSemaphore failed!");
 			return false;
@@ -890,6 +1048,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 
 #include "meta/vk_meta.c"
 
+#ifdef DEBUG_BUILD
 #define VK_Set_Debug_Name(type, type_str, handle, name_str) \
 if (!String_Is_Empty(name_str)) { \
 VkDebugUtilsObjectNameInfoEXT NameInfo = { \
@@ -902,51 +1061,260 @@ if (vkSetDebugUtilsObjectNameEXT(Context->Device, &NameInfo) != VK_SUCCESS) { \
 GDI_Log_Error("WARNING: Could not set the vulkan debug name for " type_str " %.*s", name_str.Size, name_str.Ptr); \
 } \
 }
+#else
+#define VK_Set_Debug_Name(...)
+#endif
 
 function OS_THREAD_CALLBACK_DEFINE(VK_Readback_Thread) {
 	vk_device_context* Context = (vk_device_context*)UserData;
 
-	while(Atomic_Load_B32(&Context->ReadbackIsInitialized)) {
-
-		vk_frame_context* Frame = Context->Frames + Context->ReadbackFrameIndex;
-		OS_Event_Wait(Frame->ReadbackSubmitEvent);
-		OS_Event_Reset(Frame->ReadbackSubmitEvent);
+	for (;;) {
+		OS_Semaphore_Decrement(Context->ReadbackSignalSemaphore);
 
 		//Wait on the frame fence before we readback to the cpu
-		OS_Mutex_Lock(Frame->FenceLock);
-		VkResult FenceStatus = vkGetFenceStatus(Context->Device, Frame->Fence);
-		if (FenceStatus == VK_NOT_READY) {
-			vkWaitForFences(Context->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
-		} else {
-			Assert(FenceStatus == VK_SUCCESS);
-		}
-		OS_Mutex_Unlock(Frame->FenceLock);
+		if (Context->ReadbackFrameIndex < Atomic_Load_U64(&Context->FrameIndex)) {
+			vk_frame_context* Frame = Context->Frames + (Context->ReadbackFrameIndex % VK_FRAME_COUNT);
+
+			OS_Mutex_Lock(Frame->FenceLock);
+			VkResult FenceStatus = vkGetFenceStatus(Context->Device, Frame->Fence);
+			if (FenceStatus == VK_NOT_READY) {
+				vkWaitForFences(Context->Device, 1, &Frame->Fence, VK_TRUE, UINT64_MAX);
+			} else {
+				Assert(FenceStatus == VK_SUCCESS);
+			}
+			OS_Mutex_Unlock(Frame->FenceLock);
 		
-		for (size_t i = 0; i < Frame->TextureReadbacks.Count; i++) {
-			vk_texture_readback* Readback = Frame->TextureReadbacks.Ptr + i;
-			vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Readback->Texture);
-			Readback->Func(Readback->Texture, Texture->Dim, Texture->Format, Readback->CPU.Ptr, Readback->UserData);
+			for (size_t i = 0; i < Frame->TextureReadbacks.Count; i++) {
+				vk_texture_readback* Readback = Frame->TextureReadbacks.Ptr + i;
+				vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Readback->Texture);
+				Readback->Func(Readback->Texture, Texture->Dim, Texture->Format, Readback->CPU.Ptr, Readback->UserData);
+			}
+
+			for (size_t i = 0; i < Frame->BufferReadbacks.Count; i++) {
+				vk_buffer_readback* Readback = Frame->BufferReadbacks.Ptr + i;
+				vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Readback->Buffer);
+				Readback->Func(Readback->Buffer, Buffer->Size, Readback->CPU.Ptr, Readback->UserData);
+			}
+
+			Context->ReadbackFrameIndex++;
+			OS_Semaphore_Increment(Context->ReadbackFinishedSemaphore);
+		} else {
+			Assert(Context->ReadbackFrameIndex == Atomic_Load_U64(&Context->FrameIndex));
+			break;
 		}
-
-		for (size_t i = 0; i < Frame->BufferReadbacks.Count; i++) {
-			vk_buffer_readback* Readback = Frame->BufferReadbacks.Ptr + i;
-			vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Readback->Buffer);
-			Readback->Func(Readback->Buffer, Buffer->Size, Readback->CPU.Ptr, Readback->UserData);
-		}
-
-		OS_Event_Signal(Frame->ReadbackFinishedEvent);
-
-		Context->ReadbackFrameIndex = (Context->ReadbackFrameIndex+1) % VK_FRAME_COUNT;
 	}
 }
 
-function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context) {
-	Not_Implemented;
+function GDI_BACKEND_DELETE_BUFFER_DEFINE(VK_Delete_Buffer);
+function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context, gdi_shutdown_flags Flags) {
+	//Wait for the readback thread to finish and then delete
+	vkDeviceWaitIdle(Context->Device);
+	
+	if (Context->ReadbackThread) {		
+		//Signal the readback submit event to stop the readback thread from waiting
+		OS_Semaphore_Increment(Context->ReadbackSignalSemaphore);
+
+		OS_Thread_Join(Context->ReadbackThread);
+		Context->ReadbackThread = NULL;
+	}
+
+	//Delete the transfer context
+	for (u32 i = 0; i < VK_MAX_TRANSFER_COUNT; i++) {
+		vk_transfer_context* Transfer = Context->Transfers + i;
+
+#ifdef DEBUG_BUILD
+		if (Transfer->DEBUGFence != VK_NULL_HANDLE) {
+			vkDestroyFence(Context->Device, Transfer->DEBUGFence, VK_Get_Allocator());
+			Transfer->DEBUGFence = VK_NULL_HANDLE;
+		}
+#endif
+
+		if (Transfer->CmdPool != VK_NULL_HANDLE) {
+			vkDestroyCommandPool(Context->Device, Transfer->CmdPool, VK_Get_Allocator());
+			Transfer->CmdPool = VK_NULL_HANDLE;
+		}
+
+		vk_transfer_thread_context* ThreadContext = (vk_transfer_thread_context*)Atomic_Load_Ptr(&Transfer->TopThread);
+		while (ThreadContext) {
+			vk_transfer_thread_context* ThreadContextToDelete = ThreadContext;
+			ThreadContext = ThreadContext->Next;
+
+			
+			Assert(!ThreadContextToDelete->RenderPassesToDelete);
+			vk_render_pass* RenderPass = ThreadContextToDelete->FreeRenderPasses;
+			while (RenderPass) {
+				vk_render_pass* RenderPassToDelete = RenderPass;
+				RenderPass = RenderPass->Next;
+
+				Delete_Memory_Reserve(&RenderPassToDelete->Base.Memory);
+			}
+
+			VK_CPU_Buffer_Release(&ThreadContextToDelete->UploadBuffer);
+
+			if (ThreadContextToDelete->CmdPool != VK_NULL_HANDLE) {
+				vkDestroyCommandPool(Context->Device, ThreadContextToDelete->CmdPool, VK_Get_Allocator());
+				ThreadContextToDelete->CmdPool = VK_NULL_HANDLE;
+			}
+			
+			if (ThreadContextToDelete->TempArena) {
+				Arena_Delete(ThreadContextToDelete->TempArena);
+				ThreadContextToDelete->TempArena = NULL;
+			}
+
+			if (ThreadContextToDelete->Arena) {
+				Arena_Delete(ThreadContextToDelete->Arena);
+			}
+		}
+
+		if (Transfer->ThreadContextTLS) {
+			OS_TLS_Delete(Transfer->ThreadContextTLS);
+			Transfer->ThreadContextTLS = NULL;
+		}
+	}
+
+	im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&Context->Base.TopIM);
+	while (ImGDI) {
+		im_gdi* ImGDIToDelete = ImGDI;
+		ImGDI = ImGDI->Next;
+
+		if (!GDI_Is_Null(ImGDIToDelete->VtxBuffer)) {
+			VK_Delete_Buffer((gdi*)GDI, ImGDIToDelete->VtxBuffer);
+			ImGDIToDelete->VtxBuffer = GDI_Null_Handle();
+		}
+
+		if (!GDI_Is_Null(ImGDIToDelete->IdxBuffer)) {
+			VK_Delete_Buffer((gdi*)GDI, ImGDIToDelete->IdxBuffer);
+			ImGDIToDelete->IdxBuffer = GDI_Null_Handle();
+		}
+
+		if (ImGDIToDelete->Arena) {
+			Arena_Delete(ImGDIToDelete->Arena);
+		}
+	}
+	Atomic_Store_Ptr(&Context->Base.TopIM, NULL);
+
+	//Delete all queued resources
+	for (size_t i = 0; i < VK_FRAME_COUNT; i++) {
+		vk_delete_queue* DeleteQueue = Context->DeleteQueues + i;
+		VK_Delete_Queued_Resources(Context, DeleteQueue);
+	}
+
+	//Delete the frame and delete context
+	for (u32 i = 0; i < VK_FRAME_COUNT; i++) {
+		vk_delete_queue* DeleteQueue = Context->DeleteQueues + i;
+
+		vk_delete_thread_context* ThreadContext = (vk_delete_thread_context*)Atomic_Load_Ptr(&DeleteQueue->TopThread);
+		while(ThreadContext) {
+			vk_delete_thread_context* ThreadContextToDelete = ThreadContext;
+			ThreadContext = ThreadContext->Next;
+
+			if (ThreadContextToDelete->Arena) {
+				Arena_Delete(ThreadContextToDelete->Arena);
+			}
+		}
+		Atomic_Store_Ptr(&DeleteQueue->TopThread, NULL);
+		
+		if (DeleteQueue->ThreadContextTLS) {
+			OS_TLS_Delete(DeleteQueue->ThreadContextTLS);
+			DeleteQueue->ThreadContextTLS = NULL;
+		}
+	}
+
+	for (u32 i = 0; i < VK_FRAME_COUNT; i++) {
+		vk_frame_context* Frame = Context->Frames + i;
+
+		VK_CPU_Buffer_Release(&Frame->ReadbackBuffer);
+
+		if (Frame->TransferLock != VK_NULL_HANDLE) {
+			vkDestroySemaphore(Context->Device, Frame->TransferLock, VK_Get_Allocator());
+			Frame->TransferLock = VK_NULL_HANDLE;
+		}
+
+		if (Frame->RenderLock != VK_NULL_HANDLE) {
+			vkDestroySemaphore(Context->Device, Frame->RenderLock, VK_Get_Allocator());
+			Frame->RenderLock = VK_NULL_HANDLE;
+		}
+
+		if (Frame->FenceLock) {
+			OS_Mutex_Delete(Frame->FenceLock);
+			Frame->FenceLock = NULL;
+		}
+
+		if (Frame->Fence != VK_NULL_HANDLE) {
+			vkDestroyFence(Context->Device, Frame->Fence, VK_Get_Allocator());
+			Frame->Fence = VK_NULL_HANDLE;
+		}
+
+		if (Frame->CmdPool != VK_NULL_HANDLE) {
+			vkDestroyCommandPool(Context->Device, Frame->CmdPool, VK_Get_Allocator());
+			Frame->CmdPool = VK_NULL_HANDLE;
+		}
+
+		if (Frame->Arena) {
+			Arena_Delete(Frame->Arena);
+			Frame->Arena = NULL;
+		}
+	}
+
+	if (Context->ReadbackSignalSemaphore) {
+		OS_Semaphore_Delete(Context->ReadbackSignalSemaphore);
+		Context->ReadbackSignalSemaphore = NULL;
+	}
+
+	if (Context->ReadbackFinishedSemaphore) {
+		OS_Semaphore_Delete(Context->ReadbackFinishedSemaphore);
+		Context->ReadbackFinishedSemaphore = NULL;
+	}
+
+	if (Context->TransferLock) {
+		OS_RW_Mutex_Delete(Context->TransferLock);
+		Context->TransferLock = NULL;
+	}
+
+	if (Context->DeleteLock) {
+		OS_RW_Mutex_Delete(Context->DeleteLock);
+		Context->TransferLock = NULL;
+	}
+
+	if (Flags & GDI_SHUTDOWN_FLAG_FREE_RESOURCES) {
+		VK_Resource_Pool_Free_All(Context, &Context->ResourcePool);
+	}
+
+	if (Context->DescriptorPool != VK_NULL_HANDLE) {
+		vkDestroyDescriptorPool(Context->Device, Context->DescriptorPool, VK_Get_Allocator());
+		Context->DescriptorPool = VK_NULL_HANDLE;
+	}
+
+	if (Context->DescriptorLock) {
+		OS_Mutex_Delete(Context->DescriptorLock);
+		Context->DescriptorLock = NULL;
+	}
+
+	vmaDestroyAllocator(Context->GPUAllocator);
+
+	if (Context->Base.IMThreadLocalStorage) {
+		OS_TLS_Delete(Context->Base.IMThreadLocalStorage);
+		Context->Base.IMThreadLocalStorage = NULL;
+	}
+
+	if (Context->Base.FrameArena) {
+		Arena_Delete(Context->Base.FrameArena);
+		Context->Base.FrameArena = NULL;
+	}
+
+	if (Context->Device != VK_NULL_HANDLE) {
+		vkDestroyDevice(Context->Device, VK_Get_Allocator());
+		Context->Device = VK_NULL_HANDLE;
+	}
+
+	if (Context->Arena) {
+		Arena_Delete(Context->Arena);
+	}
 }
 
 function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* Device) {
 	//Allocate the device context memory
-	arena* Arena = Arena_Create();
+	arena* Arena = Arena_Create(String_Lit("VK Device Context"));
 	vk_device_context* Context = Arena_Push_Struct(Arena, vk_device_context);
 	
 	//Create the device
@@ -981,7 +1349,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		.ppEnabledExtensionNames = (const char* const*)TargetGPU->Extensions.Ptr
 	};
 
-	VkResult Status = vkCreateDevice(TargetGPU->PhysicalDevice, &DeviceCreateInfo, VK_NULL_HANDLE, &Context->Device);
+	VkResult Status = vkCreateDevice(TargetGPU->PhysicalDevice, &DeviceCreateInfo, VK_Get_Allocator(), &Context->Device);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateDevice failed to create device '%s'", TargetGPU->Properties.deviceName);
 		return NULL;
@@ -990,7 +1358,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	//Initialize the context base variables
 	Context->Base.GDI = (gdi*)GDI;
 	Context->Base.Device = Device;
-	Context->Base.FrameArena = Arena_Create();
+	Context->Base.FrameArena = Arena_Create(String_Lit("GDI Frame"));
 	Context->Base.ConstantBufferAlignment = TargetGPU->Properties.limits.minUniformBufferOffsetAlignment;
 	Context->Base.IMThreadLocalStorage = OS_TLS_Create();
 	Context->Arena = Arena;
@@ -1030,6 +1398,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	VmaAllocatorCreateInfo GPUAllocatorInfo = {
 		.physicalDevice = TargetGPU->PhysicalDevice,
 		.device = Context->Device,
+		.pAllocationCallbacks = VK_Get_Allocator(),
 		.pVulkanFunctions = &VmaFunctions,
 		.instance = GDI->Instance,
 		.vulkanApiVersion = VK_API_VERSION_1_0,
@@ -1071,7 +1440,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		.pPoolSizes = DescriptorPoolSizes
 	};
 
-	Status = vkCreateDescriptorPool(Context->Device, &DescriptorPoolInfo, VK_NULL_HANDLE, &Context->DescriptorPool);
+	Status = vkCreateDescriptorPool(Context->Device, &DescriptorPoolInfo, VK_Get_Allocator(), &Context->DescriptorPool);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateDescriptorPool failed!");
 		return NULL;
@@ -1086,14 +1455,19 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	//Create the frame and delete context
 	for (u32 i = 0; i < VK_FRAME_COUNT; i++) {
 		vk_frame_context* Frame = Context->Frames + i;
-		Frame->Arena = Arena_Create();
+
+		arena* Scratch = Scratch_Get();
+		string FrameArenaName = String_Format((allocator*)Scratch, "VK Frame %u", i);
+		Frame->Arena = Arena_Create(FrameArenaName);
+		Scratch_Release();
+
 		Frame->Index = i;
 
 		VkCommandPoolCreateInfo CommandPoolCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.queueFamilyIndex = TargetGPU->GraphicsQueueFamilyIndex
 		};
-		vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_NULL_HANDLE, &Frame->CmdPool);
+		vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &Frame->CmdPool);
 
 		VkCommandBufferAllocateInfo CommandBufferAllocateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1113,20 +1487,20 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			FenceCreateInfo.flags = 0;
 		}
 
-		vkCreateFence(Context->Device, &FenceCreateInfo, VK_NULL_HANDLE, &Frame->Fence);
+		vkCreateFence(Context->Device, &FenceCreateInfo, VK_Get_Allocator(), &Frame->Fence);
 
 		Frame->FenceLock = OS_Mutex_Create();
 		
 		VkSemaphoreCreateInfo SemaphoreLockInfo = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
 		};
-		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->RenderLock);
+		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_Get_Allocator(), &Frame->RenderLock);
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vkCreateSemaphore failed!");
 			return NULL;
 		}
 
-		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_NULL_HANDLE, &Frame->TransferLock);
+		Status = vkCreateSemaphore(Context->Device, &SemaphoreLockInfo, VK_Get_Allocator(), &Frame->TransferLock);
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vkCreateSemaphore failed!");
 			return NULL;
@@ -1134,16 +1508,12 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 
 		Frame->ReadbackBuffer = VK_CPU_Buffer_Init(Context, GDI->Base.Arena, VK_CPU_BUFFER_TYPE_READBACK);
 
-		Frame->ReadbackSubmitEvent = OS_Event_Create();
-		Frame->ReadbackFinishedEvent = OS_Event_Create();
-
-		if(i != 0) {
-			OS_Event_Signal(Frame->ReadbackFinishedEvent);
-		}
-
 		vk_delete_queue* DeleteQueue = Context->DeleteQueues + i;
 		DeleteQueue->ThreadContextTLS = OS_TLS_Create();
 	}
+
+	Context->ReadbackSignalSemaphore = OS_Semaphore_Create(0);
+	Context->ReadbackFinishedSemaphore = OS_Semaphore_Create(VK_FRAME_COUNT-1);
 
 	//Create the transfer context
 	for (u64 i = 0; i < VK_MAX_TRANSFER_COUNT; i++) {
@@ -1155,7 +1525,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.queueFamilyIndex = TargetGPU->GraphicsQueueFamilyIndex
 		};
-		vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_NULL_HANDLE, &Transfer->CmdPool);
+		vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &Transfer->CmdPool);
 
 		VkCommandBufferAllocateInfo CommandBufferAllocateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1176,7 +1546,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			FenceCreateInfo.flags = 0;
 		}
 
-		vkCreateFence(Context->Device, &FenceCreateInfo, VK_NULL_HANDLE, &Transfer->DEBUGFence);		
+		vkCreateFence(Context->Device, &FenceCreateInfo, VK_Get_Allocator(), &Transfer->DEBUGFence);		
 #endif
 	}
 
@@ -1187,7 +1557,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 
 	//Initialize the readback thread
 	Atomic_Store_B32(&Context->ReadbackIsInitialized, true);
-	Context->ReadbackThread = OS_Thread_Create(VK_Readback_Thread, Context);
+	Context->ReadbackThread = OS_Thread_Create(String_Lit("Vulkan Readback"), VK_Readback_Thread, Context);
 
 	return Context;
 }
@@ -1196,7 +1566,7 @@ function GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(VK_Set_Device_Context) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vk_gdi* VkGDI = (vk_gdi*)GDI;
 	if(Context) {
-		VK_Delete_Device_Context(VkGDI, Context);
+		VK_Delete_Device_Context(VkGDI, Context, GDI_SHUTDOWN_FLAG_FREE_RESOURCES);
 		GDI->DeviceContext = NULL;
 	}
 
@@ -1348,7 +1718,7 @@ function GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(VK_Get_Texture_Info) {
 
 function VkImageView VK_Create_Image_View(vk_device_context* Context, const VkImageViewCreateInfo* TextureViewInfo) {
 	VkImageView ImageView;
-	VkResult Status = vkCreateImageView(Context->Device, TextureViewInfo, VK_NULL_HANDLE, &ImageView);
+	VkResult Status = vkCreateImageView(Context->Device, TextureViewInfo, VK_Get_Allocator(), &ImageView);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateImageView failed!");
 		return VK_NULL_HANDLE;
@@ -1558,7 +1928,7 @@ function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
 	};
 
 	VkSampler Handle;
-	VkResult Status = vkCreateSampler(Context->Device, &CreateInfo, VK_NULL_HANDLE, &Handle);
+	VkResult Status = vkCreateSampler(Context->Device, &CreateInfo, VK_Get_Allocator(), &Handle);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateSampler failed!");
 		return GDI_Null_Handle();
@@ -1624,7 +1994,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	};
 
 	VkDescriptorSetLayout SetLayout;
-	VkResult Status = vkCreateDescriptorSetLayout(Context->Device, &CreateInfo, VK_NULL_HANDLE, &SetLayout);
+	VkResult Status = vkCreateDescriptorSetLayout(Context->Device, &CreateInfo, VK_Get_Allocator(), &SetLayout);
 	Scratch_Release();
 	
 	if (Status != VK_SUCCESS) {
@@ -1909,7 +2279,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 		};
 
 		VkDescriptorSetLayout SetLayout;
-		VkResult Status = vkCreateDescriptorSetLayout(Context->Device, &CreateInfo, VK_NULL_HANDLE, &SetLayout);
+		VkResult Status = vkCreateDescriptorSetLayout(Context->Device, &CreateInfo, VK_Get_Allocator(), &SetLayout);
 		Scratch_Release();
 
 		if (Status != VK_SUCCESS) {
@@ -1958,7 +2328,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 	gdi_handle Result = GDI_Null_Handle();
 
 	VkPipelineLayout PipelineLayout;
-	if (vkCreatePipelineLayout(Context->Device, &LayoutCreateInfo, VK_NULL_HANDLE, &PipelineLayout) == VK_SUCCESS) {
+	if (vkCreatePipelineLayout(Context->Device, &LayoutCreateInfo, VK_Get_Allocator(), &PipelineLayout) == VK_SUCCESS) {
 		if (Buffer_Is_Empty(ShaderInfo->CS)) {
 			Assert(!Buffer_Is_Empty(ShaderInfo->VS) && !Buffer_Is_Empty(ShaderInfo->PS));
 
@@ -1975,8 +2345,8 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			};
 
 			VkShaderModule VSModule, PSModule;
-			vkCreateShaderModule(Context->Device, &VSModuleInfo, VK_NULL_HANDLE, &VSModule);
-			vkCreateShaderModule(Context->Device, &PSModuleInfo, VK_NULL_HANDLE, &PSModule);
+			vkCreateShaderModule(Context->Device, &VSModuleInfo, VK_Get_Allocator(), &VSModule);
+			vkCreateShaderModule(Context->Device, &PSModuleInfo, VK_Get_Allocator(), &PSModule);
 
 			u32 RenderTargetFormatCount = 0;
 			VkFormat* RenderTargetFormats = Arena_Push_Array(Scratch, GDI_MAX_RENDER_TARGET_COUNT, VkFormat);
@@ -2153,7 +2523,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			};
 
 			VkPipeline Pipeline;
-			if (vkCreateGraphicsPipelines(Context->Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, VK_NULL_HANDLE, &Pipeline) == VK_SUCCESS) {
+			if (vkCreateGraphicsPipelines(Context->Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, VK_Get_Allocator(), &Pipeline) == VK_SUCCESS) {
 				Result = VK_Shader_Pool_Allocate(&Context->ResourcePool);
 				vk_shader* Shader = VK_Shader_Pool_Get(&Context->ResourcePool, Result);
 				Shader->BindGroupCount = (u32)ShaderInfo->BindGroupLayouts.Count;
@@ -2165,11 +2535,11 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 #endif
 			} else {
 				GDI_Log_Error("vkCreateGraphicsPipelines failed!");
-				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_NULL_HANDLE);
+				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_Get_Allocator());
 			}
 			
-			vkDestroyShaderModule(Context->Device, VSModule, VK_NULL_HANDLE);
-			vkDestroyShaderModule(Context->Device, PSModule, VK_NULL_HANDLE);
+			vkDestroyShaderModule(Context->Device, VSModule, VK_Get_Allocator());
+			vkDestroyShaderModule(Context->Device, PSModule, VK_Get_Allocator());
 		} else {
 			Assert(Buffer_Is_Empty(ShaderInfo->VS) && Buffer_Is_Empty(ShaderInfo->PS));
 
@@ -2180,7 +2550,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			};
 
 			VkShaderModule CSModule;
-			vkCreateShaderModule(Context->Device, &CSModuleInfo, VK_NULL_HANDLE, &CSModule);
+			vkCreateShaderModule(Context->Device, &CSModuleInfo, VK_Get_Allocator(), &CSModule);
 
 			VkComputePipelineCreateInfo PipelineCreateInfo = {
 				.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -2194,7 +2564,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 			};
 
 			VkPipeline Pipeline;
-			if (vkCreateComputePipelines(Context->Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, VK_NULL_HANDLE, &Pipeline) == VK_SUCCESS) {
+			if (vkCreateComputePipelines(Context->Device, VK_NULL_HANDLE, 1, &PipelineCreateInfo, VK_Get_Allocator(), &Pipeline) == VK_SUCCESS) {
 				Result = VK_Shader_Pool_Allocate(&Context->ResourcePool);
 				vk_shader* Shader = VK_Shader_Pool_Get(&Context->ResourcePool, Result);
 				Shader->Layout = PipelineLayout;
@@ -2207,19 +2577,19 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 #endif
 			} else {
 				GDI_Log_Error("vkCreateComputePipelines failed!");
-				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_NULL_HANDLE);
+				vkDestroyPipelineLayout(Context->Device, PipelineLayout, VK_Get_Allocator());
 				if (WritableLayout) {
-					vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_NULL_HANDLE);
+					vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_Get_Allocator());
 				}
 			}
 
-			vkDestroyShaderModule(Context->Device, CSModule, VK_NULL_HANDLE);
+			vkDestroyShaderModule(Context->Device, CSModule, VK_Get_Allocator());
 		}
 	} else {
 		GDI_Log_Error("vkCreatePipelineLayout failed!");
 		
 		if (WritableLayout) {
-			vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_NULL_HANDLE);
+			vkDestroyDescriptorSetLayout(Context->Device, WritableLayout, VK_Get_Allocator());
 		}
 	}
 
@@ -2345,6 +2715,261 @@ function GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(VK_Get_Swapchain_Info) {
 		Result.Dim = Swapchain->Dim;
 	}
 	return Result;
+}
+
+ 
+function GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(VK_Begin_Render_Pass) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	
+	b32 HasDim = false;
+	v2i RenderPassDim = V2i_Zero();
+	for (size_t i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
+		vk_texture_view* View = VK_Texture_View_Pool_Get(&Context->ResourcePool, BeginInfo->RenderTargetViews[i]);
+		if (View) {
+			if (!HasDim) {
+				RenderPassDim = View->Dim;
+				HasDim = true;
+			} else {
+				Assert(RenderPassDim.x == View->Dim.x && RenderPassDim.y == View->Dim.y);
+			}
+		}
+	}
+
+	vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&Context->ResourcePool, BeginInfo->DepthBufferView);
+	if (DepthView) {
+		if (DepthView) {
+			if (!HasDim) {
+				RenderPassDim = DepthView->Dim;
+				HasDim = true;
+			} else {
+				Assert(RenderPassDim.x == DepthView->Dim.x && RenderPassDim.y == DepthView->Dim.y);
+			}
+		}
+	}
+
+	//Doesn't need to acuqire the transfer lock since BeginRenderPass() and EndRenderPass()
+	//cannot run concurrently with Render()
+	vk_transfer_context* TransferContext = Context->CurrentTransfer;
+	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, TransferContext);
+
+	vk_render_pass* RenderPass = ThreadContext->FreeRenderPasses;
+	if (RenderPass) SLL_Pop_Front(ThreadContext->FreeRenderPasses);
+	else {
+		RenderPass = Arena_Push_Struct(ThreadContext->Arena, vk_render_pass);
+		RenderPass->Base.Memory = Make_Memory_Reserve(GB(1));
+
+		VkCommandBufferAllocateInfo CmdBufferInfo = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = ThreadContext->CmdPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY,
+			.commandBufferCount = 1
+		};
+
+		vkAllocateCommandBuffers(Context->Device, &CmdBufferInfo, &RenderPass->CmdBuffer);
+	}
+	
+	Memory_Copy(RenderPass->ClearColors, BeginInfo->ClearColors, sizeof(BeginInfo->ClearColors));
+	RenderPass->ClearDepth = BeginInfo->ClearDepth;
+	RenderPass->Dim = RenderPassDim;
+	Memory_Copy(RenderPass->RenderTargetViews, BeginInfo->RenderTargetViews, sizeof(BeginInfo->RenderTargetViews));
+	RenderPass->DepthBufferView = BeginInfo->DepthBufferView;
+
+	return (gdi_render_pass*)RenderPass;
+}
+
+function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Context->CurrentTransfer);
+	vk_render_pass* VkRenderPass = (vk_render_pass*)RenderPass;
+	vk_frame_context* Frame = Context->CurrentFrame;
+
+	u32 ColorFormatCount = 0;
+	VkFormat ColorFormats[GDI_MAX_RENDER_TARGET_COUNT];
+	Memory_Clear(ColorFormats, sizeof(ColorFormats));
+
+	VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
+
+	for (u32 i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
+		vk_texture_view* View = VK_Texture_View_Pool_Get(&Context->ResourcePool, VkRenderPass->RenderTargetViews[i]);
+		if (View) {
+			ColorFormats[ColorFormatCount++] = VK_Get_Format(View->Format);
+		}
+	}
+
+	vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&Context->ResourcePool, VkRenderPass->DepthBufferView);
+	if (DepthView) {
+		DepthFormat = VK_Get_Format(DepthView->Format);
+	}
+
+	VkCommandBufferInheritanceRenderingInfoKHR DynamicRenderingInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO_KHR,
+		.flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT_KHR,
+		.colorAttachmentCount = ColorFormatCount,
+		.pColorAttachmentFormats = ColorFormats,
+		.depthAttachmentFormat = DepthFormat,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+	};
+
+	VkCommandBufferInheritanceInfo InheritanceInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		.pNext = &DynamicRenderingInfo
+	};
+
+	VkCommandBufferBeginInfo BeginInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		.pInheritanceInfo = &InheritanceInfo
+	};
+
+	vkBeginCommandBuffer(VkRenderPass->CmdBuffer, &BeginInfo);
+
+	VkViewport Viewport = {
+		.width = (f32)VkRenderPass->Dim.x,
+		.height = (f32)VkRenderPass->Dim.y,
+		.maxDepth = 1.0f
+	};
+
+	vkCmdSetViewport(VkRenderPass->CmdBuffer, 0, 1, &Viewport);
+
+	vk_shader* CurrentShader = NULL;
+	vk_buffer* CurrentIdxBuffer = NULL;
+	gdi_idx_format CurrentIdxFormat = GDI_IDX_FORMAT_NONE;
+	gdi_draw_type CurrentDrawType = GDI_DRAW_TYPE_NONE;
+	u32 CurrentPrimitiveCount = 0;
+	u32 CurrentPrimitiveOffset = 0;
+	u32 CurrentVtxOffset = 0;
+	u32 PushConstantCount = 0;
+	vk_bind_group* BindGroups[GDI_MAX_BIND_GROUP_COUNT] = {0};
+
+	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
+	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
+
+	bstream_reader Reader = BStream_Reader_Begin(Make_Buffer(VkRenderPass->Base.Memory.BaseAddress, 
+															 VkRenderPass->Base.Offset));
+
+	while (BStream_Reader_Is_Valid(&Reader)) {
+		u32 DirtyFlag = BStream_Reader_U32(&Reader);
+
+		if (DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) {
+			gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+			CurrentShader = VK_Shader_Pool_Get(&Context->ResourcePool, Handle);
+			Assert(CurrentShader->DEBUGType == GDI_PASS_TYPE_RENDER);
+			vkCmdBindPipeline(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Pipeline);
+			
+
+		}
+
+		for (size_t i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
+			vk_bind_group* BindGroup = NULL;
+			if (DirtyFlag & (GDI_RENDER_PASS_BIND_GROUP_BIT << i)) {
+				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Handle);
+			} else {
+				//If the shader changed make sure to update the bind group to the last one bound
+				if ((DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) && (i < CurrentShader->BindGroupCount)) {
+					BindGroup = BindGroups[i];
+				}
+			}
+
+			if (BindGroup) {
+				arena* Scratch = Scratch_Get();
+				u32* DynamicOffset = Arena_Push_Array(Scratch, BindGroup->DynamicSizes.Count, u32);
+				for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
+					DynamicOffset[i] = BindGroup->DynamicSizes.Ptr[i]*Frame->Index;
+				}
+
+				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, (u32)BindGroup->DynamicSizes.Count, DynamicOffset);
+				BindGroups[i] = BindGroup;
+				Scratch_Release();
+			}
+		}
+
+		for (size_t i = 0; i < GDI_MAX_VTX_BUFFER_COUNT; i++) {
+			if (DirtyFlag & (GDI_RENDER_PASS_VTX_BUFFER_BIT << i)) {
+				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				vk_buffer* VtxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
+				
+				VkDeviceSize Offset = 0;
+				vkCmdBindVertexBuffers(VkRenderPass->CmdBuffer, (u32)i, 1, &VtxBuffer->Buffer, &Offset);
+			}
+		}
+
+		if ((DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) || (DirtyFlag & GDI_RENDER_PASS_IDX_FORMAT_BIT)) {
+			if (DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) {
+				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				CurrentIdxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
+			}
+
+			if (DirtyFlag & GDI_RENDER_PASS_IDX_FORMAT_BIT) {
+				CurrentIdxFormat = (gdi_idx_format)BStream_Reader_U32(&Reader);
+			}
+
+			vkCmdBindIndexBuffer(VkRenderPass->CmdBuffer, CurrentIdxBuffer->Buffer, 0, VK_Get_Idx_Type(CurrentIdxFormat));
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MIN_X_BIT) {
+			CurrentScissor.offset.x = (s32)BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT) {
+			CurrentScissor.offset.y = (s32)BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MAX_X_BIT) {
+			CurrentScissor.extent.width = (s32)BStream_Reader_U32(&Reader)-CurrentScissor.offset.x;
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT) {
+			CurrentScissor.extent.height = (s32)BStream_Reader_U32(&Reader)-CurrentScissor.offset.y;
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR) {
+			vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_DRAW_TYPE_BIT) {
+			CurrentDrawType = (gdi_draw_type)BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT) {
+			CurrentPrimitiveCount = BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT) {
+			CurrentPrimitiveOffset = BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_VTX_OFFSET_BIT) {
+			CurrentVtxOffset = BStream_Reader_U32(&Reader);
+		}
+
+		if (DirtyFlag & GDI_RENDER_PASS_PUSH_CONSTANT_COUNT) {
+			PushConstantCount = BStream_Reader_U32(&Reader);
+		}
+
+		if (PushConstantCount) {
+			u32 Size = PushConstantCount * sizeof(u32);
+			vkCmdPushConstants(VkRenderPass->CmdBuffer, CurrentShader->Layout, VK_SHADER_STAGE_ALL, 0, Size, BStream_Reader_Size(&Reader, Size));
+		}
+
+		switch(CurrentDrawType) {
+			case GDI_DRAW_TYPE_IDX: {
+				vkCmdDrawIndexed(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, CurrentVtxOffset, 0);
+			} break;
+
+			case GDI_DRAW_TYPE_VTX: {
+				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, 0);
+			} break;
+		}
+	}
+	Assert(Reader.At == Reader.End);
+
+	vkEndCommandBuffer(VkRenderPass->CmdBuffer);
+
+	Memory_Clear(&RenderPass->PrevState, sizeof(gdi_draw_state));
+	Memory_Clear(&RenderPass->CurrentState, sizeof(gdi_draw_state));
+	RenderPass->Offset = 0;
+	SLL_Push_Front(ThreadContext->RenderPassesToDelete, VkRenderPass);
 }
 
 function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_array* Swapchains, const gdi_buffer_readback_array* BufferReadbacks, const gdi_texture_readback_array* TextureReadbacks) {
@@ -3009,12 +3634,12 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		Thread->RenderPassesToDelete = NULL;
 	}
 
-	//Signal to readback thread that we have work on this frame
-	OS_Event_Signal(Frame->ReadbackSubmitEvent);
+	//Increment the readback semaphore to signal the readback thread 
+	//that we have work on this frame
+	u64 TotalFrameIndex = Atomic_Increment_U64(&Context->FrameIndex);
+	OS_Semaphore_Increment(Context->ReadbackSignalSemaphore);
 
-	Context->FrameIndex++;
-
-	u64 FrameIndex = (Context->FrameIndex % VK_FRAME_COUNT);
+	u64 FrameIndex = (TotalFrameIndex % VK_FRAME_COUNT);
 	Context->CurrentFrame = Context->Frames + FrameIndex;
 
 	Frame = Context->CurrentFrame;
@@ -3031,9 +3656,8 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 	OS_Mutex_Unlock(Frame->FenceLock);
 	
 	//Wait for readbacks before we reset the arena
-	OS_Event_Wait(Frame->ReadbackFinishedEvent);
-	OS_Event_Reset(Frame->ReadbackFinishedEvent);
-
+	OS_Semaphore_Decrement(Context->ReadbackFinishedSemaphore);
+	
 	vkResetFences(Context->Device, 1, &Frame->Fence);
 
 	//Delete the entries in the delete now that we have waited on the frame and then
@@ -3091,259 +3715,35 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	VK_Render_Internal(Context, &Array, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
 	Scratch_Release();
 }
- 
-function GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(VK_Begin_Render_Pass) {
+
+function GDI_BACKEND_SHUTDOWN_DEFINE(VK_Shutdown) {
+	vk_gdi* VkGDI = (vk_gdi*)GDI;
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	
-	b32 HasDim = false;
-	v2i RenderPassDim = V2i_Zero();
-	for (size_t i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
-		vk_texture_view* View = VK_Texture_View_Pool_Get(&Context->ResourcePool, BeginInfo->RenderTargetViews[i]);
-		if (View) {
-			if (!HasDim) {
-				RenderPassDim = View->Dim;
-				HasDim = true;
-			} else {
-				Assert(RenderPassDim.x == View->Dim.x && RenderPassDim.y == View->Dim.y);
-			}
-		}
+	if (Context) {
+		VK_Delete_Device_Context(VkGDI, Context, Flags);
+		GDI->DeviceContext = NULL;
 	}
 
-	vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&Context->ResourcePool, BeginInfo->DepthBufferView);
-	if (DepthView) {
-		if (DepthView) {
-			if (!HasDim) {
-				RenderPassDim = DepthView->Dim;
-				HasDim = true;
-			} else {
-				Assert(RenderPassDim.x == DepthView->Dim.x && RenderPassDim.y == DepthView->Dim.y);
-			}
-		}
+#ifdef DEBUG_BUILD
+	if (VkGDI->DebugUtils != VK_NULL_HANDLE) {
+		vkDestroyDebugUtilsMessengerEXT(VkGDI->Instance, VkGDI->DebugUtils, VK_Get_Allocator());
+		VkGDI->DebugUtils = VK_NULL_HANDLE;
+	}
+#endif
+
+	if (VkGDI->Instance != VK_NULL_HANDLE) {
+		vkDestroyInstance(VkGDI->Instance, VK_Get_Allocator());
+		VkGDI->Instance = VK_NULL_HANDLE;
 	}
 
-	//Doesn't need to acuqire the transfer lock since BeginRenderPass() and EndRenderPass()
-	//cannot run concurrently with Render()
-	vk_transfer_context* TransferContext = Context->CurrentTransfer;
-	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, TransferContext);
-
-	vk_render_pass* RenderPass = ThreadContext->FreeRenderPasses;
-	if (RenderPass) SLL_Pop_Front(ThreadContext->FreeRenderPasses);
-	else {
-		RenderPass = Arena_Push_Struct(ThreadContext->Arena, vk_render_pass);
-		RenderPass->Base.Memory = Make_Memory_Reserve(GB(1));
-
-		VkCommandBufferAllocateInfo CmdBufferInfo = {
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = ThreadContext->CmdPool,
-			.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-			.commandBufferCount = 1
-		};
-
-		vkAllocateCommandBuffers(Context->Device, &CmdBufferInfo, &RenderPass->CmdBuffer);
-	}
-	
-	Memory_Copy(RenderPass->ClearColors, BeginInfo->ClearColors, sizeof(BeginInfo->ClearColors));
-	RenderPass->ClearDepth = BeginInfo->ClearDepth;
-	RenderPass->Dim = RenderPassDim;
-	Memory_Copy(RenderPass->RenderTargetViews, BeginInfo->RenderTargetViews, sizeof(BeginInfo->RenderTargetViews));
-	RenderPass->DepthBufferView = BeginInfo->DepthBufferView;
-
-	return (gdi_render_pass*)RenderPass;
-}
-
-function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
-	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Context->CurrentTransfer);
-	vk_render_pass* VkRenderPass = (vk_render_pass*)RenderPass;
-	vk_frame_context* Frame = Context->CurrentFrame;
-
-	u32 ColorFormatCount = 0;
-	VkFormat ColorFormats[GDI_MAX_RENDER_TARGET_COUNT];
-	Memory_Clear(ColorFormats, sizeof(ColorFormats));
-
-	VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
-
-	for (u32 i = 0; i < GDI_MAX_RENDER_TARGET_COUNT; i++) {
-		vk_texture_view* View = VK_Texture_View_Pool_Get(&Context->ResourcePool, VkRenderPass->RenderTargetViews[i]);
-		if (View) {
-			ColorFormats[ColorFormatCount++] = VK_Get_Format(View->Format);
-		}
+	if (VkGDI->Library) {
+		OS_Library_Delete(VkGDI->Library);
+		VkGDI->Library = NULL;
 	}
 
-	vk_texture_view* DepthView = VK_Texture_View_Pool_Get(&Context->ResourcePool, VkRenderPass->DepthBufferView);
-	if (DepthView) {
-		DepthFormat = VK_Get_Format(DepthView->Format);
+	if (GDI->Arena) {
+		Arena_Delete(GDI->Arena);
 	}
-
-	VkCommandBufferInheritanceRenderingInfoKHR DynamicRenderingInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO_KHR,
-		.flags = VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT_KHR,
-		.colorAttachmentCount = ColorFormatCount,
-		.pColorAttachmentFormats = ColorFormats,
-		.depthAttachmentFormat = DepthFormat,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
-	};
-
-	VkCommandBufferInheritanceInfo InheritanceInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-		.pNext = &DynamicRenderingInfo
-	};
-
-	VkCommandBufferBeginInfo BeginInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-		.pInheritanceInfo = &InheritanceInfo
-	};
-
-	vkBeginCommandBuffer(VkRenderPass->CmdBuffer, &BeginInfo);
-
-	VkViewport Viewport = {
-		.width = (f32)VkRenderPass->Dim.x,
-		.height = (f32)VkRenderPass->Dim.y,
-		.maxDepth = 1.0f
-	};
-
-	vkCmdSetViewport(VkRenderPass->CmdBuffer, 0, 1, &Viewport);
-
-	vk_shader* CurrentShader = NULL;
-	vk_buffer* CurrentIdxBuffer = NULL;
-	gdi_idx_format CurrentIdxFormat = GDI_IDX_FORMAT_NONE;
-	gdi_draw_type CurrentDrawType = GDI_DRAW_TYPE_NONE;
-	u32 CurrentPrimitiveCount = 0;
-	u32 CurrentPrimitiveOffset = 0;
-	u32 CurrentVtxOffset = 0;
-	u32 PushConstantCount = 0;
-	vk_bind_group* BindGroups[GDI_MAX_BIND_GROUP_COUNT] = {0};
-
-	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
-	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
-
-	bstream_reader Reader = BStream_Reader_Begin(Make_Buffer(VkRenderPass->Base.Memory.BaseAddress, 
-															 VkRenderPass->Base.Offset));
-
-	while (BStream_Reader_Is_Valid(&Reader)) {
-		u32 DirtyFlag = BStream_Reader_U32(&Reader);
-
-		if (DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) {
-			gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
-			CurrentShader = VK_Shader_Pool_Get(&Context->ResourcePool, Handle);
-			Assert(CurrentShader->DEBUGType == GDI_PASS_TYPE_RENDER);
-			vkCmdBindPipeline(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Pipeline);
-			
-
-		}
-
-		for (size_t i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
-			vk_bind_group* BindGroup = NULL;
-			if (DirtyFlag & (GDI_RENDER_PASS_BIND_GROUP_BIT << i)) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
-				BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Handle);
-			} else {
-				//If the shader changed make sure to update the bind group to the last one bound
-				if ((DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) && (i < CurrentShader->BindGroupCount)) {
-					BindGroup = BindGroups[i];
-				}
-			}
-
-			if (BindGroup) {
-				arena* Scratch = Scratch_Get();
-				u32* DynamicOffset = Arena_Push_Array(Scratch, BindGroup->DynamicSizes.Count, u32);
-				for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
-					DynamicOffset[i] = BindGroup->DynamicSizes.Ptr[i]*Frame->Index;
-				}
-
-				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, (u32)BindGroup->DynamicSizes.Count, DynamicOffset);
-				BindGroups[i] = BindGroup;
-				Scratch_Release();
-			}
-		}
-
-		for (size_t i = 0; i < GDI_MAX_VTX_BUFFER_COUNT; i++) {
-			if (DirtyFlag & (GDI_RENDER_PASS_VTX_BUFFER_BIT << i)) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
-				vk_buffer* VtxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
-				
-				VkDeviceSize Offset = 0;
-				vkCmdBindVertexBuffers(VkRenderPass->CmdBuffer, (u32)i, 1, &VtxBuffer->Buffer, &Offset);
-			}
-		}
-
-		if ((DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) || (DirtyFlag & GDI_RENDER_PASS_IDX_FORMAT_BIT)) {
-			if (DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
-				CurrentIdxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
-			}
-
-			if (DirtyFlag & GDI_RENDER_PASS_IDX_FORMAT_BIT) {
-				CurrentIdxFormat = (gdi_idx_format)BStream_Reader_U32(&Reader);
-			}
-
-			vkCmdBindIndexBuffer(VkRenderPass->CmdBuffer, CurrentIdxBuffer->Buffer, 0, VK_Get_Idx_Type(CurrentIdxFormat));
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MIN_X_BIT) {
-			CurrentScissor.offset.x = (s32)BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT) {
-			CurrentScissor.offset.y = (s32)BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MAX_X_BIT) {
-			CurrentScissor.extent.width = (s32)BStream_Reader_U32(&Reader)-CurrentScissor.offset.x;
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT) {
-			CurrentScissor.extent.height = (s32)BStream_Reader_U32(&Reader)-CurrentScissor.offset.y;
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_SCISSOR) {
-			vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_DRAW_TYPE_BIT) {
-			CurrentDrawType = (gdi_draw_type)BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT) {
-			CurrentPrimitiveCount = BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT) {
-			CurrentPrimitiveOffset = BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_VTX_OFFSET_BIT) {
-			CurrentVtxOffset = BStream_Reader_U32(&Reader);
-		}
-
-		if (DirtyFlag & GDI_RENDER_PASS_PUSH_CONSTANT_COUNT) {
-			PushConstantCount = BStream_Reader_U32(&Reader);
-		}
-
-		if (PushConstantCount) {
-			u32 Size = PushConstantCount * sizeof(u32);
-			vkCmdPushConstants(VkRenderPass->CmdBuffer, CurrentShader->Layout, VK_SHADER_STAGE_ALL, 0, Size, BStream_Reader_Size(&Reader, Size));
-		}
-
-		switch(CurrentDrawType) {
-			case GDI_DRAW_TYPE_IDX: {
-				vkCmdDrawIndexed(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, CurrentVtxOffset, 0);
-			} break;
-
-			case GDI_DRAW_TYPE_VTX: {
-				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, 0);
-			} break;
-		}
-	}
-	Assert(Reader.At == Reader.End);
-
-	vkEndCommandBuffer(VkRenderPass->CmdBuffer);
-
-	Memory_Clear(&RenderPass->PrevState, sizeof(gdi_draw_state));
-	Memory_Clear(&RenderPass->CurrentState, sizeof(gdi_draw_state));
-	RenderPass->Offset = 0;
-	SLL_Push_Front(ThreadContext->RenderPassesToDelete, VkRenderPass);
 }
 
 global gdi_backend_vtable VK_Backend_VTable = {
@@ -3383,7 +3783,8 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,
 	.EndRenderPassFunc = VK_End_Render_Pass,
 
-	.RenderFunc = VK_Render
+	.RenderFunc = VK_Render,
+	.ShutdownFunc = VK_Shutdown
 };
 
 function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity, VkDebugUtilsMessageTypeFlagsEXT MessageTypes,
@@ -3401,6 +3802,7 @@ function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT Messa
 
 export_function GDI_INIT_DEFINE(GDI_Init) {
 	Base_Set(InitInfo->Base);
+	VK_Set_Allocator();
 
 	G_LogFunc = InitInfo->LogCallbacks.LogFunc;
 	G_LogUserData = InitInfo->LogCallbacks.UserData;
@@ -3408,7 +3810,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		G_LogFunc = GDI_Default_Log_Callback;
 	}
 
-	arena* Arena = Arena_Create();
+	arena* Arena = Arena_Create(String_Lit("GDI"));
 	vk_gdi* GDI = Arena_Push_Struct(Arena, vk_gdi);
 	GDI->Base.Backend = &VK_Backend_VTable;
 	GDI->Base.Arena = Arena;
@@ -3501,7 +3903,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		.ppEnabledExtensionNames = (const char* const*)InstanceExtensions.Ptr,
 	};
 
-	VkResult Status = vkCreateInstance(&InstanceCreateInfo, VK_NULL_HANDLE, &GDI->Instance);
+	VkResult Status = vkCreateInstance(&InstanceCreateInfo, VK_Get_Allocator(), &GDI->Instance);
 	Scratch_Release();
 
 	if (Status != VK_SUCCESS) {
@@ -3540,7 +3942,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 			.pfnUserCallback = VK_Debug_Callback,
 		};
 
-		if (vkCreateDebugUtilsMessengerEXT(GDI->Instance, &DebugUtilsCreateInfo, VK_NULL_HANDLE, &GDI->DebugUtils) != VK_SUCCESS) {
+		if (vkCreateDebugUtilsMessengerEXT(GDI->Instance, &DebugUtilsCreateInfo, VK_Get_Allocator(), &GDI->DebugUtils) != VK_SUCCESS) {
 			GDI_Log_Warning("vkCreateDebugUtilsMessengerEXT failed!");
 		}
 	}
