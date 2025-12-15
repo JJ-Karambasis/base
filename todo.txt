@@ -7,7 +7,6 @@ GDI:
 	5. Test multiple render targets
 	6. Test bind group writes
 	7. Multithreading tests
-* Optimize upload buffer
 * Instancing
 * Bind Group Copies
 * Indirect Draws
@@ -17,7 +16,7 @@ GDI:
 * Metal backend
 
 Base:
-* Condition Variables
+* Condition Variables (posix, win32 is done)
 * Heap Lists
 * Allocator stat tracking
 * Tracking of os resources

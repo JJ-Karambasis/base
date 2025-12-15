@@ -653,6 +653,56 @@ function OS_LIBRARY_GET_FUNCTION_DEFINE(Win32_Library_Get_Function) {
 	return (void*)GetProcAddress(Library->Library, FunctionName);
 }
 
+function OS_CONDITION_VARIABLE_CREATE_DEFINE(Win32_Condition_Variable_Create) {
+	win32_base* Win32 = Win32_Get();
+
+	CONDITION_VARIABLE Handle;
+	InitializeConditionVariable(&Handle);
+
+	EnterCriticalSection(&Win32->ResourceLock);
+	os_condition_variable* Result = Win32->FreeConditionVariables;
+	if (Result) SLL_Pop_Front(Win32->FreeConditionVariables);
+	else Result = Arena_Push_Struct_No_Clear(Win32->Base.ResourceArena, os_condition_variable);
+	LeaveCriticalSection(&Win32->ResourceLock);
+
+	Memory_Clear(Result, sizeof(os_condition_variable));
+	Result->Handle = Handle;
+
+	Atomic_Increment_U64(&Win32->Base.AllocatedConditionVariableCount);
+
+	return Result;
+}
+
+function OS_CONDITION_VARIABLE_DELETE_DEFINE(Win32_Condition_Variable_Delete) {
+	if (Variable) {
+		win32_base* Win32 = Win32_Get();
+		EnterCriticalSection(&Win32->ResourceLock);
+		SLL_Push_Front(Win32->FreeConditionVariables, Variable);
+		LeaveCriticalSection(&Win32->ResourceLock);
+
+		Atomic_Decrement_U64(&Win32->Base.AllocatedConditionVariableCount);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAIT_DEFINE(Win32_Condition_Variable_Wait) {
+	if (Variable && Mutex) {
+		SleepConditionVariableCS(&Variable->Handle, &Mutex->CriticalSection, INFINITE);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAKE_DEFINE(Win32_Condition_Variable_Wake) {
+	if (Variable) {
+		WakeConditionVariable(&Variable->Handle);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(Win32_Condition_Variable_Wake_All) {
+	if (Variable) {
+		WakeAllConditionVariable(&Variable->Handle);
+	}
+}
+
+
 function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
 	BCryptGenRandom(NULL, (PUCHAR)Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 }
@@ -727,6 +777,12 @@ global os_base_vtable Win32_Base_VTable = {
 	.LibraryCreateFunc = Win32_Library_Create,
 	.LibraryDeleteFunc = Win32_Library_Delete,
 	.LibraryGetFunctionFunc = Win32_Library_Get_Function,
+
+	.ConditionVariableCreateFunc = Win32_Condition_Variable_Create,
+	.ConditionVariableDeleteFunc = Win32_Condition_Variable_Delete,
+	.ConditionVariableWaitFunc = Win32_Condition_Variable_Wait,
+	.ConditionVariableWakeFunc = Win32_Condition_Variable_Wake,
+	.ConditionVariableWakeAllFunc = Win32_Condition_Variable_Wake_All,
 
 	.GetEntropyFunc = Win32_Get_Entropy,
 	.SleepFunc = Win32_Sleep

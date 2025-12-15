@@ -50,6 +50,11 @@ struct os_library {
 	os_library* Next;
 };
 
+struct os_condition_variable {
+	CONDITION_VARIABLE Handle;
+	os_condition_variable* Next;
+};
+
 typedef struct {
 	os_base Base;
 	CRITICAL_SECTION ResourceLock;
@@ -62,6 +67,7 @@ typedef struct {
 	os_event* FreeEvents;
 	os_hot_reload* FreeHotReload;
 	os_library* FreeLibrary;
+	os_condition_variable* FreeConditionVariables;
 
 	os_rw_mutex ArenaLock;
 } win32_base;

@@ -276,6 +276,20 @@ typedef struct {
 } gdi_bind_group_write_info;
 
 typedef struct {
+	u32 	   DstBinding;
+	u32 	   DstIndex;
+	gdi_handle SrcBindGroup;
+	u32 	   SrcBinding;
+	u32 	   SrcIndex;
+	u32 	   Count;
+} gdi_bind_group_copy;
+Array_Define(gdi_bind_group_copy);
+
+typedef struct {
+	gdi_bind_group_copy_array Copies;
+} gdi_bind_group_copy_info;
+
+typedef struct {
 	string     Semantic;
 	gdi_format Format;
 } gdi_vtx_attribute;
@@ -535,6 +549,7 @@ typedef struct {
 #define GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_bind_group_create_info* BindGroupInfo)
 #define GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroup)
 #define GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroupHandle, const gdi_bind_group_write_info* BindGroupWriteInfo)
+#define GDI_BACKEND_COPY_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroup, const gdi_bind_group_copy_info* CopyInfo)
 
 #define GDI_BACKEND_CREATE_SHADER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_shader_create_info* ShaderInfo)
 #define GDI_BACKEND_DELETE_SHADER_DEFINE(name) void name(gdi* GDI, gdi_handle Shader)
@@ -575,6 +590,7 @@ typedef GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(gdi_backend_delete_bind_grou
 typedef GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(gdi_backend_create_bind_group_func);
 typedef GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(gdi_backend_delete_bind_group_func);
 typedef GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(gdi_backend_write_bind_group_func);
+typedef GDI_BACKEND_COPY_BIND_GROUP_DEFINE(gdi_backend_copy_bind_group_func);
 
 typedef GDI_BACKEND_CREATE_SHADER_DEFINE(gdi_backend_create_shader_func);
 typedef GDI_BACKEND_DELETE_SHADER_DEFINE(gdi_backend_delete_shader_func);
@@ -615,7 +631,8 @@ typedef struct {
 
 	gdi_backend_create_bind_group_func* CreateBindGroupFunc;
 	gdi_backend_delete_bind_group_func* DeleteBindGroupFunc;
-	gdi_backend_write_bind_group_func* WriteBindGroupFunc;
+	gdi_backend_write_bind_group_func*  WriteBindGroupFunc;
+	gdi_backend_copy_bind_group_func*   CopyBindGroupFunc;
 
 	gdi_backend_create_shader_func* CreateShaderFunc;
 	gdi_backend_delete_shader_func* DeleteShaderFunc;
@@ -663,6 +680,7 @@ struct gdi {
 #define GDI_Backend_Create_Bind_Group(info) GDI_Get()->Backend->CreateBindGroupFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Bind_Group(bind_group) GDI_Get()->Backend->DeleteBindGroupFunc(GDI_Get(), bind_group)
 #define GDI_Backend_Write_Bind_Group(bind_group, write_info) GDI_Get()->Backend->WriteBindGroupFunc(GDI_Get(), bind_group, write_info)
+#define GDI_Backend_Copy_Bind_Group(bind_group, copy_info) GDI_Get()->Backend->CopyBindGroupFunc(GDI_Get(), bind_group, copy_info)
 
 #define GDI_Backend_Create_Shader(info) GDI_Get()->Backend->CreateShaderFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Shader(shader) GDI_Get()->Backend->DeleteShaderFunc(GDI_Get(), shader)
@@ -738,6 +756,7 @@ export_function void GDI_Delete_Bind_Group_Layout(gdi_handle BindGroupLayout);
 export_function gdi_handle GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo);
 export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup);
 export_function void GDI_Write_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_write_info* BindGroupWriteInfo);
+export_function void GDI_Copy_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_copy_info* CopyInfo);
 export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
 export_function void GDI_Delete_Shader(gdi_handle Shader);
 export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);

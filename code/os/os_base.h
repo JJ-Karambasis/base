@@ -131,6 +131,19 @@ typedef OS_LIBRARY_CREATE_DEFINE(os_library_create_func);
 typedef OS_LIBRARY_DELETE_DEFINE(os_library_delete_func);
 typedef OS_LIBRARY_GET_FUNCTION_DEFINE(os_library_get_function_func);
 
+typedef struct os_condition_variable os_condition_variable;
+#define OS_CONDITION_VARIABLE_CREATE_DEFINE(name) os_condition_variable* name()
+#define OS_CONDITION_VARIABLE_DELETE_DEFINE(name) void name(os_condition_variable* Variable)
+#define OS_CONDITION_VARIABLE_WAIT_DEFINE(name) void name(os_condition_variable* Variable, os_mutex* Mutex)
+#define OS_CONDITION_VARIABLE_WAKE_DEFINE(name) void name(os_condition_variable* Variable)
+#define OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(name) void name(os_condition_variable* Variable)
+
+typedef OS_CONDITION_VARIABLE_CREATE_DEFINE(os_condition_variable_create_func);
+typedef OS_CONDITION_VARIABLE_DELETE_DEFINE(os_condition_variable_delete_func);
+typedef OS_CONDITION_VARIABLE_WAIT_DEFINE(os_condition_variable_wait_func);
+typedef OS_CONDITION_VARIABLE_WAKE_DEFINE(os_condition_variable_wake_func);
+typedef OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(os_condition_variable_wake_all_func);
+
 #define OS_GET_ENTROPY_DEFINE(name) void name(void* Buffer, size_t Size)
 typedef OS_GET_ENTROPY_DEFINE(os_get_entropy_func);
 
@@ -200,6 +213,12 @@ typedef struct {
 	os_library_delete_func* 	  LibraryDeleteFunc;
 	os_library_get_function_func* LibraryGetFunctionFunc;
 
+	os_condition_variable_create_func*   ConditionVariableCreateFunc;
+	os_condition_variable_delete_func*   ConditionVariableDeleteFunc;
+	os_condition_variable_wait_func*     ConditionVariableWaitFunc;
+	os_condition_variable_wake_func*     ConditionVariableWakeFunc;
+	os_condition_variable_wake_all_func* ConditionVariableWakeAllFunc;
+
 	os_get_entropy_func* GetEntropyFunc;
 	os_sleep_func* SleepFunc;
 } os_base_vtable;
@@ -224,6 +243,7 @@ typedef struct {
 	atomic_u64 AllocatedEventsCount;
 	atomic_u64 AllocatedHotReloadCount;
 	atomic_u64 AllocatedLibraryCount;
+	atomic_u64 AllocatedConditionVariableCount;
 
 	arena* ResourceArena;
 } os_base;
@@ -293,6 +313,12 @@ typedef struct {
 #define OS_Library_Create(path) Base_Get()->OSBase->VTable->LibraryCreateFunc(path)
 #define OS_Library_Delete(library) Base_Get()->OSBase->VTable->LibraryDeleteFunc(library)
 #define OS_Library_Get_Function(library, name) Base_Get()->OSBase->VTable->LibraryGetFunctionFunc(library, name)
+
+#define OS_Condition_Variable_Create() Base_Get()->OSBase->VTable->ConditionVariableCreateFunc()
+#define OS_Condition_Variable_Delete(cond_var) Base_Get()->OSBase->VTable->ConditionVariableDeleteFunc(cond_var)
+#define OS_Condition_Variable_Wait(cond_var, mutex) Base_Get()->OSBase->VTable->ConditionVariableWaitFunc(cond_var, mutex)
+#define OS_Condition_Variable_Wake(cond_var, mutex) Base_Get()->OSBase->ConditionVariableWakeFunc(cond_var, mutex)
+#define OS_Condition_Variable_Wake_All(cond_var, mutex) Base_Get()->OSBase->ConditionVariableWakeAllFunc(cond_var, mutex)
 
 #define OS_Get_Entropy(buffer, size) Base_Get()->OSBase->VTable->GetEntropyFunc(buffer, size)
 #define OS_Sleep(nanoseconds) Base_Get()->OSBase->VTable->SleepFunc(nanoseconds)

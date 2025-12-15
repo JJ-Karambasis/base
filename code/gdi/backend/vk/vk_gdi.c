@@ -26,6 +26,7 @@ Dynamic_Array_Implement_Type(u32, U32);
 Dynamic_Array_Implement(vk_image_memory_barrier, VkImageMemoryBarrier, VK_Image_Memory_Barrier);
 Dynamic_Array_Implement(vk_image_memory_barrier2, VkImageMemoryBarrier2KHR, VK_Image_Memory_Barrier2);
 Dynamic_Array_Implement(vk_write_descriptor_set, VkWriteDescriptorSet, VK_Write_Descriptor_Set);
+Dynamic_Array_Implement(vk_copy_descriptor_set, VkCopyDescriptorSet, VK_Copy_Descriptor_Set);
 Array_Implement(vk_texture_readback, VK_Texture_Readback);
 Array_Implement(vk_buffer_readback, VK_Buffer_Readback);
 
@@ -2153,8 +2154,8 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
 		
 		u32_array DynamicSizes;
-		DynamicSizes.Ptr = Allocator_Allocate_Array(Default_Allocator_Get(), Layout->Bindings.Count, u32);
-		DynamicSizes.Count = Layout->DynamicBindingCount;
+		DynamicSizes.Ptr = Allocator_Allocate_Array((allocator*)Scratch, Layout->Bindings.Count, u32);
+		DynamicSizes.Count = Layout->Bindings.Count;
 
 		for (size_t i = 0; i < BindGroupWriteInfo->Writes.Count; i++) {
 			gdi_bind_group_write* Write = BindGroupWriteInfo->Writes.Ptr + i;
@@ -2240,6 +2241,62 @@ function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
 		Assert(DynamicSizeIndex <= BindGroup->DynamicSizes.Count);
 
 		vkUpdateDescriptorSets(Context->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
+		Scratch_Release();
+	}
+}
+
+function GDI_BACKEND_COPY_BIND_GROUP_DEFINE(VK_Copy_Bind_Group) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, BindGroup);
+	if (DstBindGroup) {
+		vk_bind_group_layout* DstLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
+		Assert(DstLayout);
+		
+		arena* Scratch = Scratch_Get();
+		dynamic_vk_copy_descriptor_set_array DescriptorCopies = Dynamic_VK_Copy_Descriptor_Set_Array_Init((allocator*)Scratch);
+		
+		u32_array DynamicSizes;
+		DynamicSizes.Ptr = Allocator_Allocate_Array((allocator*)Scratch, DstLayout->Bindings.Count, u32);
+		DynamicSizes.Count = DstLayout->Bindings.Count;
+
+		for (size_t i = 0; i < CopyInfo->Copies.Count; i++) {
+			gdi_bind_group_copy* Copy = CopyInfo->Copies.Ptr + i;
+			vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Copy->SrcBindGroup);
+			if (SrcBindGroup) {
+				vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+				Assert(Copy->DstBinding < DstLayout->Bindings.Count);
+				Assert(Copy->SrcBinding < SrcLayout->Bindings.Count);
+
+				VkCopyDescriptorSet CopyDescriptorSet = {
+					.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+					.srcSet = SrcBindGroup->Set,
+					.srcBinding = Copy->SrcBinding,
+					.srcArrayElement = Copy->SrcIndex,
+					.dstSet = DstBindGroup->Set,
+					.dstBinding = Copy->DstBinding,
+					.dstArrayElement = Copy->DstIndex,
+					.descriptorCount = Copy->Count
+				};
+
+				gdi_bind_group_binding* DstBinding = DstLayout->Bindings.Ptr + Copy->DstBinding;
+				gdi_bind_group_binding* SrcBinding = SrcLayout->Bindings.Ptr + Copy->SrcBinding;
+
+				Assert(CopyDescriptorSet.dstArrayElement + CopyDescriptorSet.descriptorCount <= DstBinding->Count);
+				Assert(CopyDescriptorSet.srcArrayElement + CopyDescriptorSet.descriptorCount <= SrcBinding->Count);
+				
+				Dynamic_VK_Copy_Descriptor_Set_Array_Add(&DescriptorCopies, CopyDescriptorSet);
+			}
+		}
+
+		size_t DynamicSizeIndex = 0;
+		for (size_t i = 0; i < DynamicSizes.Count; i++) {
+			if (DynamicSizes.Ptr[i] != 0) {
+				DstBindGroup->DynamicSizes.Ptr[DynamicSizeIndex++] = DynamicSizes.Ptr[i];
+			}
+		}
+		Assert(DynamicSizeIndex <= DstBindGroup->DynamicSizes.Count);
+		
+		vkUpdateDescriptorSets(Context->Device, 0, NULL, (u32)DescriptorCopies.Count, DescriptorCopies.Ptr);
 		Scratch_Release();
 	}
 }
@@ -3771,6 +3828,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.CreateBindGroupFunc = VK_Create_Bind_Group,
 	.DeleteBindGroupFunc = VK_Delete_Bind_Group,
 	.WriteBindGroupFunc = VK_Write_Bind_Group,
+	.CopyBindGroupFunc = VK_Copy_Bind_Group,
 	
 	.CreateShaderFunc = VK_Create_Shader,
 	.DeleteShaderFunc = VK_Delete_Shader,

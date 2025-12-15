@@ -258,6 +258,7 @@ typedef struct {
 } vk_delete_queue;
 
 Dynamic_Array_Define(VkWriteDescriptorSet, vk_write_descriptor_set);
+Dynamic_Array_Define(VkCopyDescriptorSet, vk_copy_descriptor_set);
 
 typedef struct {
 	VkPhysicalDevice 				 PhysicalDevice;
