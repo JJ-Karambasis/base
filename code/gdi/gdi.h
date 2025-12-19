@@ -193,8 +193,8 @@ typedef struct {
 
 typedef struct {
 	gdi_device_type Type;
-	string 			DeviceName;
 	u32 			DeviceIndex;
+	string 			DeviceName;
 } gdi_device;
 Array_Define(gdi_device);
 

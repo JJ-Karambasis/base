@@ -59,7 +59,7 @@ function OS_RELEASE_MEMORY_DEFINE(Win32_Release_Memory) {
 				Atomic_Sub_U64(&Base->CommittedAmount, MemoryInfo.RegionSize);
 			}
 
-			CurrentAddress = Offset_Pointer(MemoryInfo.BaseAddress, MemoryInfo.RegionSize);
+			CurrentAddress = (u8*)Offset_Pointer(MemoryInfo.BaseAddress, MemoryInfo.RegionSize);
 		}
 
 

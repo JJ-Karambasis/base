@@ -1872,8 +1872,8 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	};
 
 	VmaAllocationCreateInfo AllocateInfo = {
-		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
-		.flags = AllocationFlags
+		.flags = AllocationFlags,
+		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
 	};
 
 	VkBuffer Handle;
@@ -4042,14 +4042,14 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	}
 
 	gdi_device_array Devices = {
-		.Count = GDI->GPUCount,
-		.Ptr = Arena_Push_Array(GDI->Base.Arena, GDI->GPUCount, gdi_device)
+		.Ptr = Arena_Push_Array(GDI->Base.Arena, GDI->GPUCount, gdi_device),
+		.Count = GDI->GPUCount
 	};
 
 	for(size_t i = 0; i < GDI->GPUCount; i++) {
 		gdi_device Device = {
-			.DeviceIndex = (u32)i,
 			.Type = VK_Get_Physical_Device_Type(GDI->GPUs[i].Properties.deviceType),
+			.DeviceIndex = (u32)i,
 			.DeviceName = String_Copy((allocator*)GDI->Base.Arena, String_Null_Term(GDI->GPUs[i].Properties.deviceName))
 		};
 		Devices.Ptr[i] = Device;
