@@ -960,9 +960,14 @@ function void VK_Semaphore_Add_To_Delete_Queue(vk_device_context* Context, vk_se
 
 function VkImageView VK_Create_Image_View(vk_device_context* Context, const VkImageViewCreateInfo* TextureViewInfo);
 function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View);
-function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swapchain, b32 AcquireNewImage) {	
+function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swapchain) {	
 	VkSurfaceCapabilitiesKHR SurfaceCaps;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Context->GPU->PhysicalDevice, Swapchain->Surface, &SurfaceCaps);
+
+	//Check if we even need to resize
+	if (Swapchain->Dim.x == (s32)SurfaceCaps.currentExtent.width && Swapchain->Dim.y == (s32)SurfaceCaps.currentExtent.height) {
+		return true;
+	}
 
 	Swapchain->Dim = V2i(SurfaceCaps.currentExtent.width, SurfaceCaps.currentExtent.height);
 
@@ -1048,18 +1053,6 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 			return false;
 		}
 	}
-
-	//todo: Can we delete these?
-#if 0 
-	if (AcquireNewImage) {
-		Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
-									   Swapchain->Locks[Context->CurrentFrame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
-		if (Status != VK_SUCCESS) {
-			GDI_Log_Error("vkAcquireNextImageKHR failed");
-			return false;
-		}
-	}
-#endif
 
 	return true;
 }
@@ -1740,8 +1733,8 @@ function GDI_BACKEND_UNMAP_BUFFER_DEFINE(VK_Unmap_Buffer) {
 
 				vk_cpu_buffer_push Upload = VkBuffer->MappedUpload;
 				VkBufferCopy Region = {
-					.dstOffset = VkBuffer->MappedOffset,
 					.srcOffset = Upload.Offset,
+					.dstOffset = VkBuffer->MappedOffset,
 					.size = VkBuffer->MappedSize
 				};
 
@@ -2621,7 +2614,7 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 		Swapchain->Format = VK_Get_GDI_Format(SurfaceFormat.format);
 	}
 
-	VK_Recreate_Swapchain(Context, Swapchain, true);
+	VK_Recreate_Swapchain(Context, Swapchain);
 
 	return Result;
 
@@ -2635,14 +2628,44 @@ function GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(VK_Delete_Swapchain) {
 	VK_Swapchain_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Swapchain);
 }
 
+function GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(VK_Resize_Swapchain);
 function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	gdi_handle Result = GDI_Null_Handle();
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, SwapchainHandle);
 	if (Swapchain) {
+		if (Swapchain->ImageIndex == -1) {
+			vk_frame_context* Frame = VK_Lock_Frame(Context);
+			VkResult Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
+													Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+			VK_Unlock_Frame(Context);
+
+			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
+				VK_Resize_Swapchain(GDI, SwapchainHandle);
+
+				Frame = VK_Lock_Frame(Context);
+				Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
+											   Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+				VK_Unlock_Frame(Context);
+			}
+
+			if (Status != VK_SUCCESS) {
+				GDI_Log_Error("vkAcquireNextImageKHR failed");
+				return Result;
+			}
+		}
+		
 		Result = Swapchain->TextureViews[Swapchain->ImageIndex];
 	}
 	return Result;
+}
+
+function GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(VK_Resize_Swapchain) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	vk_swapchain* VkSwapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchain);
+	if (VkSwapchain) {
+		VK_Recreate_Swapchain(Context, VkSwapchain);
+	}
 }
 
 function GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(VK_Get_Swapchain_Info) {
@@ -3405,15 +3428,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 							}
 
 							if (Index != (size_t)-1) {
-								vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
-								Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
-
 								if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
 									WaitStageFlags[Index] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 									VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 								} else {
 									VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 								}
+							} else {
+								//todo: Need to figure out what to do in this case
+								Not_Implemented;
 							}
 						} else {
 							if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
@@ -3469,14 +3492,6 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 											gdi_handle Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
 											vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
 											vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, TextureView->Texture);
-
-											//If we are using a swapchain texture, make sure we are using the correct
-											//swapchain texture. They can be out of sync if we have window resizes and
-											//must call vkAcquireNextImage again with a different swapchain
-											if (!GDI_Is_Null(Texture->Swapchain)) {
-												vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
-												TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[Swapchain->ImageIndex]);
-											}
 
 											ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
 											ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -3572,19 +3587,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 								}
 
 								if (Index != (size_t)-1) {
-									//If we are using a swapchain texture, make sure we are using the correct
-									//swapchain texture. They can be out of sync if we have window resizes and
-									//must call vkAcquireNextImage again with a different swapchain
-									vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Texture->Swapchain);
-									Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
-									View = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[Swapchain->ImageIndex]);
-
 									if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
 										WaitStageFlags[Index] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 										VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);
 									} else {
 										VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_RENDER_TARGET);
 									}
+								} else {
+									//todo: Need to figure out what to do in this case
+									Not_Implemented;
 								}
 							} else {
 								if (!(Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
@@ -3850,7 +3861,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 				for (size_t i = 0; i < SwapchainCount; i++) {
 					if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
 						vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
-						VK_Recreate_Swapchain(Context, Swapchain, false);
+						VK_Recreate_Swapchain(Context, Swapchain);
 					}
 				}
 			} else if (Status != VK_SUCCESS) {
@@ -3875,50 +3886,12 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		Thread->RenderPassesToDelete = NULL;
 	}
 
-	//todo: Can we delete these?
-#if 0 
-	//Acquire the swapchain image so we know what view to pass to the user land code
-	for (size_t i = 0; i < Swapchains->Count; i++) {
-		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
-		if (Swapchain && Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
-			Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
-										   Swapchain->Locks[FrameIndex].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
-			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-				VK_Recreate_Swapchain(Context, Swapchain, true);
-			} else if (Status != VK_SUCCESS) {
-				GDI_Log_Error("vkAcquireNextImageKHR failed");
-				return false;
-			}
-		}
-	}
-#endif
-
 	return true;
 }
 
 function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	arena* Scratch = Scratch_Get();
-
-	
-	u32 SwapchainCount = 0;
-	gdi_handle* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, gdi_handle);
-	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, RenderParams->Swapchains.Ptr[i]);
-		if (Swapchain) {
-			if (Swapchain->Dim.x == 0 || Swapchain->Dim.y == 0) {
-				if (VK_Recreate_Swapchain(Context, Swapchain, true)) {
-					Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
-				}
-			} else {
-				Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
-			}
-		}
-	}
-
-	gdi_handle_array Array = { .Ptr = Swapchains, .Count = SwapchainCount };
-	VK_Render_Internal(Context, &Array, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
-	Scratch_Release();
+	VK_Render_Internal(Context, &RenderParams->Swapchains, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
 }
 
 function GDI_BACKEND_SHUTDOWN_DEFINE(VK_Shutdown) {
@@ -3983,6 +3956,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.CreateSwapchainFunc = VK_Create_Swapchain,
 	.DeleteSwapchainFunc = VK_Delete_Swapchain,
 	.GetSwapchainViewFunc = VK_Get_Swapchain_View,
+	.ResizeSwapchainFunc = VK_Resize_Swapchain,
 	.GetSwapchainInfoFunc = VK_Get_Swapchain_Info,
 
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,

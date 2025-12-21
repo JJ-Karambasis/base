@@ -558,6 +558,7 @@ typedef struct {
 #define GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_swapchain_create_info* SwapchainInfo)
 #define GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_handle Swapchain)
 #define GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, gdi_handle SwapchainHandle)
+#define GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_handle Swapchain)
 #define GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(name) gdi_swapchain_info name(gdi* GDI, gdi_handle SwapchainHandle)
 
 #define GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(name) gdi_render_pass* name(gdi* GDI, const gdi_render_pass_begin_info* BeginInfo)
@@ -598,6 +599,7 @@ typedef GDI_BACKEND_DELETE_SHADER_DEFINE(gdi_backend_delete_shader_func);
 typedef GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(gdi_backend_create_swapchain_func);
 typedef GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(gdi_backend_delete_swapchain_func);
 typedef GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(gdi_backend_get_swapchain_view_func);
+typedef GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(gdi_backend_resize_swapchain_func);
 typedef GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(gdi_backend_get_swapchain_info_func);
 
 typedef GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(gdi_backend_begin_render_pass_func);
@@ -636,9 +638,10 @@ typedef struct {
 	gdi_backend_create_shader_func* CreateShaderFunc;
 	gdi_backend_delete_shader_func* DeleteShaderFunc;
 
-	gdi_backend_create_swapchain_func* CreateSwapchainFunc;
-	gdi_backend_delete_swapchain_func* DeleteSwapchainFunc;
+	gdi_backend_create_swapchain_func*   CreateSwapchainFunc;
+	gdi_backend_delete_swapchain_func*   DeleteSwapchainFunc;
 	gdi_backend_get_swapchain_view_func* GetSwapchainViewFunc;
+	gdi_backend_resize_swapchain_func*   ResizeSwapchainFunc;
 	gdi_backend_get_swapchain_info_func* GetSwapchainInfoFunc;
 
 	gdi_backend_begin_render_pass_func* BeginRenderPassFunc;
@@ -687,6 +690,7 @@ struct gdi {
 #define GDI_Backend_Create_Swapchain(info) GDI_Get()->Backend->CreateSwapchainFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Swapchain(swapchain) GDI_Get()->Backend->DeleteSwapchainFunc(GDI_Get(), swapchain)
 #define GDI_Backend_Get_Swapchain_View(swapchain) GDI_Get()->Backend->GetSwapchainViewFunc(GDI_Get(), swapchain)
+#define GDI_Backend_Resize_Swapchain(swapchain) GDI_Get()->Backend->ResizeSwapchainFunc(GDI_Get(), swapchain)
 #define GDI_Backend_Get_Swapchain_Info(swapchain) GDI_Get()->Backend->GetSwapchainInfoFunc(GDI_Get(), swapchain)
 
 #define GDI_Backend_Begin_Render_Pass(begin_info) GDI_Get()->Backend->BeginRenderPassFunc(GDI_Get(), begin_info)
@@ -760,6 +764,7 @@ export_function void GDI_Delete_Shader(gdi_handle Shader);
 export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);
 export_function void GDI_Delete_Swapchain(gdi_handle Swapchain);
 export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain);
+export_function void GDI_Resize_Swapchain(gdi_handle Swapchain);
 export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain);
 
 /* Frames */

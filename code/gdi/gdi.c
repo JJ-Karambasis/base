@@ -198,6 +198,11 @@ export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain) {
 	return Result;
 }
 
+export_function void GDI_Resize_Swapchain(gdi_handle Swapchain) {
+	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+	GDI_Backend_Resize_Swapchain(Swapchain);
+}
+
 export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain) {
 	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
 	gdi_swapchain_info Result;
