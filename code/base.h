@@ -775,13 +775,13 @@ export_function void  Heap_Clear(heap* Heap);
 typedef struct { \
 type*  Ptr; \
 size_t Count; \
-} type##_array;
+} type##_array
 
 #define Array_Define_Ptr(type) \
 typedef struct { \
 	type** Ptr; \
 	size_t Count; \
-} type##_array;
+} type##_array
 
 #define Dynamic_Array_Define(type, name) \
 typedef struct { \

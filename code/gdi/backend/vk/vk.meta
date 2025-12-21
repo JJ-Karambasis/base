@@ -221,12 +221,12 @@ META_MACRO(VK_Resource, name) {
 	}
 
 	META_FUNCTION(VK_${name:pascal}_Add_Data_To_Delete_Queue, vk_device_context* Context, vk_${name}* Object)->void {
-		OS_RW_Mutex_Read_Lock(Context->DeleteLock);
-		vk_delete_thread_context* ThreadContext = VK_Get_Delete_Thread_Context(Context->CurrentDeleteQueue);
-		vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->Arena, vk_${name}_delete_queue_entry);
+		vk_frame_context* Frame = VK_Lock_Frame(Context);
+		vk_frame_thread_context* ThreadContext = VK_Get_Frame_Thread_Context(Context, Frame);
+		vk_${name}_delete_queue_entry* Entry = Arena_Push_Struct(ThreadContext->TempArena, vk_${name}_delete_queue_entry);
 		Entry->Entry = *Object;
-		SLL_Push_Back(ThreadContext->${name:pascal}DeleteQueue.First, ThreadContext->${name:pascal}DeleteQueue.Last, Entry);
-		OS_RW_Mutex_Read_Unlock(Context->DeleteLock);
+		SLL_Push_Back(ThreadContext->DeleteQueue.${name:pascal}DeleteQueue.First, ThreadContext->DeleteQueue.${name:pascal}DeleteQueue.Last, Entry);
+		VK_Unlock_Frame(Context);
 	}
 
 	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_device_context* Context, gdi_handle Handle) -> void {
@@ -325,17 +325,16 @@ VK_Enum_Mapper(Primitive, gdi_primitive, VkPrimitiveTopology);
 VK_Enum_Mapper(Blend, gdi_blend, VkBlendFactor);
 VK_Enum_Mapper(Cull_Mode, gdi_cull_mode, VkCullModeFlags);
 
-META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_delete_thread_context* DeleteContext) -> void {
-	META_FOR(vk_delete_thread_context) {
+META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_frame_thread_context* ThreadContext) -> void {
+	vk_delete_queue* DeleteQueue = &ThreadContext->DeleteQueue;
+	META_FOR(vk_delete_queue) {
 		META_IF(META_NOT_CONTAINS_TAG(NoIteration)) {
-			for(${META_ENTRY_TYPE}_entry* QueueEntry = DeleteContext->${META_ENTRY_NAME}.First; QueueEntry; QueueEntry = QueueEntry->Next) {
+			for(${META_ENTRY_TYPE}_entry* QueueEntry = DeleteQueue->${META_ENTRY_NAME}.First; QueueEntry; QueueEntry = QueueEntry->Next) {
 				VK_Delete_${META_GET_TAG_VALUE(name):pascal}_Resources(Context, &QueueEntry->Entry);
 			}
-			Memory_Clear(&DeleteContext->${META_ENTRY_NAME}, sizeof(${META_ENTRY_TYPE}));
+			Memory_Clear(&DeleteQueue->${META_ENTRY_NAME}, sizeof(${META_ENTRY_TYPE}));
 		}
 	}
-
-	Arena_Set_Marker(DeleteContext->Arena, DeleteContext->ArenaMarker);
 }
 
 META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlags2KHR {

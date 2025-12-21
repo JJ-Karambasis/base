@@ -8,6 +8,7 @@ GDI:
 	6. Test bind group writes
 	7. Multithreading tests
 * Instancing
+* Multiple buffer maps 
 * Bind Group Copies
 * Indirect Draws
 * Mesh shaders

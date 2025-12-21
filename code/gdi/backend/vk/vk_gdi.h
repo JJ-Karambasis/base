@@ -1,13 +1,12 @@
 #ifndef VK_GDI_H
 #define VK_GDI_H
 
-#define VK_FRAME_COUNT (2)
-#define VK_MAX_TRANSFER_COUNT (VK_FRAME_COUNT+1)
-
 #define VK_COLOR_COMPONENT_ALL (VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT)
 
 typedef struct vk_gdi vk_gdi;
 typedef struct vk_device_context vk_device_context;
+typedef struct vk_frame_context vk_frame_context;
+typedef struct vk_frame_thread_context vk_frame_thread_context;
 
 #define MINIMUM_VK_CPU_BLOCK_SIZE MB(1)
 typedef struct vk_cpu_buffer_block vk_cpu_buffer_block; 
@@ -18,11 +17,11 @@ typedef enum {
 } vk_cpu_buffer_type;
 
 struct vk_cpu_buffer_block {
-	VkBuffer 	  Buffer;
-	VmaAllocation Allocation;
-	u8* 		  Start;
-	u8* 		  Current;
-	u8* 		  End;
+	VkBuffer 	  		 Buffer;
+	VmaAllocation 		 Allocation;
+	u8* 		  		 Start;
+	u8* 		  		 Current;
+	u8* 		  		 End;
 	vk_cpu_buffer_block* Next;
 };
 
@@ -97,6 +96,7 @@ typedef struct {
 	VkDeviceSize  	   Size;
 	VkDeviceSize 	   TotalSize;
 	gdi_buffer_usage   Usage;
+	vk_frame_context*  LockedFrame;
 	vk_cpu_buffer_push MappedUpload; //Used if usage is not dynamic
 	size_t 			   MappedOffset; //Used if usage is not dynamic
 	size_t 			   MappedSize; //Usage if usage is not dynamic
@@ -121,13 +121,16 @@ typedef struct {
 } vk_bind_group_binding;
 
 typedef struct {
-	VkDescriptorSet Sets[VK_FRAME_COUNT];
-	gdi_handle      Layout;
+	void* AllocationData;
+
+	//Length of the array is equal to the amount of frames in the device context
+	VkDescriptorSet* 	   Sets; 
+	vk_bind_group_binding* Bindings;
+	gdi_handle       	   Layout;
 
 	b32 ShouldUpdate;
 	u64 LastUpdatedFrame;
 
-	vk_bind_group_binding* Bindings;
 } vk_bind_group;
 
 typedef struct {
@@ -159,8 +162,6 @@ typedef struct {
 	b32 			   HasFailed;
 } vk_swapchain;
 
-typedef struct vk_delete_thread_context vk_delete_thread_context;
-
 Meta()
 typedef enum {
 	VK_RESOURCE_STATE_NONE Tags(stage: VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, access: 0, layout: VK_IMAGE_LAYOUT_UNDEFINED),
@@ -172,7 +173,6 @@ typedef enum {
 	VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE Tags(stage: VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, access: VK_ACCESS_2_SHADER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_GENERAL),
 	VK_RESOURCE_STATE_RENDER_TARGET Tags(stage: VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, access: VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR|VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
 } vk_resource_state;
-
 
 Dynamic_Array_Define(VkImageMemoryBarrier, vk_image_memory_barrier);
 Dynamic_Array_Define(VkImageMemoryBarrier2KHR, vk_image_memory_barrier2);
@@ -203,43 +203,6 @@ struct vk_texture_barrier_cmd {
 	vk_texture_barrier_cmd* Next;
 };
 
-typedef struct vk_transfer_thread_context vk_transfer_thread_context;
-struct vk_transfer_thread_context {
-	arena* 			Arena;
-	arena* 			TempArena;
-	b32 			NeedsReset;
-	VkCommandPool   CmdPool;
-	VkCommandBuffer CmdBuffer;
-	vk_cpu_buffer   UploadBuffer;
-
-	//CONFIRM(JJ): Why did we put these in the transfer thread context?
-	//Was it for the extra frame?
-	vk_render_pass* FreeRenderPasses;
-	vk_render_pass* RenderPassesToDelete;
-
-	vk_texture_barrier_cmd* FirstTextureBarrierCmd;
-	vk_texture_barrier_cmd* LastTextureBarrierCmd;
-
-	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
-	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
-
-	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
-	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
-
-	vk_transfer_thread_context* Next;
-};
-
-typedef struct {
-	os_tls* 	     ThreadContextTLS;
-	VkCommandPool    CmdPool;
-	VkCommandBuffer  CmdBuffer;
-	atomic_ptr 		 TopThread;
-
-#ifdef DEBUG_BUILD
-	VkFence DEBUGFence;
-#endif
-} vk_transfer_context;
-
 typedef struct {
 	gdi_handle Texture;
 	vk_cpu_buffer_push CPU;
@@ -257,21 +220,6 @@ typedef struct {
 Array_Define(vk_texture_readback);
 Array_Define(vk_buffer_readback);
 
-typedef struct {
-	arena* 			 Arena;
-	VkFence 		 Fence;
-	os_mutex*        FenceLock;
-	VkSemaphore      RenderLock;
-	VkSemaphore 	 TransferLock;
-	VkCommandPool    CmdPool;
-	VkCommandBuffer  CmdBuffer;
-	vk_cpu_buffer 	 ReadbackBuffer;
-	u32 			 Index;
-
-	vk_texture_readback_array TextureReadbacks;
-	vk_buffer_readback_array BufferReadbacks;
-} vk_frame_context;
-
 struct vk_semaphore {
 	VkSemaphore Handle;
 };
@@ -288,9 +236,7 @@ typedef struct {
 } vk_semaphore_delete_queue;
 
 Meta()
-struct vk_delete_thread_context {
-	arena* 							  Arena Tags(NoIteration);
-	arena_marker 					  ArenaMarker Tags(NoIteration);
+typedef struct  {
 	vk_texture_delete_queue 		  TextureDeleteQueue Tags(name: Texture);
 	vk_texture_view_delete_queue 	  Texture_ViewDeleteQueue Tags(name: Texture_View);
 	vk_buffer_delete_queue 			  BufferDeleteQueue Tags(name: Buffer);
@@ -300,13 +246,50 @@ struct vk_delete_thread_context {
 	vk_shader_delete_queue 			  ShaderDeleteQueue Tags(name: Shader);
 	vk_swapchain_delete_queue 		  SwapchainDeleteQueue Tags(name: Swapchain);
 	vk_semaphore_delete_queue 		  SemaphoreDeleteQueue Tags(name: Semaphore);
-	vk_delete_thread_context* 		  Next Tags(NoIteration);
+} vk_delete_queue;
+
+struct vk_frame_thread_context {
+	arena* 			Arena;
+	arena* 			TempArena;
+	b32    			NeedsReset;
+	VkCommandPool   CmdPool;
+	VkCommandBuffer CmdBuffer;
+	vk_cpu_buffer   UploadBuffer;
+
+	vk_render_pass* FreeRenderPasses;
+	vk_render_pass* RenderPassesToDelete;
+
+	vk_texture_barrier_cmd* FirstTextureBarrierCmd;
+	vk_texture_barrier_cmd* LastTextureBarrierCmd;
+
+	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
+	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
+
+	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
+	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
+	
+	vk_delete_queue DeleteQueue;
+
+	vk_frame_thread_context* Next;
 };
 
-typedef struct {
-	os_tls*    ThreadContextTLS;
-	atomic_ptr TopThread;
-} vk_delete_queue;
+struct vk_frame_context {
+	arena* 			TempArena;
+	os_tls* 	    ThreadContextTLS;
+	atomic_ptr 		TopThread;
+	VkFence 		Fence;
+	os_mutex*       FenceLock;
+	VkSemaphore     RenderLock;
+	VkCommandPool   CmdPool;
+	VkCommandBuffer CmdBuffer;
+	vk_cpu_buffer 	ReadbackBuffer;
+	u32 			Index;
+
+	vk_texture_readback_array TextureReadbacks;
+	vk_buffer_readback_array BufferReadbacks;
+};
+
+Array_Define(vk_frame_context);
 
 Dynamic_Array_Define(VkWriteDescriptorSet, vk_write_descriptor_set);
 Dynamic_Array_Define(VkCopyDescriptorSet, vk_copy_descriptor_set);
@@ -351,21 +334,10 @@ struct vk_device_context {
 	VkDescriptorPool DescriptorPool;
 
 	//Frames
-	u64 			  ReadbackFrameIndex;
-	atomic_u64 		  FrameIndex;
-	vk_frame_context  Frames[VK_FRAME_COUNT];
-	vk_frame_context* CurrentFrame;
-
-	//Deletes
-	os_rw_mutex* 	 DeleteLock;
-	vk_delete_queue  DeleteQueues[VK_FRAME_COUNT];
-	vk_delete_queue* CurrentDeleteQueue;
-
-	//Transfers
-	os_rw_mutex* 		 TransferLock;
-	u64 				 TransferIndex;
-	vk_transfer_context  Transfers[VK_MAX_TRANSFER_COUNT];
-	vk_transfer_context* CurrentTransfer;
+	u64 			  	   ReadbackFrameCount;
+	atomic_u64 		  	   FrameCount; //Keep this atomic for the readback thread to read
+	os_rw_mutex* 	  	   FrameLock;
+	vk_frame_context_array Frames;
 };
 
 struct vk_gdi {

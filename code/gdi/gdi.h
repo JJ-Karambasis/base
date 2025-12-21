@@ -509,6 +509,7 @@ typedef struct {
 typedef struct {
 	base* 			  Base;
 	gdi_log_callbacks LogCallbacks;
+	u32 			  FramesInFlight;
 } gdi_init_info;
 
 typedef struct gdi gdi;
@@ -650,6 +651,7 @@ typedef struct {
 struct gdi {
 	gdi_backend_vtable*   Backend;
 	arena* 				  Arena;
+	u32 				  FramesInFlight;
 	gdi_device_array 	  Devices;
 	gdi_device_context*   DeviceContext;
 };
