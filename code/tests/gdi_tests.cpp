@@ -170,9 +170,10 @@ function b32 GPU_Buffer_Create(gpu_buffer* Buffer, const gpu_buffer_create_info&
     if(GDI_Is_Null(Handle)) return false;
 
     gdi_bind_group_buffer BindGroupBuffer = { .Buffer = Handle };
-    gdi_bind_group_create_info BindGroupInfo = {
-        .Layout = Tests->BufferLayout,
-        .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1}
+	gdi_bind_group_write Write = { .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1 } };
+	gdi_bind_group_create_info BindGroupInfo = {
+		.Layout = Tests->BufferLayout,
+		.Writes = { .Ptr = &Write, .Count = 1 }
     };
 
     gdi_handle BindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
@@ -718,35 +719,33 @@ UTEST(gdi, BindlessTextureTest) {
         }
     }
 
-    //Then write to the bindless bind group
-    {
-        gdi_bind_group_create_info BindGroupInfo = {
-            .Layout = Layout
-        };
-        BindlessTextureBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
-        ASSERT_FALSE(GDI_Is_Null(BindlessTextureBindGroup));
+	//Then write to the bindless bind group
+	{
+		gdi_bind_group_create_info BindGroupInfo = {
+			.Layout = Layout
+		};
+		BindlessTextureBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(BindlessTextureBindGroup));
 
-        gdi_bind_group_write Writes[Array_Count(BindlessTextures)+1] = {};
-        for(u32 i = 0; i < Array_Count(BindlessTextures); i++) {
-            gdi_bind_group_write Write = {
-                .Binding = 0,
-                .Index = BindlessTextureIndices[i],
-                .TextureViews = { .Ptr = &BindlessTextures[i].View, .Count = 1}
-            };
-            Writes[i] = Write;
-        }
+		gdi_bind_group_write Writes[Array_Count(BindlessTextures) + 1] = {};
+		for (u32 i = 0; i < Array_Count(BindlessTextures); i++) {
+			gdi_bind_group_write Write = {
+				.DstBindGroup = BindlessTextureBindGroup,
+				.DstBinding = 0,
+				.DstIndex = BindlessTextureIndices[i],
+				.TextureViews = { .Ptr = &BindlessTextures[i].View, .Count = 1 }
+			};
+			Writes[i] = Write;
+		}
 
-        Writes[Array_Count(BindlessTextures)] = {
-            .Binding = 1,
-            .Index = 0,
-            .Samplers = { .Ptr = &BindlessSamplers[0], .Count = 1}
-        };
+		Writes[Array_Count(BindlessTextures)] = {
+			.DstBindGroup = BindlessTextureBindGroup,
+			.DstBinding = 1,
+			.DstIndex = 0,
+			.Samplers = { .Ptr = &BindlessSamplers[0], .Count = 1 }
+		};
 
-        gdi_bind_group_write_info WriteInfo = {
-            .Writes = { .Ptr = Writes, .Count = Array_Count(Writes) }
-        };
-
-        GDI_Write_Bind_Group(BindlessTextureBindGroup, &WriteInfo);
+		GDI_Update_Bind_Groups( { .Ptr = Writes, .Count = Array_Count(Writes) }, {});
     }
     
     //Iterate, render, and test
@@ -1192,9 +1191,10 @@ UTEST(gdi, ComputeRenderTest) {
         ASSERT_FALSE(GDI_Is_Null(BindlessBuffer));
 
         gdi_bind_group_buffer BindGroupBuffer = { .Buffer = BindlessBuffer };
-        gdi_bind_group_create_info BindGroupInfo = {
+		gdi_bind_group_write Writes = { .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = {
             .Layout = ComputeLayout,
-            .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1}
+            .Writes = { .Ptr = &Writes, .Count = 1}
         };
 
         BindlessBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
@@ -1219,14 +1219,15 @@ UTEST(gdi, ComputeRenderTest) {
     gdi_handle TextureBindGroup;
     gdi_handle TextureBindGroupSwitch;
     {
+		gdi_bind_group_write Writes = { .TextureViews = { .Ptr = &ComputeTexture.View, .Count = 1 } };
         gdi_bind_group_create_info BindGroupInfo = {
-            .Layout = RenderLayout,
-            .TextureViews = { .Ptr = &ComputeTexture.View, .Count = 1}
+			.Layout = RenderLayout,
+			.Writes = { .Ptr = &Writes, .Count = 1 }
         };
         TextureBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
         ASSERT_FALSE(GDI_Is_Null(TextureBindGroup));
 
-        BindGroupInfo.TextureViews.Ptr = &RenderTexture.View;
+		Writes.TextureViews.Ptr = &RenderTexture.View;
         TextureBindGroupSwitch = GDI_Create_Bind_Group(&BindGroupInfo);
         ASSERT_FALSE(GDI_Is_Null(TextureBindGroup));
     }
@@ -1419,7 +1420,7 @@ UTEST(gdi, DynamicBufferTest) {
 	gdi_handle Layout;
 	{
 		gdi_bind_group_binding Bindings[] = {
-			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC, .Count = 1}
+			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1}
 		};
 
 		gdi_bind_group_layout_create_info CreateInfo = {
@@ -1481,9 +1482,10 @@ UTEST(gdi, DynamicBufferTest) {
         ASSERT_FALSE(GDI_Is_Null(BindlessBuffer));
 
         gdi_bind_group_buffer BindGroupBuffer = { .Buffer = BindlessBuffer };
-        gdi_bind_group_create_info BindGroupInfo = {
+		gdi_bind_group_write Write = { .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = {
             .Layout = Layout,
-            .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1}
+            .Writes = { .Ptr = &Write, .Count = 1}
         };
 
         BindlessBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
@@ -1499,8 +1501,8 @@ UTEST(gdi, DynamicBufferTest) {
 		box_data* BoxData = Arena_Push_Array(Scratch.Arena, BoxDataCount, box_data);
 
 		v2i P = V2i(0, -8)+Offset;
-        for(size_t i = 0; i < BoxDataCount; i++) {
-            if((i % 8) == 0) {
+        for(size_t j = 0; j < BoxDataCount; j++) {
+            if((j % 8) == 0) {
                 P.y += 8;
                 P.x = 0;
             }
@@ -1508,7 +1510,7 @@ UTEST(gdi, DynamicBufferTest) {
             v2i Min = P;
             v2i Max = Min+4;
 
-            BoxData[i] = {
+            BoxData[j] = {
                 .MinMax = V4i(Min.x, Min.y, Max.x, Max.y),
                 .Color = V4(Random32_UNorm(), Random32_UNorm(), Random32_UNorm(), 1.0f)
             };
@@ -1516,7 +1518,7 @@ UTEST(gdi, DynamicBufferTest) {
             P.x += 8;
         }
 
-		void* MappedData = GDI_Map_Buffer(BindlessBuffer);
+		void* MappedData = GDI_Map_Buffer(BindlessBuffer, 0, 0);
 		Memory_Copy(MappedData, BoxData, BoxDataCount * sizeof(box_data));
 		GDI_Unmap_Buffer(BindlessBuffer);
 
@@ -1558,6 +1560,278 @@ UTEST(gdi, DynamicBufferTest) {
 
 	GDI_Delete_Buffer(BindlessBuffer);
 	GDI_Delete_Bind_Group(BindlessBindGroup);
+	Texture_Delete(&Texture);
+	GDI_Delete_Shader(Shader);
+	GDI_Delete_Bind_Group_Layout(Layout);
+}
+
+UTEST(gdi, DynamicBindGroupCopyTest) {
+	struct const_data {
+        s32 BoxCount;
+    };
+
+	scratch Scratch;
+
+	//First create the layout
+	gdi_handle Layout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1}
+		};
+
+		gdi_bind_group_layout_create_info CreateInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings)}
+		};
+
+		Layout = GDI_Create_Bind_Group_Layout(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(Layout));
+	}
+
+    //Then create the shader
+    gdi_handle Shader;
+	{
+		const char* ShaderCode = G_BoxRectShader;
+
+		IDxcBlob* CompShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CompShader);
+
+		gdi_bind_group_binding Binding = {
+			.Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
+			.Count = 1
+		};
+
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CompShader->GetBufferPointer(), .Size = CompShader->GetBufferSize()},
+			.BindGroupLayouts = { .Ptr = &Layout, .Count = 1 },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1},
+			.PushConstantCount = sizeof(const_data)/sizeof(u32),
+			.DebugName = String_Lit("Compute Shader")
+		};
+
+		Shader = GDI_Create_Shader(&CreateInfo);
+            
+		ASSERT_FALSE(GDI_Is_Null(Shader));
+
+		CompShader->Release();
+	}
+
+	texture Texture;
+    ASSERT_TRUE(Texture_Create(&Texture, {
+        .Format = GDI_FORMAT_R8G8B8A8_UNORM,
+        .Dim = V2i(64, 64),
+        .Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+    }));
+
+    gdi_texture_info TextureInfo = GDI_Get_Texture_Info(Texture.Handle);
+
+
+	static const size_t FrameCount  = 5;
+	static const size_t BufferCount = 5;
+	static const size_t BufferIterations = 5;
+
+	u32    BoxDataCount = 64;
+	size_t BufferSize = BoxDataCount * sizeof(box_data);
+
+	gdi_handle Buffer;
+	gdi_handle BufferBindGroup[BufferCount];
+	gdi_handle ShaderBindGroup;
+	{
+		gdi_buffer_create_info BufferInfo = {
+			.Size = BufferSize*BufferCount,
+			.Usage = GDI_BUFFER_USAGE_STORAGE|GDI_BUFFER_USAGE_DYNAMIC
+		};
+
+		Buffer = GDI_Create_Buffer(&BufferInfo);
+		ASSERT_FALSE(GDI_Is_Null(Buffer));
+
+		for (size_t i = 0; i < BufferCount; i++) {
+			gdi_bind_group_buffer BindGroupBuffer = {
+				.Buffer = Buffer,
+				.Offset = BufferSize * i,
+				.Size = BufferSize
+			};
+
+			gdi_bind_group_write Write = { .Buffers = { .Ptr = &BindGroupBuffer, .Count = 1 } };
+			gdi_bind_group_create_info BindGroupInfo = {
+				.Layout = Layout,
+				.Writes = { .Ptr = &Write, .Count = 1 }
+			};
+
+			BufferBindGroup[i] = GDI_Create_Bind_Group(&BindGroupInfo);
+			ASSERT_FALSE(GDI_Is_Null(BufferBindGroup[i]));
+		}
+
+		gdi_bind_group_create_info ShaderGroupInfo = {
+			.Layout = Layout
+		};
+		ShaderBindGroup = GDI_Create_Bind_Group(&ShaderGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(ShaderBindGroup));
+	}
+
+	os_event* Event = OS_Event_Create();
+
+	//First check writes
+	for (size_t i = 0; i < FrameCount; i++) {
+		for (size_t j = 0; j < BufferCount; j++) {
+			gdi_bind_group_buffer BindGroupBuffer = {
+				.Buffer = Buffer,
+				.Offset = BufferSize * j,
+				.Size = BufferSize
+			};
+
+			gdi_bind_group_write Write = {
+				.DstBindGroup = ShaderBindGroup,
+				.Buffers = { .Ptr = &BindGroupBuffer, .Count = 1 }
+			};
+
+			GDI_Update_Bind_Groups({ .Ptr = &Write, .Count = 1 }, { });
+
+			for (size_t k = 0; k < BufferIterations; k++) {
+				v2i Offset = V2i((s32)((k % 2 == 0) ? k * 3 : 0), (s32)((k % 2 == 1) ? k * 3 : 0));
+				box_data* BoxData = Arena_Push_Array(Scratch.Arena, BoxDataCount, box_data);
+
+				v2i P = V2i(0, -8)+Offset;
+				for(size_t b = 0; b < BoxDataCount; b++) {
+					if((b % 8) == 0) {
+						P.y += 8;
+						P.x = 0;
+					}
+            
+					v2i Min = P;
+					v2i Max = Min+4;
+
+					BoxData[b] = {
+						.MinMax = V4i(Min.x, Min.y, Max.x, Max.y),
+						.Color = V4(Random32_UNorm(), Random32_UNorm(), Random32_UNorm(), 1.0f)
+					};
+
+					P.x += 8;
+				}
+
+				void* MappedData = GDI_Map_Buffer(Buffer, BufferSize*j, BufferSize);
+				Memory_Copy(MappedData, BoxData, BoxDataCount * sizeof(box_data));
+				GDI_Unmap_Buffer(Buffer);
+
+				const_data ConstData = {
+					.BoxCount = (s32)BoxDataCount
+				};
+
+				gdi_dispatch Dispatch = {
+					.Shader = Shader,
+					.BindGroups = { ShaderBindGroup },
+					.PushConstantCount = sizeof(const_data)/sizeof(u32),
+					.ThreadGroupCount = V3i(Ceil_U32((f32)TextureInfo.Dim.x/8.0f), Ceil_U32((f32)TextureInfo.Dim.y/8.0f), 1)
+				};
+				Memory_Copy(Dispatch.PushConstants, &ConstData, sizeof(const_data));
+				GDI_Submit_Compute_Pass({.Ptr = &Texture.View, .Count = 1}, {}, { .Ptr = &Dispatch, .Count = 1});
+	
+				simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
+				TestContext->BoxData = BoxData;
+				TestContext->BoxCount = BoxDataCount;
+				TestContext->FrameIndex = j*BufferCount+k;
+				TestContext->FrameCount = BufferCount*BufferIterations;
+				TestContext->Event = Event;
+
+				gdi_texture_readback TextureReadback = {
+					.Texture = Texture.Handle,
+					.UserData = TestContext,
+					.ReadbackFunc = Simple_Dynamic_Buffer_Readback
+				};
+
+				gdi_render_params RenderParams = {
+					.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1}
+				};
+
+				GDI_Render(&RenderParams);
+			}
+		}
+		
+		OS_Event_Wait(Event);
+		OS_Event_Reset(Event);
+	}
+
+	//Then check copies
+	for (size_t i = 0; i < FrameCount; i++) {
+		for (size_t j = 0; j < BufferCount; j++) {
+			gdi_bind_group_copy Copy = {
+				.DstBindGroup = ShaderBindGroup,
+				.SrcBindGroup = BufferBindGroup[j],
+				.Count = 1
+			};
+
+			GDI_Update_Bind_Groups({}, { .Ptr = &Copy, .Count = 1 });
+
+			for (size_t k = 0; k < BufferIterations; k++) {
+				v2i Offset = V2i((s32)((k % 2 == 0) ? k * 3 : 0), (s32)((k % 2 == 1) ? k * 3 : 0));
+				box_data* BoxData = Arena_Push_Array(Scratch.Arena, BoxDataCount, box_data);
+
+				v2i P = V2i(0, -8)+Offset;
+				for(size_t b = 0; b < BoxDataCount; b++) {
+					if((b % 8) == 0) {
+						P.y += 8;
+						P.x = 0;
+					}
+            
+					v2i Min = P;
+					v2i Max = Min+4;
+
+					BoxData[b] = {
+						.MinMax = V4i(Min.x, Min.y, Max.x, Max.y),
+						.Color = V4(Random32_UNorm(), Random32_UNorm(), Random32_UNorm(), 1.0f)
+					};
+
+					P.x += 8;
+				}
+
+				void* MappedData = GDI_Map_Buffer(Buffer, BufferSize*j, BufferSize);
+				Memory_Copy(MappedData, BoxData, BoxDataCount * sizeof(box_data));
+				GDI_Unmap_Buffer(Buffer);
+
+				const_data ConstData = {
+					.BoxCount = (s32)BoxDataCount
+				};
+
+				gdi_dispatch Dispatch = {
+					.Shader = Shader,
+					.BindGroups = { ShaderBindGroup },
+					.PushConstantCount = sizeof(const_data)/sizeof(u32),
+					.ThreadGroupCount = V3i(Ceil_U32((f32)TextureInfo.Dim.x/8.0f), Ceil_U32((f32)TextureInfo.Dim.y/8.0f), 1)
+				};
+				Memory_Copy(Dispatch.PushConstants, &ConstData, sizeof(const_data));
+				GDI_Submit_Compute_Pass({.Ptr = &Texture.View, .Count = 1}, {}, { .Ptr = &Dispatch, .Count = 1});
+	
+				simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
+				TestContext->BoxData = BoxData;
+				TestContext->BoxCount = BoxDataCount;
+				TestContext->FrameIndex = j*BufferCount+k;
+				TestContext->FrameCount = BufferCount*BufferIterations;
+				TestContext->Event = Event;
+
+				gdi_texture_readback TextureReadback = {
+					.Texture = Texture.Handle,
+					.UserData = TestContext,
+					.ReadbackFunc = Simple_Dynamic_Buffer_Readback
+				};
+
+				gdi_render_params RenderParams = {
+					.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1}
+				};
+
+				GDI_Render(&RenderParams);
+			}
+		}
+		
+		OS_Event_Wait(Event);
+		OS_Event_Reset(Event);
+	}
+
+	OS_Event_Delete(Event);
+
+	for (size_t i = 0; i < Array_Count(BufferBindGroup); i++) {
+		GDI_Delete_Bind_Group(BufferBindGroup[i]);
+	}
+	GDI_Delete_Bind_Group(ShaderBindGroup);
+	GDI_Delete_Buffer(Buffer);
 	Texture_Delete(&Texture);
 	GDI_Delete_Shader(Shader);
 	GDI_Delete_Bind_Group_Layout(Layout);

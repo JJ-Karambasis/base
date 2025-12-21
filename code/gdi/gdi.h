@@ -92,14 +92,12 @@ typedef enum {
 
 Meta()
 typedef enum {
-	GDI_BIND_GROUP_TYPE_NONE Tags(vk: -1, is_writable: false),
-	GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, is_writable: false),
-	GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, is_writable: false),
-	GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER, is_writable: false),
-	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, is_writable: true),
-	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, is_writable: true),
-	GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, is_writable: true, dynamic),
-	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, is_writable: true, dynamic)
+	GDI_BIND_GROUP_TYPE_NONE Tags(vk: -1),
+	GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer),
+	GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, texture),
+	GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER),
+	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, writable, buffer),
+	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, writable, texture)
 } gdi_bind_group_type;
 
 Meta()
@@ -254,17 +252,12 @@ typedef struct {
 } gdi_bind_group_buffer;
 Array_Define(gdi_bind_group_buffer);
 
-typedef struct {
-	gdi_handle Layout;
-	gdi_bind_group_buffer_array Buffers;
-	gdi_handle_array TextureViews;
-	gdi_handle_array Samplers;
-	string 			 DebugName;
-} gdi_bind_group_create_info;
 
 typedef struct {
-	u32 						Binding;
-	u32 						Index;
+	gdi_handle DstBindGroup;
+	u32 	   DstBinding;
+	u32 	   DstIndex;
+
 	gdi_bind_group_buffer_array Buffers;
 	gdi_handle_array 			TextureViews;
 	gdi_handle_array 			Samplers;
@@ -276,6 +269,7 @@ typedef struct {
 } gdi_bind_group_write_info;
 
 typedef struct {
+	gdi_handle DstBindGroup;
 	u32 	   DstBinding;
 	u32 	   DstIndex;
 	gdi_handle SrcBindGroup;
@@ -288,6 +282,13 @@ Array_Define(gdi_bind_group_copy);
 typedef struct {
 	gdi_bind_group_copy_array Copies;
 } gdi_bind_group_copy_info;
+
+typedef struct {
+	gdi_handle 				   Layout;
+	gdi_bind_group_write_array Writes;
+	gdi_bind_group_copy_array  Copies;
+	string 			 		   DebugName;
+} gdi_bind_group_create_info;
 
 typedef struct {
 	string     Semantic;
@@ -537,7 +538,7 @@ typedef struct {
 
 #define GDI_BACKEND_CREATE_BUFFER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_buffer_create_info* BufferInfo)
 #define GDI_BACKEND_DELETE_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_handle Buffer)
-#define GDI_BACKEND_MAP_BUFFER_DEFINE(name) void* name(gdi* GDI, gdi_handle Buffer)
+#define GDI_BACKEND_MAP_BUFFER_DEFINE(name) void* name(gdi* GDI, gdi_handle Buffer, size_t Offset, size_t Size)
 #define GDI_BACKEND_UNMAP_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_handle Buffer)
 
 #define GDI_BACKEND_CREATE_SAMPLER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_sampler_create_info* SamplerInfo)
@@ -548,8 +549,7 @@ typedef struct {
 
 #define GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_bind_group_create_info* BindGroupInfo)
 #define GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroup)
-#define GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroupHandle, const gdi_bind_group_write_info* BindGroupWriteInfo)
-#define GDI_BACKEND_COPY_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroup, const gdi_bind_group_copy_info* CopyInfo)
+#define GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(name) void name(gdi* GDI, gdi_bind_group_write_array Writes, gdi_bind_group_copy_array Copies)
 
 #define GDI_BACKEND_CREATE_SHADER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_shader_create_info* ShaderInfo)
 #define GDI_BACKEND_DELETE_SHADER_DEFINE(name) void name(gdi* GDI, gdi_handle Shader)
@@ -589,8 +589,7 @@ typedef GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(gdi_backend_delete_bind_grou
 
 typedef GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(gdi_backend_create_bind_group_func);
 typedef GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(gdi_backend_delete_bind_group_func);
-typedef GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(gdi_backend_write_bind_group_func);
-typedef GDI_BACKEND_COPY_BIND_GROUP_DEFINE(gdi_backend_copy_bind_group_func);
+typedef GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(gdi_backend_update_bind_groups_func);
 
 typedef GDI_BACKEND_CREATE_SHADER_DEFINE(gdi_backend_create_shader_func);
 typedef GDI_BACKEND_DELETE_SHADER_DEFINE(gdi_backend_delete_shader_func);
@@ -629,10 +628,9 @@ typedef struct {
 	gdi_backend_create_bind_group_layout_func* CreateBindGroupLayoutFunc;
 	gdi_backend_delete_bind_group_layout_func* DeleteBindGroupLayoutFunc;
 
-	gdi_backend_create_bind_group_func* CreateBindGroupFunc;
-	gdi_backend_delete_bind_group_func* DeleteBindGroupFunc;
-	gdi_backend_write_bind_group_func*  WriteBindGroupFunc;
-	gdi_backend_copy_bind_group_func*   CopyBindGroupFunc;
+	gdi_backend_create_bind_group_func*  CreateBindGroupFunc;
+	gdi_backend_delete_bind_group_func*  DeleteBindGroupFunc;
+	gdi_backend_update_bind_groups_func* UpdateBindGroupsFunc;
 
 	gdi_backend_create_shader_func* CreateShaderFunc;
 	gdi_backend_delete_shader_func* DeleteShaderFunc;
@@ -668,7 +666,7 @@ struct gdi {
 
 #define GDI_Backend_Create_Buffer(info) GDI_Get()->Backend->CreateBufferFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Buffer(buffer) GDI_Get()->Backend->DeleteBufferFunc(GDI_Get(), buffer)
-#define GDI_Backend_Map_Buffer(buffer) GDI_Get()->Backend->MapBufferFunc(GDI_Get(), buffer)
+#define GDI_Backend_Map_Buffer(buffer, offset, size) GDI_Get()->Backend->MapBufferFunc(GDI_Get(), buffer, offset, size)
 #define GDI_Backend_Unmap_Buffer(buffer) GDI_Get()->Backend->UnmapBufferFunc(GDI_Get(), buffer)
 
 #define GDI_Backend_Create_Sampler(info) GDI_Get()->Backend->CreateSamplerFunc(GDI_Get(), info)
@@ -679,8 +677,7 @@ struct gdi {
 
 #define GDI_Backend_Create_Bind_Group(info) GDI_Get()->Backend->CreateBindGroupFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Bind_Group(bind_group) GDI_Get()->Backend->DeleteBindGroupFunc(GDI_Get(), bind_group)
-#define GDI_Backend_Write_Bind_Group(bind_group, write_info) GDI_Get()->Backend->WriteBindGroupFunc(GDI_Get(), bind_group, write_info)
-#define GDI_Backend_Copy_Bind_Group(bind_group, copy_info) GDI_Get()->Backend->CopyBindGroupFunc(GDI_Get(), bind_group, copy_info)
+#define GDI_Backend_Update_Bind_Groups(writes, copies) GDI_Get()->Backend->UpdateBindGroupsFunc(GDI_Get(), writes, copies)
 
 #define GDI_Backend_Create_Shader(info) GDI_Get()->Backend->CreateShaderFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Shader(shader) GDI_Get()->Backend->DeleteShaderFunc(GDI_Get(), shader)
@@ -747,7 +744,7 @@ export_function void GDI_Delete_Texture_View(gdi_handle TextureView);
 export_function gdi_handle GDI_Get_Texture_View_Texture(gdi_handle TextureView);
 export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo);
 export_function void GDI_Delete_Buffer(gdi_handle Buffer);
-export_function void* GDI_Map_Buffer(gdi_handle Buffer);
+export_function void* GDI_Map_Buffer(gdi_handle Buffer, size_t Offset, size_t Size);
 export_function void GDI_Unmap_Buffer(gdi_handle Buffer);
 export_function gdi_handle GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo);
 export_function void GDI_Delete_Sampler(gdi_handle Sampler);
@@ -755,8 +752,7 @@ export_function gdi_handle GDI_Create_Bind_Group_Layout(const gdi_bind_group_lay
 export_function void GDI_Delete_Bind_Group_Layout(gdi_handle BindGroupLayout);
 export_function gdi_handle GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo);
 export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup);
-export_function void GDI_Write_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_write_info* BindGroupWriteInfo);
-export_function void GDI_Copy_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_copy_info* CopyInfo);
+export_function void GDI_Update_Bind_Groups(gdi_bind_group_write_array Writes, gdi_bind_group_copy_array Copies);
 export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
 export_function void GDI_Delete_Shader(gdi_handle Shader);
 export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);

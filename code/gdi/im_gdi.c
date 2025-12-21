@@ -28,15 +28,15 @@ function im_gdi* IM_GDI_Get() {
 			}
 		}
 
-		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer);
-		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer);
+		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer, 0, 0);
+		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer, 0, 0);
 
 		OS_TLS_Set(Context->IMThreadLocalStorage, Result);
 	}
 
 	if (Result->IsReset) {
-		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer);
-		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer);
+		Result->VtxBufferPtr = (u8*)GDI_Map_Buffer(Result->VtxBuffer, 0, 0);
+		Result->IdxBufferPtr = (u8*)GDI_Map_Buffer(Result->IdxBuffer, 0, 0);
 		Result->IsReset = false;
 	}
 

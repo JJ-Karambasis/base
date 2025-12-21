@@ -12,6 +12,7 @@
 UTEST_STATE();
 int main(int ArgCount, const char** Args) {
 	base* Base = Base_Init();
+	GDI_Get_Tests();
 	int Result = utest_main(ArgCount, Args);
 	GDI_Delete_Tests();
 	os_memory_stats MemoryStats = Base_Shutdown();

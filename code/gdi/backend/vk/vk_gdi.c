@@ -29,6 +29,7 @@ Dynamic_Array_Implement(vk_write_descriptor_set, VkWriteDescriptorSet, VK_Write_
 Dynamic_Array_Implement(vk_copy_descriptor_set, VkCopyDescriptorSet, VK_Copy_Descriptor_Set);
 Array_Implement(vk_texture_readback, VK_Texture_Readback);
 Array_Implement(vk_buffer_readback, VK_Buffer_Readback);
+Array_Implement(gdi_bind_group_buffer, GDI_Bind_Group_Buffer);
 
 global string G_RequiredInstanceExtensions[] = {
 	String_Expand(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME),
@@ -670,6 +671,10 @@ function vk_transfer_thread_context* VK_Get_Transfer_Thread_Context(vk_device_co
 
 		ThreadContext->FirstTextureBarrierCmd = NULL;
 		ThreadContext->LastTextureBarrierCmd = NULL;
+		ThreadContext->FirstBindGroupWriteCmd = NULL;
+		ThreadContext->LastBindGroupWriteCmd = NULL;
+		ThreadContext->FirstBindGroupCopyCmd = NULL;
+		ThreadContext->LastBindGroupCopyCmd = NULL;
 	}
 
 	return ThreadContext;
@@ -729,12 +734,25 @@ function void VK_Delete_Bind_Group_Layout_Resources(vk_device_context* Context, 
 }
 
 function void VK_Delete_Bind_Group_Resources(vk_device_context* Context, vk_bind_group* BindGroup) {
-	if (BindGroup->Set != VK_NULL_HANDLE) {
-		OS_Mutex_Lock(Context->DescriptorLock);
-		vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, 1, &BindGroup->Set);
-		OS_Mutex_Unlock(Context->DescriptorLock);
-		BindGroup->Set = VK_NULL_HANDLE;
+	if (BindGroup->Bindings) {
+		Allocator_Free_Memory(Default_Allocator_Get(), BindGroup->Bindings);
+		BindGroup->Bindings = NULL;
 	}
+
+	u32 SetCount = 0;
+	VkDescriptorSet Sets[VK_FRAME_COUNT];
+	for (size_t i = 0; i < VK_FRAME_COUNT; i++) {
+		if (BindGroup->Sets[i]) {
+			Sets[SetCount++] = BindGroup->Sets[i];
+		}
+	}
+
+	if (SetCount) {
+		OS_Mutex_Lock(Context->DescriptorLock);
+		vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, SetCount, Sets);
+		OS_Mutex_Unlock(Context->DescriptorLock);
+	}
+	Memory_Clear(BindGroup->Sets, sizeof(BindGroup->Sets));
 }
 
 function void VK_Delete_Shader_Resources(vk_device_context* Context, vk_shader* Shader) {
@@ -827,8 +845,15 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	vkGetPhysicalDeviceFeatures2KHR(PhysicalDevice, Features);
 
 	b32 HasFeatures = true;
-	if (!DescriptorIndexingFeature->descriptorBindingSampledImageUpdateAfterBind) {
+	if (!DescriptorIndexingFeature->descriptorBindingSampledImageUpdateAfterBind ||
+		!DescriptorIndexingFeature->descriptorBindingStorageBufferUpdateAfterBind ||
+		!DescriptorIndexingFeature->descriptorBindingStorageImageUpdateAfterBind) {
 		GDI_Log_Warning("Missing vulkan feature 'Descriptor Indexing' for device '%s'", DeviceProperties.deviceName);
+		HasFeatures = false;
+	}
+
+	if (!Robustness2Features->nullDescriptor) {
+		GDI_Log_Warning("Missing vulkan feature 'Robustness 2' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
 
@@ -919,7 +944,6 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				GPU->GraphicsQueueFamilyIndex = GraphicsQueueFamilyIndex;
 				GPU->PresentQueueFamilyIndex = PresentQueueFamilyIndex;
 				GPU->Features = Features;
-				GPU->HasNullDescriptorFeature = Robustness2Features->nullDescriptor;
 
 				Result = true;
 			} else {
@@ -1787,15 +1811,23 @@ function GDI_BACKEND_MAP_BUFFER_DEFINE(VK_Map_Buffer) {
 	vk_frame_context* Frame = Context->CurrentFrame;
 	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Buffer);
 
+	if (Size == 0) {
+		Size = VkBuffer->Size - Offset;
+	}
+
+	Assert(Offset + Size <= VkBuffer->Size);
+
 	if (VkBuffer) {
 		if (VkBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
-			return VkBuffer->MappedPtr + (VkBuffer->Size * Frame->Index);
+			return VkBuffer->MappedPtr + (VkBuffer->Size * Frame->Index) + Offset;
 		} else {
 			OS_RW_Mutex_Read_Lock(Context->TransferLock);
 			vk_transfer_context* Transfer = Context->CurrentTransfer;
 			vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
-			vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, VkBuffer->Size);
+			vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, Size);
 			VkBuffer->MappedUpload = Upload;
+			VkBuffer->MappedOffset = Offset;
+			VkBuffer->MappedSize = Size;
 			return Upload.Ptr;
 		}
 	}
@@ -1817,8 +1849,9 @@ function GDI_BACKEND_UNMAP_BUFFER_DEFINE(VK_Unmap_Buffer) {
 
 				vk_cpu_buffer_push Upload = VkBuffer->MappedUpload;
 				VkBufferCopy Region = {
+					.dstOffset = VkBuffer->MappedOffset,
 					.srcOffset = Upload.Offset,
-					.size = VkBuffer->Size
+					.size = VkBuffer->MappedSize
 				};
 
 				vkCmdCopyBuffer(ThreadContext->CmdBuffer, Upload.Buffer, VkBuffer->Buffer, 1, &Region);
@@ -1955,28 +1988,23 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	VkDescriptorSetLayoutBinding* Bindings = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorSetLayoutBinding);
 	VkDescriptorBindingFlagsEXT* BindingFlags = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorBindingFlagsEXT);
 	
-	size_t DynamicBindingCount = 0;
 	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
+		gdi_bind_group_binding* Binding = BindGroupLayoutInfo->Bindings.Ptr + i;
 
-		VkDescriptorSetLayoutBinding Binding = {
+		VkDescriptorSetLayoutBinding LayoutBinding = {
 			.binding = (u32)i,
-			.descriptorType = VK_Get_Descriptor_Type(BindGroupLayoutInfo->Bindings.Ptr[i].Type),
-			.descriptorCount = BindGroupLayoutInfo->Bindings.Ptr[i].Count,
+			.descriptorType = VK_Get_Descriptor_Type(Binding->Type),
+			.descriptorCount = Binding->Count,
 			.stageFlags = VK_SHADER_STAGE_ALL
 		};
 
-		if (GDI_Is_Bind_Group_Type_Dynamic(BindGroupLayoutInfo->Bindings.Ptr[i].Type)) {
-			DynamicBindingCount++;
-		}
+		Bindings[i] = LayoutBinding;
 
-		Bindings[i] = Binding;
-
-		VkDescriptorBindingFlagsEXT BindingFlag = 0;
-		if (BindGroupLayoutInfo->Bindings.Ptr[i].Type != GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER &&
-			!GDI_Is_Bind_Group_Type_Dynamic(BindGroupLayoutInfo->Bindings.Ptr[i].Type)) {
-			BindingFlag = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
-		}
-
+		//For some reason, the feature descriptorBindingUniformBufferUpdateAfterBind in the
+		//VK_EXT_descriptor_indexing extension has significantly smaller support than the other
+		//types, thus we will not be able to update descriptor bindings concurrently with the
+		//constant buffer bind group type 
+		VkDescriptorBindingFlagsEXT BindingFlag = Binding->Type == GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER ? 0 : VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
 		BindingFlags[i] = BindingFlag;
 	}
 
@@ -2009,7 +2037,6 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, Result);
 	Layout->Layout = SetLayout;
 	Layout->Bindings = GDI_Bind_Group_Binding_Array_Copy(Default_Allocator_Get(), BindGroupLayoutInfo->Bindings.Ptr, BindGroupLayoutInfo->Bindings.Count);
-	Layout->DynamicBindingCount = DynamicBindingCount;
 
 	return Result;
 }
@@ -2017,24 +2044,30 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 function GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(VK_Delete_Bind_Group_Layout) {
 	VK_Bind_Group_Layout_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroupLayout);
 }
- 
+
+function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups);
 function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 
 	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroupInfo->Layout);
 	Assert(Layout);
 
+	VkDescriptorSetLayout Layouts[VK_FRAME_COUNT];
+	for (size_t i = 0; i < VK_FRAME_COUNT; i++) {
+		Layouts[i] = Layout->Layout;
+	}
+
 	VkDescriptorSetAllocateInfo AllocateInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = Context->DescriptorPool,
-		.descriptorSetCount = 1,
-		.pSetLayouts = &Layout->Layout,
+		.descriptorSetCount = VK_FRAME_COUNT,
+		.pSetLayouts = Layouts
 	};
 
-	VkDescriptorSet Set;
+	VkDescriptorSet Sets[VK_FRAME_COUNT];
 
 	OS_Mutex_Lock(Context->DescriptorLock);
-	VkResult Status = vkAllocateDescriptorSets(Context->Device, &AllocateInfo, &Set);
+	VkResult Status = vkAllocateDescriptorSets(Context->Device, &AllocateInfo, Sets);
 	OS_Mutex_Unlock(Context->DescriptorLock);
 
 	if (Status != VK_SUCCESS) {
@@ -2042,98 +2075,35 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 		return GDI_Null_Handle();
 	}
 
-	VK_Set_Debug_Name(VK_OBJECT_TYPE_DESCRIPTOR_SET, "bind group", Set, BindGroupInfo->DebugName);
+#ifdef DEBUG_BUILD
+	if (!String_Is_Empty(BindGroupInfo->DebugName)) {
+		arena* Scratch = Scratch_Get();
+		for (size_t i = 0; i < VK_FRAME_COUNT; i++) {
+			string DebugName = String_Format((allocator*)Scratch, "%.*s %d", BindGroupInfo->DebugName.Size, BindGroupInfo->DebugName.Ptr, i);
+			VK_Set_Debug_Name(VK_OBJECT_TYPE_DESCRIPTOR_SET, "bind group", Sets[i], DebugName);
+		}
+		Scratch_Release();
+	}
+#endif
 
 	gdi_handle Result = VK_Bind_Group_Pool_Allocate(&Context->ResourcePool);
 	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Result);
 
-	BindGroup->Set = Set;
+	Memory_Copy(BindGroup->Sets, Sets, sizeof(Sets));
 	BindGroup->Layout = BindGroupInfo->Layout;
+	BindGroup->Bindings = Allocator_Allocate_Array(Default_Allocator_Get(), Layout->Bindings.Count, vk_bind_group_binding);
 
-	BindGroup->DynamicSizes.Ptr = Allocator_Allocate_Array(Default_Allocator_Get(), Layout->DynamicBindingCount, u32);
-	BindGroup->DynamicSizes.Count = Layout->DynamicBindingCount;
-	size_t DynamicSizesCount = 0;
-
-	if (BindGroupInfo->Buffers.Count || BindGroupInfo->TextureViews.Count || BindGroupInfo->Samplers.Count) {
-
-		size_t SamplerIndex = 0;
-		size_t TextureIndex = 0;
-		size_t BufferIndex = 0;
-
-		arena* Scratch = Scratch_Get();
-
-		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
-		for (size_t i = 0; i < Layout->Bindings.Count; i++) {
-			gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + i;
-
-			VkWriteDescriptorSet WriteDescriptorSet = {
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = Set,
-				.dstBinding = (u32)i,
-				.dstArrayElement = 0,
-				.descriptorCount = Binding->Count,
-				.descriptorType = VK_Get_Descriptor_Type(Binding->Type)
-			};
-
-			switch (Binding->Type) {
-				case GDI_BIND_GROUP_TYPE_SAMPLER: {
-					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
-					for (size_t i = 0; i < Binding->Count; i++) {
-						Assert(SamplerIndex < BindGroupInfo->Samplers.Count);
-						gdi_handle Handle = BindGroupInfo->Samplers.Ptr[SamplerIndex++];
-						vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Handle);
-						Assert(Sampler);
-						ImageInfo[i].sampler = Sampler->Sampler;
-					}
-
-					WriteDescriptorSet.pImageInfo = ImageInfo;
-				} break;
-
-				case GDI_BIND_GROUP_TYPE_TEXTURE: {
-					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorImageInfo);
-
-					for (size_t i = 0; i < Binding->Count; i++) {
-						Assert(TextureIndex < BindGroupInfo->TextureViews.Count);
-						gdi_handle Handle = BindGroupInfo->TextureViews.Ptr[TextureIndex++];
-						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
-
-						ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
-						ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					}
-
-					WriteDescriptorSet.pImageInfo = ImageInfo;
-				} break;
-
-				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER:
-				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER:
-				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC: 
-				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC: {
-					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Binding->Count, VkDescriptorBufferInfo);
-
-					for (size_t i = 0; i < Binding->Count; i++) {
-						Assert(BufferIndex < BindGroupInfo->Buffers.Count);
-						gdi_bind_group_buffer BindGroupBuffer = BindGroupInfo->Buffers.Ptr[BufferIndex++];
-						vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BindGroupBuffer.Buffer);
-						Assert(Buffer);
-
-						BufferInfo[i].buffer = Buffer->Buffer;
-						BufferInfo[i].offset = BindGroupBuffer.Offset;
-						BufferInfo[i].range = BindGroupBuffer.Size == 0 ? Buffer->Size : BindGroupBuffer.Size;
-						
-						if (GDI_Is_Bind_Group_Type_Dynamic(Binding->Type)) {
-							BindGroup->DynamicSizes.Ptr[DynamicSizesCount++] = (u32)Buffer->Size;
-						}
-					}
-
-					WriteDescriptorSet.pBufferInfo = BufferInfo;
-				} break;
-			}
-
-			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
+	if (BindGroupInfo->Writes.Count || BindGroupInfo->Copies.Count) {
+		//Make sure to add the bind group into the destinations for the updates
+		for (size_t i = 0; i < BindGroupInfo->Writes.Count; i++) {
+			BindGroupInfo->Writes.Ptr[i].DstBindGroup = Result;
 		}
 
-		vkUpdateDescriptorSets(Context->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
-		Scratch_Release();
+		for (size_t i = 0; i < BindGroupInfo->Copies.Count; i++) {
+			BindGroupInfo->Copies.Ptr[i].DstBindGroup = Result;
+		}
+
+		VK_Update_Bind_Groups(GDI, BindGroupInfo->Writes, BindGroupInfo->Copies);
 	}
 
 	return Result;
@@ -2143,162 +2113,180 @@ function GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(VK_Delete_Bind_Group) {
 	VK_Bind_Group_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroup);
 }
 
-function GDI_BACKEND_WRITE_BIND_GROUP_DEFINE(VK_Write_Bind_Group) {
+function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, BindGroupHandle);
-	if (BindGroup) {
-		vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
-		Assert(Layout);
-		
-		arena* Scratch = Scratch_Get();
-		dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
-		
-		u32_array DynamicSizes;
-		DynamicSizes.Ptr = Allocator_Allocate_Array((allocator*)Scratch, Layout->Bindings.Count, u32);
-		DynamicSizes.Count = Layout->Bindings.Count;
 
-		for (size_t i = 0; i < BindGroupWriteInfo->Writes.Count; i++) {
-			gdi_bind_group_write* Write = BindGroupWriteInfo->Writes.Ptr + i;
-			
-			Assert(Write->Binding < Layout->Bindings.Count);
-			gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + Write->Binding;
+	OS_RW_Mutex_Read_Lock(Context->TransferLock);
+	vk_transfer_context* Transfer = Context->CurrentTransfer;
+	vk_transfer_thread_context* ThreadContext = VK_Get_Transfer_Thread_Context(Context, Transfer);
 
-			VkWriteDescriptorSet WriteDescriptorSet = {
+	arena* Scratch = Scratch_Get();
+
+	dynamic_vk_write_descriptor_set_array DescriptorWrites = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+	dynamic_vk_copy_descriptor_set_array DescriptorCopies = Dynamic_VK_Copy_Descriptor_Set_Array_Init((allocator*)Scratch);
+
+	//For both writes and copies, make sure all dst bind groups are 
+	//recorded in the thread contexts update cmd list so the remaining
+	//frame descriptor sets are updated
+
+	//todo: Fix, this is not thread safe
+	vk_frame_context* Frame = Context->CurrentFrame;
+
+	//Start with writes
+	for (size_t i = 0; i < Writes.Count; i++) {
+		gdi_bind_group_write* Write = Writes.Ptr + i;
+		vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Write->DstBindGroup);
+		vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
+
+		if (DstBindGroup && Layout) {
+			Assert(Write->DstBinding < Layout->Bindings.Count);
+			gdi_bind_group_binding* Binding = Layout->Bindings.Ptr + Write->DstBinding;
+
+			VkWriteDescriptorSet DescriptorWrite = {
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = BindGroup->Set,
-				.dstBinding = Write->Binding,
-				.dstArrayElement = Write->Index,
+				.dstSet = DstBindGroup->Sets[Frame->Index],
+				.dstBinding = Write->DstBinding,
+				.dstArrayElement = Write->DstIndex,
 				.descriptorType = VK_Get_Descriptor_Type(Binding->Type)
 			};
 
-			switch (Binding->Type) {
-				case GDI_BIND_GROUP_TYPE_SAMPLER: {
-					WriteDescriptorSet.descriptorCount = (u32)Write->Samplers.Count;
-					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Write->Samplers.Count, VkDescriptorImageInfo);
-					for (size_t i = 0; i < Write->Samplers.Count; i++) {
-						gdi_handle Handle = Write->Samplers.Ptr[i];
-						vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Handle);
-						Assert(Sampler);
-						ImageInfo[i].sampler = Sampler->Sampler;
-					}
-					WriteDescriptorSet.pImageInfo = ImageInfo;
-				} break;
+			vk_bind_group_dynamic_descriptor* FirstDynamicDescriptor = NULL;
+			vk_bind_group_dynamic_descriptor* LastDynamicDescriptor = NULL;
 
-				case GDI_BIND_GROUP_TYPE_TEXTURE: {
-					WriteDescriptorSet.descriptorCount = (u32)Write->TextureViews.Count;
-					VkDescriptorImageInfo* ImageInfo = Arena_Push_Array(Scratch, Write->TextureViews.Count, VkDescriptorImageInfo);
+			if (Binding->Type == GDI_BIND_GROUP_TYPE_SAMPLER) {
+				Assert(!Write->TextureViews.Count && !Write->Buffers.Count);
+				Assert(Write->DstIndex + Write->Samplers.Count <= Binding->Count);
 
-					for (size_t i = 0; i < Write->TextureViews.Count; i++) {
-						gdi_handle Handle = Write->TextureViews.Ptr[i];
-						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
+				VkDescriptorImageInfo* ImageInfos = Arena_Push_Array(Scratch, Write->Samplers.Count, VkDescriptorImageInfo);
+				for (size_t i = 0; i < Write->Samplers.Count; i++) {
+					vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Write->Samplers.Ptr[i]);
+					VkDescriptorImageInfo ImageInfo = {
+						.sampler = Sampler ? Sampler->Sampler : VK_NULL_HANDLE
+					};
+					ImageInfos[DescriptorWrite.descriptorCount++] = ImageInfo;
+				}
+				DescriptorWrite.pImageInfo = ImageInfos;
 
-						ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
-						ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					}
+			} else if (GDI_Is_Bind_Group_Type_Texture(Binding->Type)) {
+				Assert(!Write->Samplers.Count && !Write->Buffers.Count);
+				Assert(Write->DstIndex + Write->TextureViews.Count <= Binding->Count);
 
-					WriteDescriptorSet.pImageInfo = ImageInfo;
-				} break;
+				VkDescriptorImageInfo* ImageInfos = Arena_Push_Array(Scratch, Write->TextureViews.Count, VkDescriptorImageInfo);
+				for (size_t i = 0; i < Write->TextureViews.Count; i++) {
+					vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Write->TextureViews.Ptr[i]);
+					VkDescriptorImageInfo ImageInfo = {
+						.imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE,
+						.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+					};
+					ImageInfos[DescriptorWrite.descriptorCount++] = ImageInfo;
+				}
+				DescriptorWrite.pImageInfo = ImageInfos;
 
-				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER: 
-				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER:
-				case GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER_DYNAMIC:
-				case GDI_BIND_GROUP_TYPE_STORAGE_BUFFER_DYNAMIC:
-				{
-					WriteDescriptorSet.descriptorCount = (u32)Write->Buffers.Count;
-					VkDescriptorBufferInfo* BufferInfo = Arena_Push_Array(Scratch, Write->Buffers.Count, VkDescriptorBufferInfo);
+			} else if (GDI_Is_Bind_Group_Type_Buffer(Binding->Type)) {
+				Assert(!Write->Samplers.Count && !Write->TextureViews.Count);
+				Assert(Write->DstIndex + Write->Buffers.Count <= Binding->Count);
 
-					for (size_t i = 0; i < Write->Buffers.Count; i++) {
-						gdi_bind_group_buffer BindGroupBuffer = Write->Buffers.Ptr[i];
-						vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BindGroupBuffer.Buffer);
-						Assert(Buffer);
+				VkDescriptorBufferInfo* BufferInfos = Arena_Push_Array(Scratch, Write->Buffers.Count, VkDescriptorBufferInfo);
+				for (size_t i = 0; i < Write->Buffers.Count; i++) {
+					gdi_bind_group_buffer BindGroupBuffer = Write->Buffers.Ptr[i];
+					vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BindGroupBuffer.Buffer);
 
-						BufferInfo[i].buffer = Buffer->Buffer;
-						BufferInfo[i].offset = BindGroupBuffer.Offset;
-						BufferInfo[i].range  = BindGroupBuffer.Size == 0 ? Buffer->Size : BindGroupBuffer.Size;
-											
-						if (GDI_Is_Bind_Group_Type_Dynamic(Binding->Type)) {
-							DynamicSizes.Ptr[Write->Binding] = (u32)Buffer->Size;
-						}
+					size_t Offset = BindGroupBuffer.Offset;
+					if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+						Offset += Buffer->Size * Frame->Index;
 					}
 
-					WriteDescriptorSet.pBufferInfo = BufferInfo;
-				} break;
+					size_t Size = BindGroupBuffer.Size;
+					if (Size == 0) {
+						Size = Buffer->Size - BindGroupBuffer.Offset;
+					}
 
-				Invalid_Default_Case;
-			}
+					VkDescriptorBufferInfo BufferInfo = {
+						.buffer = Buffer ? Buffer->Buffer : VK_NULL_HANDLE,
+						.offset = Offset,
+						.range = Size
+					};
 
-			Assert(WriteDescriptorSet.dstArrayElement + WriteDescriptorSet.descriptorCount <= Binding->Count);
+					if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+						vk_bind_group_dynamic_descriptor* DynamicDescriptor = Arena_Push_Struct(ThreadContext->TempArena, vk_bind_group_dynamic_descriptor);
+						DynamicDescriptor->Buffer = BindGroupBuffer.Buffer;
+						DynamicDescriptor->Index = DescriptorWrite.dstArrayElement+DescriptorWrite.descriptorCount;
+						DynamicDescriptor->Offset = BindGroupBuffer.Offset;
+						DynamicDescriptor->Size = BindGroupBuffer.Size;
+						SLL_Push_Back(FirstDynamicDescriptor, LastDynamicDescriptor, DynamicDescriptor);
+					}
 
-			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, WriteDescriptorSet);
+					BufferInfos[DescriptorWrite.descriptorCount++] = BufferInfo;
+				}
+				DescriptorWrite.pBufferInfo = BufferInfos;
+
+			} Invalid_Else;
+
+			Dynamic_VK_Write_Descriptor_Set_Array_Add(&DescriptorWrites, DescriptorWrite);
+			
+			vk_bind_group_write_cmd* WriteCmd = Arena_Push_Struct(ThreadContext->TempArena, vk_bind_group_write_cmd);
+			WriteCmd->BindGroup = Write->DstBindGroup;
+			WriteCmd->Binding = Write->DstBinding;
+			WriteCmd->FirstDynamicDescriptor = FirstDynamicDescriptor;
+			WriteCmd->LastDynamicDescriptor  = LastDynamicDescriptor;
+			SLL_Push_Back(ThreadContext->FirstBindGroupWriteCmd, ThreadContext->LastBindGroupWriteCmd, WriteCmd);
 		}
-
-		size_t DynamicSizeIndex = 0;
-		for (size_t i = 0; i < DynamicSizes.Count; i++) {
-			if (DynamicSizes.Ptr[i] != 0) {
-				BindGroup->DynamicSizes.Ptr[DynamicSizeIndex++] = DynamicSizes.Ptr[i];
-			}
-		}
-		Assert(DynamicSizeIndex <= BindGroup->DynamicSizes.Count);
-
-		vkUpdateDescriptorSets(Context->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, 0, VK_NULL_HANDLE);
-		Scratch_Release();
 	}
-}
 
-function GDI_BACKEND_COPY_BIND_GROUP_DEFINE(VK_Copy_Bind_Group) {
-	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, BindGroup);
-	if (DstBindGroup) {
-		vk_bind_group_layout* DstLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
-		Assert(DstLayout);
-		
-		arena* Scratch = Scratch_Get();
-		dynamic_vk_copy_descriptor_set_array DescriptorCopies = Dynamic_VK_Copy_Descriptor_Set_Array_Init((allocator*)Scratch);
-		
-		u32_array DynamicSizes;
-		DynamicSizes.Ptr = Allocator_Allocate_Array((allocator*)Scratch, DstLayout->Bindings.Count, u32);
-		DynamicSizes.Count = DstLayout->Bindings.Count;
+	//Now copies
+	for (size_t i = 0; i < Copies.Count; i++) {
+		gdi_bind_group_copy* Copy = Copies.Ptr + i;
+		vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Copy->DstBindGroup);
+		vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Copy->SrcBindGroup);
 
-		for (size_t i = 0; i < CopyInfo->Copies.Count; i++) {
-			gdi_bind_group_copy* Copy = CopyInfo->Copies.Ptr + i;
-			vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Copy->SrcBindGroup);
-			if (SrcBindGroup) {
-				vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+		if (DstBindGroup && SrcBindGroup) {
+			vk_bind_group_layout* DstLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
+			vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+
+			if (DstLayout && SrcLayout) {
 				Assert(Copy->DstBinding < DstLayout->Bindings.Count);
 				Assert(Copy->SrcBinding < SrcLayout->Bindings.Count);
-
-				VkCopyDescriptorSet CopyDescriptorSet = {
-					.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-					.srcSet = SrcBindGroup->Set,
-					.srcBinding = Copy->SrcBinding,
-					.srcArrayElement = Copy->SrcIndex,
-					.dstSet = DstBindGroup->Set,
-					.dstBinding = Copy->DstBinding,
-					.dstArrayElement = Copy->DstIndex,
-					.descriptorCount = Copy->Count
-				};
 
 				gdi_bind_group_binding* DstBinding = DstLayout->Bindings.Ptr + Copy->DstBinding;
 				gdi_bind_group_binding* SrcBinding = SrcLayout->Bindings.Ptr + Copy->SrcBinding;
 
-				Assert(CopyDescriptorSet.dstArrayElement + CopyDescriptorSet.descriptorCount <= DstBinding->Count);
-				Assert(CopyDescriptorSet.srcArrayElement + CopyDescriptorSet.descriptorCount <= SrcBinding->Count);
-				
-				Dynamic_VK_Copy_Descriptor_Set_Array_Add(&DescriptorCopies, CopyDescriptorSet);
-			}
-		}
+				Assert(DstBinding->Type == SrcBinding->Type);
 
-		size_t DynamicSizeIndex = 0;
-		for (size_t i = 0; i < DynamicSizes.Count; i++) {
-			if (DynamicSizes.Ptr[i] != 0) {
-				DstBindGroup->DynamicSizes.Ptr[DynamicSizeIndex++] = DynamicSizes.Ptr[i];
+				Assert(Copy->SrcIndex + Copy->Count <= SrcBinding->Count);
+				Assert(Copy->DstIndex + Copy->Count <= DstBinding->Count);
+
+				VkCopyDescriptorSet DescriptorCopy = {
+					.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+					.srcSet = SrcBindGroup->Sets[Frame->Index],
+					.srcBinding = Copy->SrcBinding,
+					.srcArrayElement = Copy->SrcIndex,
+					.dstSet = DstBindGroup->Sets[Frame->Index],
+					.dstBinding = Copy->DstBinding,
+					.dstArrayElement = Copy->DstIndex,
+					.descriptorCount = Copy->Count
+				};
+				
+				Dynamic_VK_Copy_Descriptor_Set_Array_Add(&DescriptorCopies, DescriptorCopy);
+
+				vk_bind_group_copy_cmd* CopyCmd = Arena_Push_Struct(ThreadContext->TempArena, vk_bind_group_copy_cmd);
+				CopyCmd->DstBindGroup = Copy->DstBindGroup;
+				CopyCmd->DstBinding   = Copy->DstBinding;
+				CopyCmd->DstIndex     = Copy->DstIndex;
+				CopyCmd->SrcBindGroup = Copy->SrcBindGroup;
+				CopyCmd->SrcBinding   = Copy->SrcBinding;
+				CopyCmd->SrcIndex     = Copy->SrcIndex;
+				CopyCmd->Count        = Copy->Count;
+				SLL_Push_Back(ThreadContext->FirstBindGroupCopyCmd, ThreadContext->LastBindGroupCopyCmd, CopyCmd);
 			}
 		}
-		Assert(DynamicSizeIndex <= DstBindGroup->DynamicSizes.Count);
-		
-		vkUpdateDescriptorSets(Context->Device, 0, NULL, (u32)DescriptorCopies.Count, DescriptorCopies.Ptr);
-		Scratch_Release();
 	}
+
+	if (DescriptorWrites.Count || DescriptorCopies.Count) {
+		vkUpdateDescriptorSets(Context->Device, (u32)DescriptorWrites.Count, DescriptorWrites.Ptr, (u32)DescriptorCopies.Count, DescriptorCopies.Ptr);
+	}
+	Scratch_Release();
+
+	OS_RW_Mutex_Read_Unlock(Context->TransferLock);
 }
  
 function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
@@ -2929,15 +2917,8 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			}
 
 			if (BindGroup) {
-				arena* Scratch = Scratch_Get();
-				u32* DynamicOffset = Arena_Push_Array(Scratch, BindGroup->DynamicSizes.Count, u32);
-				for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
-					DynamicOffset[i] = BindGroup->DynamicSizes.Ptr[i]*Frame->Index;
-				}
-
-				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Set, (u32)BindGroup->DynamicSizes.Count, DynamicOffset);
+				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Sets[Frame->Index], 0, NULL);
 				BindGroups[i] = BindGroup;
-				Scratch_Release();
 			}
 		}
 
@@ -3057,7 +3038,63 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 		}
 	}
 
+	u64 FrameIndex = Atomic_Load_U64(&Context->FrameIndex);
 	vk_frame_context* Frame = Context->CurrentFrame;
+
+	//Mark which bind groups got updated this frame, duplicate cmds will just
+	//keep updating the same bind group
+	for (vk_transfer_thread_context* Thread = (vk_transfer_thread_context*)Atomic_Load_Ptr(&TransferContext->TopThread); Thread; Thread = Thread->Next) {
+		if (!Thread->NeedsReset) {
+			for (vk_bind_group_write_cmd* ThreadWriteCmd = Thread->FirstBindGroupWriteCmd;
+				ThreadWriteCmd; ThreadWriteCmd = ThreadWriteCmd->Next) {
+				vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, ThreadWriteCmd->BindGroup);
+				if (DstBindGroup) {
+					DstBindGroup->ShouldUpdate = true;
+					DstBindGroup->LastUpdatedFrame = FrameIndex;
+
+					if (ThreadWriteCmd->FirstDynamicDescriptor) {
+						vk_bind_group_write_cmd* BindGroupWriteCmd = Arena_Push_Struct(Frame->Arena, vk_bind_group_write_cmd);
+						BindGroupWriteCmd->LastUpdatedFrame = FrameIndex;
+						
+						for (vk_bind_group_dynamic_descriptor* ThreadDescriptor = ThreadWriteCmd->FirstDynamicDescriptor;
+							ThreadDescriptor; ThreadDescriptor = ThreadDescriptor->Next) {
+						
+							vk_bind_group_dynamic_descriptor* BindGroupThreadDescriptor = Arena_Push_Struct(Frame->Arena, vk_bind_group_dynamic_descriptor);
+							*BindGroupThreadDescriptor= *ThreadDescriptor;
+							BindGroupThreadDescriptor->Next = NULL;
+
+							SLL_Push_Back(BindGroupWriteCmd->FirstDynamicDescriptor, BindGroupWriteCmd->LastDynamicDescriptor, BindGroupThreadDescriptor);
+						}
+
+						SLL_Push_Back(DstBindGroup->Bindings[ThreadWriteCmd->Binding].FirstBindGroupWriteCmd,
+									  DstBindGroup->Bindings[ThreadWriteCmd->Binding].LastBindGroupWriteCmd,
+									  BindGroupWriteCmd);
+					}
+				}
+			}
+
+			for (vk_bind_group_copy_cmd* ThreadCopyCmd = Thread->FirstBindGroupCopyCmd;
+				ThreadCopyCmd; ThreadCopyCmd = ThreadCopyCmd->Next) {
+				
+				vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, ThreadCopyCmd->DstBindGroup);
+				vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, ThreadCopyCmd->SrcBindGroup);
+
+				if (DstBindGroup && SrcBindGroup) {
+					vk_bind_group_copy_cmd* BindGroupCopyCmd = Arena_Push_Struct(Frame->Arena, vk_bind_group_copy_cmd);
+					DstBindGroup->ShouldUpdate = true;
+					DstBindGroup->LastUpdatedFrame = FrameIndex;
+
+					*BindGroupCopyCmd = *ThreadCopyCmd;
+					BindGroupCopyCmd->Next = NULL;
+					BindGroupCopyCmd->LastUpdatedFrame = FrameIndex;
+					
+					SLL_Push_Back(DstBindGroup->Bindings[ThreadCopyCmd->DstBinding].FirstBindGroupCopyCmd,
+								  DstBindGroup->Bindings[ThreadCopyCmd->DstBinding].LastBindGroupCopyCmd,
+								  BindGroupCopyCmd);
+				}
+			}
+		}
+	}
    
 	//Transfer commands
 	{
@@ -3325,20 +3362,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 						u32 DescriptorSetCount = 0;
 						VkDescriptorSet DescriptorSets[GDI_MAX_BIND_GROUP_COUNT - 1];
 
-						dynamic_u32_array DynamicOffsets = Dynamic_U32_Array_Init((allocator*)Scratch);
-
 						for (u32 i = 0; i < GDI_MAX_BIND_GROUP_COUNT - 1; i++) {
 							vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Dispatch->BindGroups[i]);
 							if (BindGroup) {
-								DescriptorSets[DescriptorSetCount++] = BindGroup->Set;
-								for (size_t i = 0; i < BindGroup->DynamicSizes.Count; i++) {
-									Dynamic_U32_Array_Add(&DynamicOffsets, BindGroup->DynamicSizes.Ptr[i]*Frame->Index);
-								}
+								DescriptorSets[DescriptorSetCount++] = BindGroup->Sets[Frame->Index];
 							}
 						}
 
 						if (DescriptorSetCount) {
-							vkCmdBindDescriptorSets(Frame->CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, (u32)DynamicOffsets.Count, DynamicOffsets.Ptr);
+							vkCmdBindDescriptorSets(Frame->CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, 0, NULL);
 						}
 
 						if (Dispatch->PushConstantCount) {
@@ -3696,9 +3728,10 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 	u64 TotalFrameIndex = Atomic_Increment_U64(&Context->FrameIndex);
 	OS_Semaphore_Increment(Context->ReadbackSignalSemaphore);
 
-	u64 FrameIndex = (TotalFrameIndex % VK_FRAME_COUNT);
+	FrameIndex = (TotalFrameIndex % VK_FRAME_COUNT);
 	Context->CurrentFrame = Context->Frames + FrameIndex;
 
+	vk_frame_context* LastFrame = Frame;
 	Frame = Context->CurrentFrame;
 
 	//Wait on the render fence now. We always have the render frame count less than
@@ -3729,8 +3762,244 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 	VK_CPU_Buffer_Clear(&Frame->ReadbackBuffer);
 	Arena_Clear(Frame->Arena);
 
-	//Acquire the swapchain image so we know what view to pass to the user land code
+	//Now update all the bind groups for this frame
+	{
+		arena* Scratch = Scratch_Get();
 
+		for (size_t i = 0; i < Array_Count(Context->ResourcePool.Bind_GroupPool.Entries); i++) {
+			vk_bind_group* BindGroup = Context->ResourcePool.Bind_GroupPool.Entries + i;
+		
+			if (BindGroup->ShouldUpdate) {
+				u64 FrameDiff = TotalFrameIndex - BindGroup->LastUpdatedFrame;
+				vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
+
+				if (FrameDiff >= VK_FRAME_COUNT || !Layout) {
+					BindGroup->ShouldUpdate = false;
+
+					if (Layout) {
+						for (size_t i = 0; i < Layout->Bindings.Count; i++) {
+							vk_bind_group_binding* Binding = BindGroup->Bindings + i;
+							Binding->FirstBindGroupWriteCmd = NULL;
+							Binding->LastBindGroupWriteCmd = NULL;
+							Binding->FirstBindGroupCopyCmd = NULL;
+							Binding->LastBindGroupCopyCmd = NULL;
+						}
+					}
+
+				} else {
+					for (size_t i = 0; i < Layout->Bindings.Count; i++) {
+						vk_bind_group_binding* Binding = BindGroup->Bindings + i;
+
+						vk_bind_group_write_cmd* NewFirstWriteCmd = NULL;
+						vk_bind_group_write_cmd* NewLastWriteCmd = NULL;
+
+						for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd; 
+							WriteCmd; WriteCmd = WriteCmd->Next) {
+
+							FrameDiff = TotalFrameIndex - WriteCmd->LastUpdatedFrame;
+							if (FrameDiff < VK_FRAME_COUNT) {
+
+								vk_bind_group_write_cmd* NewWriteCmd = Arena_Push_Struct(Frame->Arena, vk_bind_group_write_cmd);
+								for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
+									Descriptor; Descriptor = Descriptor->Next) {
+									
+									vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
+									if (Buffer) {
+										Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
+
+										vk_bind_group_dynamic_descriptor* NewDescriptor = Arena_Push_Struct(Frame->Arena, vk_bind_group_dynamic_descriptor);
+										*NewDescriptor = *Descriptor;
+										NewDescriptor->Next = NULL;
+
+										SLL_Push_Back(NewWriteCmd->FirstDynamicDescriptor, NewWriteCmd->LastDynamicDescriptor, NewDescriptor);
+									}
+								}
+
+								if (NewWriteCmd->FirstDynamicDescriptor) {
+									NewWriteCmd->LastUpdatedFrame = WriteCmd->LastUpdatedFrame;
+									SLL_Push_Back(NewFirstWriteCmd, NewLastWriteCmd, NewWriteCmd);
+								}
+							}
+						}
+
+						Binding->FirstBindGroupWriteCmd = NewFirstWriteCmd;
+						Binding->LastBindGroupWriteCmd = NewLastWriteCmd;
+
+						vk_bind_group_copy_cmd* NewFirstCopyCmd = NULL;
+						vk_bind_group_copy_cmd* NewLastCopyCmd = NULL;
+
+						for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
+							 CopyCmd; CopyCmd = CopyCmd->Next) {
+							
+							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
+							vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+
+							FrameDiff = TotalFrameIndex - CopyCmd->LastUpdatedFrame;
+							if (FrameDiff < VK_FRAME_COUNT && SrcBindGroup && SrcLayout) {
+								
+								vk_bind_group_copy_cmd* NewCopyCmd = Arena_Push_Struct(Frame->Arena, vk_bind_group_copy_cmd);
+								*NewCopyCmd = *CopyCmd;
+
+								SLL_Push_Back(NewFirstCopyCmd, NewLastCopyCmd, NewCopyCmd);
+							}
+						}
+
+						Binding->FirstBindGroupCopyCmd = NewFirstCopyCmd;
+						Binding->LastBindGroupCopyCmd = NewLastCopyCmd;
+					}
+				}
+			}
+		}
+
+
+		dynamic_vk_copy_descriptor_set_array Copies = Dynamic_VK_Copy_Descriptor_Set_Array_Init((allocator*)Scratch);
+		dynamic_vk_write_descriptor_set_array Writes = Dynamic_VK_Write_Descriptor_Set_Array_Init((allocator*)Scratch);
+		
+		for (size_t i = 0; i < Array_Count(Context->ResourcePool.Bind_GroupPool.Entries); i++) {
+			vk_bind_group* BindGroup = Context->ResourcePool.Bind_GroupPool.Entries + i;
+		
+			if (BindGroup->ShouldUpdate) {
+				Assert((TotalFrameIndex - BindGroup->LastUpdatedFrame) < VK_FRAME_COUNT);
+				vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
+				if (Layout) {
+					VkDescriptorSet SrcSet = BindGroup->Sets[LastFrame->Index];
+					VkDescriptorSet DstSet = BindGroup->Sets[Frame->Index];
+
+					for (size_t j = 0; j < Layout->Bindings.Count; j++) {							
+						vk_bind_group_binding* Binding = BindGroup->Bindings + j;
+
+						//Check if the descriptor is in use by a current copy or write
+						//If not, we just copy from the prev state to the newest state
+						u32* DescriptorCounts = Arena_Push_Array(Scratch, Layout->Bindings.Ptr[j].Count, u32);
+
+						for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd;
+							WriteCmd; WriteCmd = WriteCmd->Next) {
+
+							Assert((TotalFrameIndex - WriteCmd->LastUpdatedFrame) < VK_FRAME_COUNT);
+
+							for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
+								Descriptor; Descriptor = Descriptor->Next) {
+
+								vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
+								if (Buffer) {
+									Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
+								
+									VkDescriptorBufferInfo* BufferInfo = Arena_Push_Struct(Scratch, VkDescriptorBufferInfo);
+									BufferInfo->buffer = Buffer->Buffer;
+									BufferInfo->offset = Descriptor->Offset + Frame->Index * Buffer->Size;
+									BufferInfo->range = Descriptor->Size;
+
+									if (BufferInfo->range == 0) {
+										BufferInfo->range = Buffer->Size - Descriptor->Offset;
+									}
+
+									VkDescriptorType Type = VK_Get_Descriptor_Type(Layout->Bindings.Ptr[j].Type);
+
+									VkWriteDescriptorSet WriteDescriptor = {
+										.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+										.dstSet = DstSet,
+										.dstBinding = (u32)j,
+										.dstArrayElement = Descriptor->Index,
+										.descriptorCount = 1,
+										.descriptorType = Type,
+										.pBufferInfo = BufferInfo
+									};
+
+									Dynamic_VK_Write_Descriptor_Set_Array_Add(&Writes, WriteDescriptor);
+
+									DescriptorCounts[Descriptor->Index] = 1;
+								}
+							}
+						}
+
+						for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
+							CopyCmd; CopyCmd = CopyCmd->Next) {
+							
+							Assert((TotalFrameIndex - CopyCmd->LastUpdatedFrame) < VK_FRAME_COUNT);
+
+
+							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
+							if (SrcBindGroup) {
+								
+								VkCopyDescriptorSet CopyDescriptor = {
+									.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+									.srcSet = SrcBindGroup->Sets[Frame->Index],
+									.srcBinding = CopyCmd->SrcBinding,
+									.srcArrayElement = CopyCmd->SrcIndex,
+									.dstSet = DstSet,
+									.dstBinding = (u32)j,
+									.dstArrayElement = CopyCmd->DstIndex,
+									.descriptorCount = CopyCmd->Count
+								};
+
+								Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+								
+								DescriptorCounts[CopyCmd->DstIndex] = CopyCmd->Count;
+							}
+						}
+
+						u32 StartIndex = 0;
+						for (u32 k = 0; k < Layout->Bindings.Ptr[j].Count; k++) {
+							if (DescriptorCounts[k] > 0) {
+								u32 CopyCount = k - StartIndex;
+								if (CopyCount) {
+									VkCopyDescriptorSet CopyDescriptor = {
+										.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+										.srcSet = SrcSet,
+										.srcBinding = (u32)j,
+										.srcArrayElement = StartIndex,
+										.dstSet = DstSet,
+										.dstBinding = (u32)j,
+										.dstArrayElement = StartIndex,
+										.descriptorCount = CopyCount
+									};
+
+									Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+								}
+
+								u32 DescriptorsToSkip = DescriptorCounts[k]-1;
+								for (k = k+1; k < Layout->Bindings.Ptr[j].Count; k++) {
+									if (!DescriptorsToSkip) break;
+
+									DescriptorsToSkip--;
+
+									if (DescriptorCounts[k]) {
+										DescriptorsToSkip = Max(DescriptorCounts[k], DescriptorsToSkip);
+									}
+
+								}
+
+								StartIndex = k;
+							}
+						}
+
+						if (StartIndex < Layout->Bindings.Ptr[j].Count) {
+							VkCopyDescriptorSet CopyDescriptor = {
+								.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+								.srcSet = SrcSet,
+								.srcBinding = (u32)j,
+								.srcArrayElement = StartIndex,
+								.dstSet = DstSet,
+								.dstBinding = (u32)j,
+								.dstArrayElement = StartIndex,
+								.descriptorCount = Layout->Bindings.Ptr[j].Count-StartIndex
+							};
+
+							Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+						}
+					}
+				}
+			}
+		}
+
+		if (Writes.Count || Copies.Count) {
+			vkUpdateDescriptorSets(Context->Device, (u32)Writes.Count, Writes.Ptr, (u32)Copies.Count, Copies.Ptr);
+		}
+
+		Scratch_Release();
+	}
+
+	//Acquire the swapchain image so we know what view to pass to the user land code
 	for (size_t i = 0; i < Swapchains->Count; i++) {
 		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
 		if (Swapchain && Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
@@ -3827,8 +4096,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 
 	.CreateBindGroupFunc = VK_Create_Bind_Group,
 	.DeleteBindGroupFunc = VK_Delete_Bind_Group,
-	.WriteBindGroupFunc = VK_Write_Bind_Group,
-	.CopyBindGroupFunc = VK_Copy_Bind_Group,
+	.UpdateBindGroupsFunc = VK_Update_Bind_Groups,	
 	
 	.CreateShaderFunc = VK_Create_Shader,
 	.DeleteShaderFunc = VK_Delete_Shader,

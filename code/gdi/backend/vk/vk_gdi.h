@@ -41,6 +41,38 @@ typedef struct {
 	u8* 		 Ptr;
 } vk_cpu_buffer_push;
 
+typedef struct vk_bind_group_dynamic_descriptor vk_bind_group_dynamic_descriptor;
+struct vk_bind_group_dynamic_descriptor {
+	gdi_handle   Buffer;
+	u32 		 Index;
+	VkDeviceSize Offset;
+	VkDeviceSize Size;
+	vk_bind_group_dynamic_descriptor* Next;
+};
+
+typedef struct vk_bind_group_write_cmd vk_bind_group_write_cmd;
+struct vk_bind_group_write_cmd {
+	gdi_handle 						  BindGroup;
+	u32 							  Binding;
+	size_t 							  LastUpdatedFrame;
+	vk_bind_group_dynamic_descriptor* FirstDynamicDescriptor;
+	vk_bind_group_dynamic_descriptor* LastDynamicDescriptor;
+	vk_bind_group_write_cmd* Next;
+};
+
+typedef struct vk_bind_group_copy_cmd vk_bind_group_copy_cmd;
+struct vk_bind_group_copy_cmd {
+	gdi_handle DstBindGroup;
+	u32        DstBinding;
+	u32 	   DstIndex;
+	gdi_handle SrcBindGroup;
+	u32 	   SrcBinding;
+	u32 	   SrcIndex;
+	size_t 	   LastUpdatedFrame;
+	u32 	   Count;
+	vk_bind_group_copy_cmd* Next;
+};
+
 typedef struct {
 	VkImage    	  	  		   Image;
 	VmaAllocation 	  		   Allocation;
@@ -66,6 +98,8 @@ typedef struct {
 	VkDeviceSize 	   TotalSize;
 	gdi_buffer_usage   Usage;
 	vk_cpu_buffer_push MappedUpload; //Used if usage is not dynamic
+	size_t 			   MappedOffset; //Used if usage is not dynamic
+	size_t 			   MappedSize; //Usage if usage is not dynamic
 	u8*                MappedPtr; //Used if usage is dynamic
 } vk_buffer;
 
@@ -76,13 +110,24 @@ typedef struct {
 typedef struct {
 	VkDescriptorSetLayout Layout;
 	gdi_bind_group_binding_array Bindings;
-	size_t DynamicBindingCount;
 } vk_bind_group_layout;
 
 typedef struct {
-	VkDescriptorSet Set;
+	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
+	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
+
+	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
+	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
+} vk_bind_group_binding;
+
+typedef struct {
+	VkDescriptorSet Sets[VK_FRAME_COUNT];
 	gdi_handle      Layout;
-	u32_array 	    DynamicSizes;
+
+	b32 ShouldUpdate;
+	u64 LastUpdatedFrame;
+
+	vk_bind_group_binding* Bindings;
 } vk_bind_group;
 
 typedef struct {
@@ -174,6 +219,12 @@ struct vk_transfer_thread_context {
 
 	vk_texture_barrier_cmd* FirstTextureBarrierCmd;
 	vk_texture_barrier_cmd* LastTextureBarrierCmd;
+
+	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
+	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
+
+	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
+	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
 
 	vk_transfer_thread_context* Next;
 };
@@ -268,7 +319,6 @@ typedef struct {
 	u32 							 PresentQueueFamilyIndex;
 	dynamic_char_ptr_array 			 Extensions;
 	VkPhysicalDeviceFeatures2KHR* 	 Features;
-	b32 							 HasNullDescriptorFeature;
 } vk_gpu;
 
 struct vk_device_context {

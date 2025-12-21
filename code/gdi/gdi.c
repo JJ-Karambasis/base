@@ -94,7 +94,7 @@ export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* Creat
 	Assert(CreateInfo->Size != 0 && CreateInfo->Usage != GDI_BUFFER_USAGE_NONE);
 	gdi_handle Result = GDI_Backend_Create_Buffer(CreateInfo);
 	if (!GDI_Is_Null(Result) && !Buffer_Is_Empty(CreateInfo->InitialData)) {
-		void* Memory = GDI_Backend_Map_Buffer(Result);
+		void* Memory = GDI_Backend_Map_Buffer(Result, 0, CreateInfo->InitialData.Size);
 		if (Memory) {
 			Memory_Copy(Memory, CreateInfo->InitialData.Ptr, CreateInfo->InitialData.Size);
 			GDI_Backend_Unmap_Buffer(Result);
@@ -110,10 +110,10 @@ export_function void GDI_Delete_Buffer(gdi_handle Buffer) {
 	}
 }
 
-export_function void* GDI_Map_Buffer(gdi_handle Buffer) {
+export_function void* GDI_Map_Buffer(gdi_handle Buffer, size_t Offset, size_t Size) {
 	Assert(GDI_Is_Type(Buffer, BUFFER));
 	if (GDI_Is_Null(Buffer)) return NULL;
-	void* Result = GDI_Backend_Map_Buffer(Buffer);
+	void* Result = GDI_Backend_Map_Buffer(Buffer, Offset, Size);
 	return Result;
 }
 
@@ -160,18 +160,8 @@ export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup) {
 	}
 }
 
-export_function void GDI_Write_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_write_info* WriteInfo) {
-	Assert(GDI_Is_Type(BindGroup, BIND_GROUP));
-	if (!GDI_Is_Null(BindGroup)) {
-		GDI_Backend_Write_Bind_Group(BindGroup, WriteInfo);
-	}
-}
-
-export_function void GDI_Copy_Bind_Group(gdi_handle BindGroup, const gdi_bind_group_copy_info* CopyInfo) {
-	Assert(GDI_Is_Type(BindGroup, BIND_GROUP));
-	if (!GDI_Is_Null(BindGroup)) {
-		GDI_Backend_Copy_Bind_Group(BindGroup, CopyInfo);
-	}
+export_function void GDI_Update_Bind_Groups(gdi_bind_group_write_array Writes, gdi_bind_group_copy_array Copies) {
+	GDI_Backend_Update_Bind_Groups(Writes, Copies);
 }
 
 export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo) {

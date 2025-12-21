@@ -39,7 +39,11 @@ META_FUNCTION(GDI_Get_Format_Size, gdi_format Format) -> size_t {
 META_FUNCTION(GDI_Is_Bind_Group_Type_Writable, gdi_bind_group_type Type) -> b32 {
 	static const b32 IsWritable[] = {
 		META_FOR(gdi_bind_group_type, flags: NoBraces) {
-			${META_GET_TAG_VALUE(is_writable)},
+			META_IF(META_CONTAINS_TAG(writable)) {
+				true,
+			} META_ELSE {
+				false,
+			}
 		}
 	};
 	Assert(Type < Array_Count(IsWritable));
@@ -57,16 +61,30 @@ META_FUNCTION(GDI_Get_Log_Type_Str, gdi_log_type Type) -> string {
 	return String_Empty();
 }
 
-META_FUNCTION(GDI_Is_Bind_Group_Type_Dynamic, gdi_bind_group_type Type)->b32 {
-	static const b32 IsWritable[] = {
+META_FUNCTION(GDI_Is_Bind_Group_Type_Texture, gdi_bind_group_type Type)->b32 {
+	static const b32 IsTexture[] = {
 		META_FOR(gdi_bind_group_type, flags: NoBraces) {
-			META_IF(META_CONTAINS_TAG(dynamic)) {
+			META_IF(META_CONTAINS_TAG(texture)) {
 				true,
 			} META_ELSE {
 				false,
 			}
 		}
 	};
-	Assert(Type < Array_Count(IsWritable));
-	return IsWritable[Type];
+	Assert(Type < Array_Count(IsTexture));
+	return IsTexture[Type];
+}
+
+META_FUNCTION(GDI_Is_Bind_Group_Type_Buffer, gdi_bind_group_type Type)->b32 {
+	static const b32 IsBuffer[] = {
+		META_FOR(gdi_bind_group_type, flags: NoBraces) {
+			META_IF(META_CONTAINS_TAG(buffer)) {
+				true,
+			} META_ELSE {
+				false,
+			}
+		}
+	};
+	Assert(Type < Array_Count(IsBuffer));
+	return IsBuffer[Type];
 }

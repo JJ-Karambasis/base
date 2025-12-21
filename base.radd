@@ -1,22 +1,36 @@
 // raddbg 0.9.22 project file
 
 recent_file: path: "code/gdi/backend/vk/vk_gdi.c"
+recent_file: path: "code/gdi/gdi.c"
 recent_file: path: "code/tests/gdi_tests.cpp"
+recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/abort.cpp"
+recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcruntime/src/string/amd64/memcpy.asm"
 recent_file: path: "code/third_party/VulkanMemoryAllocator/vk_mem_alloc.h"
+recent_file: path: "../../../lunarg/work/LunarG/sdk/build/Vulkan-ValidationLayers/repo/layers/drawdispatch/descriptor_validator.cpp"
+recent_file: path: "code/os/win32/win32_base.c"
 recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/internal/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/internal/report_runtime_error.cpp"
+recent_file: path: "code/base.c"
+recent_file: path: "code/gdi/gdi.h"
 recent_file: path: "code/tests/tests.cpp"
 recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/assert.cpp"
 recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/abort.cpp"
-recent_file: path: "code/base.c"
-recent_file: path: "code/os/win32/win32_base.c"
 recent_file: path: "code/third_party/rpmalloc/rpmalloc.c"
-recent_file: path: "code/gdi/gdi.c"
 recent_file: path: "code/tests/job_tests.cpp"
-recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcruntime/src/string/amd64/memcpy.asm"
 recent_file: path: "code/tests/utest.h"
 target:
 {
   executable: "bin/tests.exe"
   working_directory: bin
   enabled: 1
+  arguments: "--filter=gdi.SimpleBindGroupTest"
+}
+breakpoint:
+{
+  source_location: "code/gdi/backend/vk/vk_gdi.c:3765:7"
+  hit_count: 1
+}
+breakpoint:
+{
+  source_location: "code/gdi/backend/vk/vk_gdi.c:3771:20"
+  hit_count: 1
 }

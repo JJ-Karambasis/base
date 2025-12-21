@@ -133,7 +133,7 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #define MB(x) (KB(x) * 1024)
 #define GB(x) (MB(x) * 1024)
 
-#define Offset_Pointer(ptr, offset) (void*)(((u8*)ptr) + (intptr_t)offset)
+#define Offset_Pointer(ptr, offset) (void*)(((u8*)(ptr)) + (intptr_t)(offset))
 
 #define DEFAULT_ALIGNMENT 16
 
