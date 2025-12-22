@@ -158,7 +158,7 @@ typedef struct {
 	VkSurfaceFormatKHR SurfaceFormat;
 	gdi_format 		   Format;
 	v2i 			   Dim;
-	u32 			   ImageIndex;
+	s32 			   ImageIndex;
 	b32 			   HasFailed;
 } vk_swapchain;
 

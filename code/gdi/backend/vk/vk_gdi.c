@@ -765,7 +765,7 @@ function void VK_Delete_Semaphore_Resources(vk_device_context* Context, vk_semap
 function void VK_Delete_Swapchain_Resources(vk_device_context* Context, vk_swapchain* Swapchain) {
 	vk_gdi* GDI = (vk_gdi*)Context->Base.GDI;
 
-	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+	for (size_t i = 0; i < Context->Frames.Count; i++) {
 		VK_Delete_Semaphore_Resources(Context, &Swapchain->Locks[i]);
 	}
 
@@ -1036,10 +1036,12 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 
 			TextureView->ImageView = VK_Create_Image_View(Context, &ViewInfo);
 			TextureView->Texture = Swapchain->Textures[i];
+			TextureView->Format = Swapchain->Format;
+			TextureView->Dim = Swapchain->Dim;
 		}
 	}
 
-	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
+	for (size_t i = 0; i < Context->Frames.Count; i++) {
 		if (Swapchain->Locks[i].Handle != VK_NULL_HANDLE) {
 			VK_Semaphore_Add_To_Delete_Queue(Context, &Swapchain->Locks[i]);
 		}
@@ -1054,6 +1056,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		}
 	}
 
+	Swapchain->ImageIndex = -1;
 	return true;
 }
 
@@ -2573,7 +2576,8 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 
 	{
 		Swapchain->ImageCount = SurfaceCaps.minImageCount;
-		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle) + sizeof(vk_semaphore));
+		Swapchain->ImageIndex = -1;
+		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle)) + Context->Frames.Count*sizeof(vk_semaphore);
 		Swapchain->Images = (VkImage*)Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
 		Swapchain->Textures = (gdi_handle*)(Swapchain->Images + Swapchain->ImageCount);
 		Swapchain->TextureViews = (gdi_handle*)(Swapchain->Textures + Swapchain->ImageCount);
@@ -2633,11 +2637,11 @@ function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	gdi_handle Result = GDI_Null_Handle();
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, SwapchainHandle);
-	if (Swapchain) {
+	if (Swapchain && Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
 		if (Swapchain->ImageIndex == -1) {
 			vk_frame_context* Frame = VK_Lock_Frame(Context);
 			VkResult Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
-													Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+													Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, (u32*)&Swapchain->ImageIndex);
 			VK_Unlock_Frame(Context);
 
 			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
@@ -2645,7 +2649,7 @@ function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
 
 				Frame = VK_Lock_Frame(Context);
 				Status = vkAcquireNextImageKHR(Context->Device, Swapchain->Swapchain, UINT64_MAX,
-											   Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, &Swapchain->ImageIndex);
+											   Swapchain->Locks[Frame->Index].Handle, VK_NULL_HANDLE, (u32*)&Swapchain->ImageIndex);
 				VK_Unlock_Frame(Context);
 			}
 
@@ -3857,15 +3861,17 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 			};
 			VkResult Status = vkQueuePresentKHR(Context->PresentQueue, &PresentInfo);
 
-			if (Status == VK_ERROR_OUT_OF_DATE_KHR || Status == VK_SUBOPTIMAL_KHR) {
-				for (size_t i = 0; i < SwapchainCount; i++) {
-					if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
-						vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
-						VK_Recreate_Swapchain(Context, Swapchain);
-					}
-				}
-			} else if (Status != VK_SUCCESS) {
+			if (Status != VK_SUCCESS && Status != VK_ERROR_OUT_OF_DATE_KHR && Status != VK_SUBOPTIMAL_KHR) {
 				GDI_Log_Error("vkQueuePresentKHR failed");
+			}
+
+			for (size_t i = 0; i < SwapchainCount; i++) {
+				vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
+				if (Statuses[i] == VK_ERROR_OUT_OF_DATE_KHR || Statuses[i] == VK_SUBOPTIMAL_KHR) {
+					VK_Recreate_Swapchain(Context, Swapchain);
+				} else {
+					Swapchain->ImageIndex = -1;
+				}
 			}
 		}
 	}
@@ -3891,7 +3897,23 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 
 function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	VK_Render_Internal(Context, &RenderParams->Swapchains, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
+
+	arena* Scratch = Scratch_Get();
+
+	u32 SwapchainCount = 0;
+	gdi_handle* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, gdi_handle);
+	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
+		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, RenderParams->Swapchains.Ptr[i]);
+		if (Swapchain) {
+			if (Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
+				Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
+			}
+		}
+	}
+
+	gdi_handle_array Array = { .Ptr = Swapchains, .Count = SwapchainCount };
+	VK_Render_Internal(Context, &Array, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
+	Scratch_Release();
 }
 
 function GDI_BACKEND_SHUTDOWN_DEFINE(VK_Shutdown) {
