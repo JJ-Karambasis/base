@@ -702,7 +702,6 @@ function OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(Win32_Condition_Variable_Wake_All
 	}
 }
 
-
 function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
 	BCryptGenRandom(NULL, (PUCHAR)Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 }

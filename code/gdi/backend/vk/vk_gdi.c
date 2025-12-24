@@ -55,7 +55,6 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME),
 	String_Expand(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME),
 	String_Expand(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME),
-	String_Expand(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
 	String_Expand(VK_KHR_SWAPCHAIN_EXTENSION_NAME),
 	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
 	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME),
@@ -805,19 +804,16 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
 
 	VkPhysicalDeviceDescriptorIndexingFeaturesEXT* DescriptorIndexingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDescriptorIndexingFeaturesEXT);
-	VkPhysicalDeviceRobustness2FeaturesEXT* Robustness2Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceRobustness2FeaturesEXT);
 	VkPhysicalDeviceSynchronization2FeaturesKHR* Synchronization2Feature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceSynchronization2FeaturesKHR);
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR* DynamicRenderingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDynamicRenderingFeaturesKHR);
 	VkPhysicalDeviceFeatures2KHR* Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceFeatures2KHR);
 
 	DescriptorIndexingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-	Robustness2Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	Synchronization2Feature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
 	DynamicRenderingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
 	Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
 
-	Robustness2Features->pNext = DescriptorIndexingFeature;
-	Synchronization2Feature->pNext = Robustness2Features;
+	Synchronization2Feature->pNext = DescriptorIndexingFeature;
 	DynamicRenderingFeature->pNext = Synchronization2Feature;
 	Features->pNext = DynamicRenderingFeature;
 	
@@ -828,11 +824,6 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 		!DescriptorIndexingFeature->descriptorBindingStorageBufferUpdateAfterBind ||
 		!DescriptorIndexingFeature->descriptorBindingStorageImageUpdateAfterBind) {
 		GDI_Log_Warning("Missing vulkan feature 'Descriptor Indexing' for device '%s'", DeviceProperties.deviceName);
-		HasFeatures = false;
-	}
-
-	if (!Robustness2Features->nullDescriptor) {
-		GDI_Log_Warning("Missing vulkan feature 'Robustness 2' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
 

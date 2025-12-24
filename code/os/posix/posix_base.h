@@ -60,10 +60,14 @@ struct os_library {
     os_library* Next;
 };
 
+struct os_condition_variable {
+    pthread_cond_t Handle;
+    os_condition_variable* Next;
+};
+
 typedef struct {
     os_base Base;
 
-    arena* ResourceArena;
     pthread_mutex_t ResourceLock;
     os_file* FreeFiles;
     os_tls* FreeTLS;
@@ -74,6 +78,10 @@ typedef struct {
     os_event* FreeEvents;
     os_hot_reload* FreeHotReload;
     os_library* FreeLibrary;
+    os_condition_variable* FreeConditionVariables;
+
+
+    os_rw_mutex ArenaLock;
 } posix_base;
 
 #endif

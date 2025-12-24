@@ -2055,7 +2055,7 @@ export_function arena* Scratch_Get() {
 	size_t ScratchIndex = ThreadContext->ScratchIndex++;
 	if (!ThreadContext->ScratchArenas[ScratchIndex]) {
 		char ScratchName[1024];
-		int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", ScratchIndex);
+		int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", (u32)ScratchIndex);
 		ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create(Make_String(ScratchName, TotalLength));
 	}
 

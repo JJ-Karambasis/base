@@ -29,6 +29,7 @@ extern "C" {
 
 #if TARGET_OS_OSX
 #define OS_OSX
+
 #else
 #error "Not Implemented!"
 #endif

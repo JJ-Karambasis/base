@@ -8,15 +8,18 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#include "../../base.h"
+
 #ifdef OS_OSX
 #include <mach/mach.h>
 #include <mach/semaphore.h>
+#include <mach/mach_vm.h>
 #else
 #include <semaphore.h>
 #endif
 
-#include "../../base.h"
 #include "posix_base.h"
+#include "../../third_party/rpmalloc/rpmalloc.h"
 
 Array_Implement(string, String);
 Dynamic_Array_Implement_Type(string, String);
@@ -29,13 +32,19 @@ function posix_base* Posix_Get() {
 function OS_RESERVE_MEMORY_DEFINE(Posix_Reserve_Memory) {
     void* Result = mmap(NULL, ReserveSize, PROT_NONE, (MAP_PRIVATE|MAP_ANONYMOUS), -1, 0);
     if(Result) {
+        os_base* Base = (os_base*)Posix_Get();
+
         msync(Result, ReserveSize, (MS_SYNC|MS_INVALIDATE));
+        Atomic_Add_U64(&Base->ReservedAmount, ReserveSize);
+		Atomic_Increment_U64(&Base->ReservedCount);
     }
     return Result;
 }
 
 function OS_COMMIT_MEMORY_DEFINE(Posix_Commit_Memory) {
     if(BaseAddress) {
+        os_base* Base = (os_base*)Posix_Get();
+
         void* Result = mmap(BaseAddress, CommitSize, (PROT_READ|PROT_WRITE), (MAP_FIXED|MAP_SHARED|MAP_ANONYMOUS), -1, 0);
         msync(BaseAddress, CommitSize, (MS_SYNC|MS_INVALIDATE));
         return Result;
@@ -45,6 +54,8 @@ function OS_COMMIT_MEMORY_DEFINE(Posix_Commit_Memory) {
 
 function OS_DECOMMIT_MEMORY_DEFINE(Posix_Decommit_Memory) {
     if(BaseAddress) {
+        os_base* Base = (os_base*)Posix_Get();
+
         mmap(BaseAddress, DecommitSize, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
         msync(BaseAddress, DecommitSize, MS_SYNC|MS_INVALIDATE);
     }
@@ -52,6 +63,11 @@ function OS_DECOMMIT_MEMORY_DEFINE(Posix_Decommit_Memory) {
 
 function OS_RELEASE_MEMORY_DEFINE(Posix_Release_Memory) {
     if(BaseAddress) {
+        os_base* Base = (os_base*)Posix_Get();
+
+        Atomic_Sub_U64(&Base->ReservedAmount, ReleaseSize);
+        Atomic_Decrement_U64(&Base->ReservedCount);
+
         msync(BaseAddress, ReleaseSize, MS_SYNC);
         munmap(BaseAddress, ReleaseSize);
     }
@@ -107,11 +123,13 @@ function OS_OPEN_FILE_DEFINE(Posix_Open_File) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_file* Result = Posix->FreeFiles;
     if(Result) SLL_Pop_Front(Posix->FreeFiles);
-    else Result = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_file);
+    else Result = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_file);
     pthread_mutex_unlock(&Posix->ResourceLock);
 
     Memory_Clear(Result, sizeof(os_file));
     Result->Handle = FileHandle;
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedFileCount);
 
     return Result;
 }
@@ -163,6 +181,8 @@ function OS_CLOSE_FILE_DEFINE(Posix_Close_File) {
     pthread_mutex_lock(&Posix->ResourceLock);
     SLL_Push_Front(Posix->FreeFiles, File);
     pthread_mutex_unlock(&Posix->ResourceLock);
+
+    Atomic_Decrement_U64(&Posix->Base.AllocatedFileCount);
 }
 
 function void Posix_Get_All_Files_Recursive(allocator* Allocator, dynamic_string_array* Array, string Directory, b32 Recursive) {
@@ -299,11 +319,13 @@ function OS_TLS_CREATE_DEFINE(Posix_TLS_Create) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_tls* TLS = Posix->FreeTLS;
     if(TLS) SLL_Pop_Front(Posix->FreeTLS);
-    else TLS = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_tls);
+    else TLS = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_tls);
     pthread_mutex_unlock(&Posix->ResourceLock);
 
     Memory_Clear(TLS, sizeof(os_tls));
     TLS->Key = Key;
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedTLSCount);
 
     return TLS;
 }
@@ -316,6 +338,8 @@ function OS_TLS_DELETE_DEFINE(Posix_TLS_Delete) {
     pthread_mutex_lock(&Posix->ResourceLock);
     SLL_Push_Front(Posix->FreeTLS, TLS);
     pthread_mutex_unlock(&Posix->ResourceLock);
+
+    Atomic_Decrement_U64(&Posix->Base.AllocatedTLSCount);
 }
 
 function OS_TLS_GET_DEFINE(Posix_TLS_Get) {
@@ -338,7 +362,7 @@ function OS_THREAD_CREATE_DEFINE(Posix_Thread_Create) {
 	pthread_mutex_lock(&Posix->ResourceLock);
 	os_thread* Thread = Posix->FreeThreads;
 	if (Thread) SLL_Pop_Front(Posix->FreeThreads);
-	else Thread = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_thread);
+	else Thread = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_thread);
 	pthread_mutex_unlock(&Posix->ResourceLock);
 
 	Memory_Clear(Thread, sizeof(os_thread));
@@ -349,6 +373,8 @@ function OS_THREAD_CREATE_DEFINE(Posix_Thread_Create) {
 		SLL_Push_Front(Posix->FreeThreads, Thread);
 		pthread_mutex_unlock(&Posix->ResourceLock);
 		Thread = NULL;
+    } else {
+        Atomic_Increment_U64(&Posix->Base.AllocatedThreadCount);
     }
 
 	return Thread;
@@ -362,6 +388,8 @@ function OS_THREAD_JOIN_DEFINE(Posix_Thread_Join) {
 		pthread_mutex_lock(&Posix->ResourceLock);
 		SLL_Push_Front(Posix->FreeThreads, Thread);
 		pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedThreadCount);
 	}
 }
 
@@ -380,12 +408,14 @@ function OS_MUTEX_CREATE_DEFINE(Posix_Mutex_Create) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_mutex* Mutex = Posix->FreeMutex;
     if(Mutex) SLL_Pop_Front(Posix->FreeMutex);
-    else Mutex = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_mutex);
+    else Mutex = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_mutex);
     pthread_mutex_unlock(&Posix->ResourceLock);
     
     Memory_Clear(Mutex, sizeof(os_mutex));
 
     pthread_mutex_init(&Mutex->Lock, NULL);
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedMutexCount);
 
     return Mutex;
 }
@@ -399,6 +429,8 @@ function OS_MUTEX_DELETE_DEFINE(Posix_Mutex_Delete) {
         pthread_mutex_lock(&Posix->ResourceLock);
         SLL_Push_Front(Posix->FreeMutex, Mutex);
         pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedMutexCount);
     }
 }
 
@@ -420,11 +452,13 @@ function OS_RW_MUTEX_CREATE_DEFINE(Posix_RW_Mutex_Create) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_rw_mutex* Mutex = Posix->FreeRWMutex;
     if(Mutex) SLL_Pop_Front(Posix->FreeRWMutex);
-    else Mutex = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_rw_mutex);
+    else Mutex = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_rw_mutex);
     pthread_mutex_unlock(&Posix->ResourceLock);
 
     Memory_Clear(Mutex, sizeof(os_rw_mutex));
     pthread_rwlock_init(&Mutex->Lock, NULL);
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedRWMutexCount);
 
     return Mutex;
 }
@@ -438,6 +472,8 @@ function OS_RW_MUTEX_DELETE_DEFINE(Posix_RW_Mutex_Delete) {
         pthread_mutex_lock(&Posix->ResourceLock);
         SLL_Push_Front(Posix->FreeRWMutex, Mutex);
         pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedRWMutexCount);
     }
 }
 
@@ -468,7 +504,7 @@ function OS_RW_MUTEX_LOCK_DEFINE(Posix_RW_Mutex_Write_Unlock) {
 #if defined(OS_OSX)
 function OS_SEMAPHORE_CREATE_DEFINE(Posix_Semaphore_Create) {
     semaphore_t Handle;
-    if(semaphore_create(mach_task_self(), &Handle, SYNC_POLICY_FIFO, 0) != KERN_SUCCESS) {
+    if(semaphore_create(mach_task_self(), &Handle, SYNC_POLICY_FIFO, InitialCount) != KERN_SUCCESS) {
         return NULL;
     }
 
@@ -476,11 +512,13 @@ function OS_SEMAPHORE_CREATE_DEFINE(Posix_Semaphore_Create) {
 	pthread_mutex_lock(&Posix->ResourceLock);
 	os_semaphore* Semaphore = Posix->FreeSemaphores;
 	if (Semaphore) SLL_Pop_Front(Posix->FreeSemaphores);
-	else Semaphore = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_semaphore);
+	else Semaphore = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_semaphore);
 	pthread_mutex_unlock(&Posix->ResourceLock);
 
 	Memory_Clear(Semaphore, sizeof(os_semaphore));
 	Semaphore->Handle = Handle;
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedSemaphoresCount);
 
 	return Semaphore;
 }
@@ -493,6 +531,8 @@ function OS_SEMAPHORE_DELETE_DEFINE(Posix_Semaphore_Delete) {
 		pthread_mutex_lock(&Posix->ResourceLock);
 		SLL_Push_Front(Posix->FreeSemaphores, Semaphore);
 		pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedSemaphoresCount);
 	}
 }
 
@@ -533,6 +573,8 @@ function OS_SEMAPHORE_CREATE_DEFINE(Posix_Semaphore_Create) {
 	Memory_Clear(Semaphore, sizeof(os_semaphore));
 	Semaphore->Handle = Handle;
 
+    Atomic_Increment_U64(&Posix->Base.AllocatedSemaphoresCount);
+
 	return Semaphore;
 }
 
@@ -543,6 +585,8 @@ function OS_SEMAPHORE_DELETE_DEFINE(Posix_Semaphore_Delete) {
 		pthread_mutex_lock(&Posix->ResourceLock);
 		SLL_Push_Front(Posix->FreeSemaphores, Semaphore);
 		pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedSemaphoresCount);
 	}
 }
 
@@ -581,12 +625,15 @@ function OS_EVENT_CREATE_DEFINE(Posix_Event_Create) {
 	pthread_mutex_lock(&Posix->ResourceLock);
 	os_event* Event = Posix->FreeEvents;
 	if (Event) SLL_Pop_Front(Posix->FreeEvents);
-	else Event = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_event);
+	else Event = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_event);
 	pthread_mutex_unlock(&Posix->ResourceLock);
 
 	Memory_Clear(Event, sizeof(os_event));
 	Event->Mutex = Mutex;
     Event->Cond = Cond;
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedEventsCount);
+
 	return Event;
 }
 
@@ -599,6 +646,8 @@ function OS_EVENT_DELETE_DEFINE(Posix_Event_Delete) {
 		pthread_mutex_lock(&Posix->ResourceLock);
 		SLL_Push_Front(Posix->FreeEvents, Event);
 		pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedEventsCount);
 	}
 }
 
@@ -648,14 +697,16 @@ function OS_HOT_RELOAD_CREATE_DEFINE(Posix_Hot_Reload_Create) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_hot_reload* HotReload = Posix->FreeHotReload;
     if(HotReload) SLL_Pop_Front(Posix->FreeHotReload);
-    else HotReload = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_hot_reload);
+    else HotReload = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_hot_reload);
     pthread_mutex_unlock(&Posix->ResourceLock);
 
     Memory_Clear(HotReload, sizeof(os_hot_reload));
 
     HotReload->FilePath = FilePath;
     HotReload->LastWriteTime = Stats.st_mtime;
-    
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedHotReloadCount);
+
 	return HotReload;
 }
 
@@ -666,7 +717,9 @@ function OS_HOT_RELOAD_DELETE_DEFINE(Posix_Hot_Reload_Delete) {
 		pthread_mutex_lock(&Posix->ResourceLock);
 		SLL_Push_Front(Posix->FreeHotReload, HotReload);
 		pthread_mutex_unlock(&Posix->ResourceLock);
-	}
+	
+        Atomic_Decrement_U64(&Posix->Base.AllocatedHotReloadCount);
+    }
 }
 
 function OS_HOT_RELOAD_HAS_RELOADED_DEFINE(Posix_Hot_Reload_Has_Reloaded) {
@@ -693,11 +746,13 @@ function OS_LIBRARY_CREATE_DEFINE(Posix_Library_Create) {
     pthread_mutex_lock(&Posix->ResourceLock);
     os_library* Result = Posix->FreeLibrary;
     if(Result) SLL_Pop_Front(Posix->FreeLibrary);
-    else Result = Arena_Push_Struct_No_Clear(Posix->ResourceArena, os_library);
+    else Result = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_library);
     pthread_mutex_unlock(&Posix->ResourceLock);
 
     Memory_Clear(Result, sizeof(os_library));
     Result->Library = Library;
+
+    Atomic_Increment_U64(&Posix->Base.AllocatedLibraryCount);
 
     return Result;
 }
@@ -711,12 +766,66 @@ function OS_LIBRARY_DELETE_DEFINE(Posix_Library_Delete) {
         pthread_mutex_lock(&Posix->ResourceLock);
         SLL_Push_Front(Posix->FreeLibrary, Library);
         pthread_mutex_unlock(&Posix->ResourceLock);
+
+        Atomic_Decrement_U64(&Posix->Base.AllocatedLibraryCount);
     }
 }
 
 function OS_LIBRARY_GET_FUNCTION_DEFINE(Posix_Library_Get_Function) {
     if(!Library) return NULL;
     return dlsym(Library->Library, FunctionName);
+}
+
+function OS_CONDITION_VARIABLE_CREATE_DEFINE(Posix_Condition_Variable_Create) {
+    posix_base* Posix = Posix_Get();
+
+	pthread_cond_t Handle;
+	pthread_cond_init(&Handle, NULL);
+
+	pthread_mutex_lock(&Posix->ResourceLock);
+	os_condition_variable* Result = Posix->FreeConditionVariables;
+	if (Result) SLL_Pop_Front(Posix->FreeConditionVariables);
+	else Result = Arena_Push_Struct_No_Clear(Posix->Base.ResourceArena, os_condition_variable);
+	pthread_mutex_unlock(&Posix->ResourceLock);
+
+	Memory_Clear(Result, sizeof(os_condition_variable));
+	Result->Handle = Handle;
+
+	Atomic_Increment_U64(&Posix->Base.AllocatedConditionVariableCount);
+
+	return Result;
+}
+
+function OS_CONDITION_VARIABLE_DELETE_DEFINE(Posix_Condition_Variable_Delete) {
+	if (Variable) {
+        posix_base* Posix = Posix_Get();
+
+        pthread_cond_destroy(&Variable->Handle);
+
+	    pthread_mutex_lock(&Posix->ResourceLock);
+		SLL_Push_Front(Posix->FreeConditionVariables, Variable);
+	    pthread_mutex_unlock(&Posix->ResourceLock);
+
+		Atomic_Decrement_U64(&Posix->Base.AllocatedConditionVariableCount);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAIT_DEFINE(Posix_Condition_Variable_Wait) {
+	if (Variable && Mutex) {
+        pthread_cond_wait(&Variable->Handle, &Mutex->Lock);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(Posix_Condition_Variable_Wake) {
+	if (Variable) {
+        pthread_cond_signal(&Variable->Handle);
+	}
+}
+
+function OS_CONDITION_VARIABLE_WAKE_DEFINE(Posix_Condition_Variable_Wake_All) {
+	if (Variable) {
+        pthread_cond_broadcast(&Variable->Handle);
+	}
 }
 
 function OS_GET_ENTROPY_DEFINE(Posix_Get_Entropy) {
@@ -812,6 +921,12 @@ global os_base_vtable Posix_Base_VTable = {
 	.LibraryCreateFunc = Posix_Library_Create,
 	.LibraryDeleteFunc = Posix_Library_Delete,
 	.LibraryGetFunctionFunc = Posix_Library_Get_Function,
+    
+    .ConditionVariableCreateFunc = Posix_Condition_Variable_Create,
+    .ConditionVariableDeleteFunc = Posix_Condition_Variable_Delete,
+    .ConditionVariableWaitFunc = Posix_Condition_Variable_Wait,
+    .ConditionVariableWakeAllFunc = Posix_Condition_Variable_Wake_All,
+    .ConditionVariableWakeFunc = Posix_Condition_Variable_Wake,
 
     .GetEntropyFunc = Posix_Get_Entropy,
     .SleepFunc = Posix_Sleep
@@ -864,6 +979,42 @@ function string Posix_Get_Executable_Path(allocator* Allocator) {
 #error "Not Implemented"
 #endif
 
+function void* RPMalloc_Memory_Map(size_t Size, size_t Alignment, size_t* Offset, size_t* MappedSize) {
+	size_t ReserveSize = Size + Alignment;
+	void* Memory = OS_Reserve_Memory(ReserveSize);
+	if (Memory) {
+		if (Alignment) {
+			size_t Padding = ((uintptr_t)Memory & (uintptr_t)(Alignment - 1));
+			if (Padding) Padding = Alignment - Padding;
+			Memory = Offset_Pointer(Memory, Padding);
+			*Offset = Padding;
+		}
+		*MappedSize = ReserveSize;
+	}
+
+	return Memory;
+}
+
+function void RPMalloc_Memory_Commit(void* Address, size_t Size) {
+	OS_Commit_Memory(Address, Size);
+}
+
+function void RPMalloc_Memory_Decommit(void* Address, size_t Size) {
+	OS_Decommit_Memory(Address, Size);
+}
+
+function void RPMalloc_Memory_Unmap(void* Address, size_t Offset, size_t MappedSize) {
+	Address = Offset_Pointer(Address, -(intptr_t)Offset);
+	OS_Release_Memory(Address, MappedSize);
+}
+
+global rpmalloc_interface_t Memory_VTable = {
+	.memory_map = RPMalloc_Memory_Map,
+	.memory_commit = RPMalloc_Memory_Commit,
+	.memory_decommit = RPMalloc_Memory_Decommit,
+	.memory_unmap = RPMalloc_Memory_Unmap
+};
+
 void OS_Base_Init(base* Base) {
     static posix_base Posix;
 
@@ -876,14 +1027,28 @@ void OS_Base_Init(base* Base) {
 
     Base->OSBase = (os_base*)&Posix;
 
-    Posix.ResourceArena = Arena_Create();
-    pthread_mutex_init(&Posix.ResourceLock, NULL);
+    rpmalloc_config_t Config = {
+		.unmap_on_finalize = true
+	};
+
+	rpmalloc_initialize_config(&Memory_VTable, &Config);
+
+	pthread_mutex_init(&Posix.ResourceLock, 0);
+    pthread_rwlock_init(&Posix.ArenaLock.Lock, NULL);
+	Base->ArenaLock = &Posix.ArenaLock;
+    Posix.Base.ResourceArena = Arena_Create(String_Lit("OS Base Resources"));
 
     Base->ThreadContextTLS = OS_TLS_Create();
+    Base->ThreadContextLock = OS_Mutex_Create();
 
     arena* Scratch = Scratch_Get();
     string ExecutablePath = Posix_Get_Executable_Path((allocator*)Scratch);
-    Posix.Base.ProgramPath = String_Copy((allocator*)Posix.ResourceArena, String_Get_Directory_Path(ExecutablePath));
+    Posix.Base.ProgramPath = String_Copy((allocator*)Posix.Base.ResourceArena, String_Get_Directory_Path(ExecutablePath));
 
     Scratch_Release();
+}
+
+void OS_Base_Shutdown(base* Base) {
+	posix_base* Posix = (posix_base*)Base->OSBase;
+    pthread_mutex_destroy(&Posix->ResourceLock);
 }

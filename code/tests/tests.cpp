@@ -1,7 +1,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-#include <base.h>
 #include <dxc/dxcapi.h>
+#include <base.h>
+
 #include <third_party/stb/stb_image_write.h>
 #include <gdi/gdi.h>
 #include "utest.h"

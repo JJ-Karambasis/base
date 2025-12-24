@@ -21,11 +21,10 @@ build_debug=0
 build_clang=1
 build_asan=0
 build_cpp=0
-build_gdi=1
+build_gdi=0
 build_meta=1
 build_tracy=0
-build_tests=1
-use_xcb=0
+build_tests=0
 
 # Manual parsing
 while [[ $# -gt 0 ]]; do
@@ -65,8 +64,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
 
-        -use_xcb)
-            use_xcb=1
+        -tests)
+            build_tests=1
             shift
             ;;
   esac
@@ -140,7 +139,7 @@ if [ $build_meta -eq 1 ]; then
     popd
 fi
 
-vulkan_flags=-DVK_USE_PLATFORM_
+vulkan_flags=
 if [ $build_type == "osx" ]; then
     vulkan_flags="-DVK_USE_PLATFORM_METAL_EXT"
 else 
@@ -173,8 +172,25 @@ pushd "$bin_path"
 popd
 
 if [ $build_tests -eq 1 ]; then 
+    dxc_base_path="$code_path/third_party/DirectXShaderCompiler"
+
+    if [ ! -f "$dxc_base_path/bin/lib/libdxcompiler.dylib" ]; then
+        pushd "$dxc_base_path"
+            cmake -S . -B bin -C cmake/caches/PredefinedParams.cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=None -DLLVM_INCLUDE_TESTS=OFF -DENABLE_SPIRV_CODEGEN=ON -DHLSL_INCLUDE_TESTS=OFF
+            cmake --build bin --config Release
+        popd
+    fi
+
+    osx_frameworks=
+    linux_libs=
+
+    if [ $build_type == "osx" ]; then
+        osx_frameworks="-framework QuartzCore -framework AppKit"
+    elif [ $build_type == "linux" ]; then
+        linux_libs="-lm -lstdc++"
+    fi
+
     pushd "$bin_path"
-        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes -I"$code_path" -I"$code_path/third_party/SDL/include" "$code_path/tests/tests.cpp" -L"$code_path/third_party/SDL/build" -L"$bin_path" -lm -lSDL3 -lbase -lX11 -lstdc++ -ldxcompiler $compile_out tests 
-        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes -I"$code_path" -I"$code_path/third_party/SDL/include" "$code_path/tests/interactive_test.cpp" -L"$code_path/third_party/SDL/build" -L"$bin_path" -lm -lSDL3 -lbase -lX11 -lstdc++ $compile_out interactive_test 
+        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes $osx_frameworks -I"$code_path" -I"$dxc_base_path/include" "$code_path/tests/tests.cpp" -L"$bin_path" -L"$dxc_base_path/bin/lib" $linux_libs -lbase -ldxcompiler -Wl,-rpath,$dxc_base_path/bin/lib $compile_out tests 
     popd
 fi

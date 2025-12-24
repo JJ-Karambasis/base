@@ -6,7 +6,7 @@
         {
             "label": "Build",
             "type": "shell",
-            "command": "${workspaceFolder}/build.sh -debug",
+            "command": "${workspaceFolder}/build.sh -debug -tests",
             "group": {
                 "kind": "build",
                 "isDefault": true

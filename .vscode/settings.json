@@ -5,6 +5,12 @@
         "xlib.h": "c",
         "sdl.h": "c",
         "winadapter.h": "c",
-        "vk_gdi.c": "cpp"
+        "vk_gdi.c": "cpp",
+        "semaphore.h": "c",
+        "mach.h": "c",
+        "task.h": "c",
+        "*.inc": "c",
+        "vm_region.h": "c",
+        "mach_vm.h": "c"
     }
 }
