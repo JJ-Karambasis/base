@@ -696,8 +696,8 @@ function void VK_Delete_Sampler_Resources(vk_device_context* Context, vk_sampler
 }
 
 function void VK_Delete_Bind_Group_Layout_Resources(vk_device_context* Context, vk_bind_group_layout* BindGroupLayout) {
-	if (!GDI_Bind_Group_Binding_Array_Is_Empty(BindGroupLayout->Bindings)) {
-		Allocator_Free_Memory(Default_Allocator_Get(), BindGroupLayout->Bindings.Ptr);
+	if (BindGroupLayout->AllocationData) {
+		Allocator_Free_Memory(Default_Allocator_Get(), BindGroupLayout->AllocationData);
 	}
 
 	if (BindGroupLayout->Layout != VK_NULL_HANDLE) {
@@ -1868,14 +1868,29 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	VkDescriptorSetLayoutBinding* Bindings = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorSetLayoutBinding);
 	VkDescriptorBindingFlagsEXT* BindingFlags = Arena_Push_Array(Scratch, BindGroupLayoutInfo->Bindings.Count, VkDescriptorBindingFlagsEXT);
 	
+	size_t ImmutableSamplerCount = 0;
 	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
 		gdi_bind_group_binding* Binding = BindGroupLayoutInfo->Bindings.Ptr + i;
+
+		VkSampler* ImmutableSamplers = NULL;
+		if(Binding->StaticSamplers != NULL) {
+			Assert(Binding->Type == GDI_BIND_GROUP_TYPE_SAMPLER);
+			ImmutableSamplers = Arena_Push_Array(Scratch, Binding->Count, VkSampler);
+			for(size_t j = 0; j < Binding->Count; j++) {
+				vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Binding->StaticSamplers[j]);
+				Assert(Sampler);
+				ImmutableSamplers[j] = Sampler->Sampler;
+			}
+
+			ImmutableSamplerCount += Binding->Count;
+		}
 
 		VkDescriptorSetLayoutBinding LayoutBinding = {
 			.binding = (u32)i,
 			.descriptorType = VK_Get_Descriptor_Type(Binding->Type),
 			.descriptorCount = Binding->Count,
-			.stageFlags = VK_SHADER_STAGE_ALL
+			.stageFlags = VK_SHADER_STAGE_ALL,
+			.pImmutableSamplers = ImmutableSamplers
 		};
 
 		Bindings[i] = LayoutBinding;
@@ -1916,7 +1931,23 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	gdi_handle Result = VK_Bind_Group_Layout_Pool_Allocate(&Context->ResourcePool);
 	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, Result);
 	Layout->Layout = SetLayout;
-	Layout->Bindings = GDI_Bind_Group_Binding_Array_Copy(Default_Allocator_Get(), BindGroupLayoutInfo->Bindings.Ptr, BindGroupLayoutInfo->Bindings.Count);
+
+	size_t AllocationSize = ImmutableSamplerCount*sizeof(gdi_handle) + BindGroupLayoutInfo->Bindings.Count*sizeof(gdi_bind_group_binding);
+	Layout->AllocationData = Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
+
+	Layout->Bindings.Ptr = (gdi_bind_group_binding*)Layout->AllocationData;
+	Layout->Bindings.Count = BindGroupLayoutInfo->Bindings.Count;
+
+	gdi_handle* StaticSamplersAt = (gdi_handle*)(Layout->Bindings.Ptr + Layout->Bindings.Count);
+	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
+		gdi_bind_group_binding* Binding = BindGroupLayoutInfo->Bindings.Ptr + i;
+		Layout->Bindings.Ptr[i] = *Binding;
+		if(Binding->StaticSamplers) {
+			Layout->Bindings.Ptr[i].StaticSamplers = StaticSamplersAt;
+			StaticSamplersAt += Layout->Bindings.Ptr[i].Count;
+		}
+	}
+	Assert(((size_t)StaticSamplersAt-(size_t)Layout->AllocationData) == AllocationSize);
 
 	return Result;
 }
@@ -3030,64 +3061,65 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 
 			} else {
 				for (size_t i = 0; i < Layout->Bindings.Count; i++) {
-					vk_bind_group_binding* Binding = BindGroup->Bindings + i;
+					if(!Layout->Bindings.Ptr[i].StaticSamplers) {
+						vk_bind_group_binding* Binding = BindGroup->Bindings + i;
+						vk_bind_group_write_cmd* NewFirstWriteCmd = NULL;
+						vk_bind_group_write_cmd* NewLastWriteCmd = NULL;
 
-					vk_bind_group_write_cmd* NewFirstWriteCmd = NULL;
-					vk_bind_group_write_cmd* NewLastWriteCmd = NULL;
+						for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd; 
+							WriteCmd; WriteCmd = WriteCmd->Next) {
 
-					for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd; 
-						WriteCmd; WriteCmd = WriteCmd->Next) {
+							FrameDiff = NewFrameIndex - WriteCmd->LastUpdatedFrame;
+							if (FrameDiff < Context->Frames.Count) {
 
-						FrameDiff = NewFrameIndex - WriteCmd->LastUpdatedFrame;
-						if (FrameDiff < Context->Frames.Count) {
+								vk_bind_group_write_cmd* NewWriteCmd = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_write_cmd);
+								for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
+									Descriptor; Descriptor = Descriptor->Next) {
+										
+									vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
+									if (Buffer) {
+										Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
 
-							vk_bind_group_write_cmd* NewWriteCmd = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_write_cmd);
-							for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
-								Descriptor; Descriptor = Descriptor->Next) {
-									
-								vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
-								if (Buffer) {
-									Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
+										vk_bind_group_dynamic_descriptor* NewDescriptor = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_dynamic_descriptor);
+										*NewDescriptor = *Descriptor;
+										NewDescriptor->Next = NULL;
 
-									vk_bind_group_dynamic_descriptor* NewDescriptor = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_dynamic_descriptor);
-									*NewDescriptor = *Descriptor;
-									NewDescriptor->Next = NULL;
+										SLL_Push_Back(NewWriteCmd->FirstDynamicDescriptor, NewWriteCmd->LastDynamicDescriptor, NewDescriptor);
+									}
+								}
 
-									SLL_Push_Back(NewWriteCmd->FirstDynamicDescriptor, NewWriteCmd->LastDynamicDescriptor, NewDescriptor);
+								if (NewWriteCmd->FirstDynamicDescriptor) {
+									NewWriteCmd->LastUpdatedFrame = WriteCmd->LastUpdatedFrame;
+									SLL_Push_Back(NewFirstWriteCmd, NewLastWriteCmd, NewWriteCmd);
 								}
 							}
+						}
 
-							if (NewWriteCmd->FirstDynamicDescriptor) {
-								NewWriteCmd->LastUpdatedFrame = WriteCmd->LastUpdatedFrame;
-								SLL_Push_Back(NewFirstWriteCmd, NewLastWriteCmd, NewWriteCmd);
+						Binding->FirstBindGroupWriteCmd = NewFirstWriteCmd;
+						Binding->LastBindGroupWriteCmd = NewLastWriteCmd;
+
+						vk_bind_group_copy_cmd* NewFirstCopyCmd = NULL;
+						vk_bind_group_copy_cmd* NewLastCopyCmd = NULL;
+
+						for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
+							CopyCmd; CopyCmd = CopyCmd->Next) {
+								
+							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
+							vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+
+							FrameDiff = NewFrameIndex - CopyCmd->LastUpdatedFrame;
+							if (FrameDiff < Context->Frames.Count && SrcBindGroup && SrcLayout) {
+									
+								vk_bind_group_copy_cmd* NewCopyCmd = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_copy_cmd);
+								*NewCopyCmd = *CopyCmd;
+
+								SLL_Push_Back(NewFirstCopyCmd, NewLastCopyCmd, NewCopyCmd);
 							}
 						}
+
+						Binding->FirstBindGroupCopyCmd = NewFirstCopyCmd;
+						Binding->LastBindGroupCopyCmd = NewLastCopyCmd;
 					}
-
-					Binding->FirstBindGroupWriteCmd = NewFirstWriteCmd;
-					Binding->LastBindGroupWriteCmd = NewLastWriteCmd;
-
-					vk_bind_group_copy_cmd* NewFirstCopyCmd = NULL;
-					vk_bind_group_copy_cmd* NewLastCopyCmd = NULL;
-
-					for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
-						CopyCmd; CopyCmd = CopyCmd->Next) {
-							
-						vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
-						vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
-
-						FrameDiff = NewFrameIndex - CopyCmd->LastUpdatedFrame;
-						if (FrameDiff < Context->Frames.Count && SrcBindGroup && SrcLayout) {
-								
-							vk_bind_group_copy_cmd* NewCopyCmd = Arena_Push_Struct(NewFrame->TempArena, vk_bind_group_copy_cmd);
-							*NewCopyCmd = *CopyCmd;
-
-							SLL_Push_Back(NewFirstCopyCmd, NewLastCopyCmd, NewCopyCmd);
-						}
-					}
-
-					Binding->FirstBindGroupCopyCmd = NewFirstCopyCmd;
-					Binding->LastBindGroupCopyCmd = NewLastCopyCmd;
 				}
 			}
 		}
@@ -3108,126 +3140,127 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 				VkDescriptorSet DstSet = BindGroup->Sets[NewFrame->Index];
 
 				for (size_t j = 0; j < Layout->Bindings.Count; j++) {							
-					vk_bind_group_binding* Binding = BindGroup->Bindings + j;
+					if(!Layout->Bindings.Ptr[j].StaticSamplers) {
+						vk_bind_group_binding* Binding = BindGroup->Bindings + j;
+						//Check if the descriptor is in use by a current copy or write
+						//If not, we just copy from the prev state to the newest state
+						u32* DescriptorCounts = Arena_Push_Array(Scratch, Layout->Bindings.Ptr[j].Count, u32);
 
-					//Check if the descriptor is in use by a current copy or write
-					//If not, we just copy from the prev state to the newest state
-					u32* DescriptorCounts = Arena_Push_Array(Scratch, Layout->Bindings.Ptr[j].Count, u32);
+						for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd;
+							WriteCmd; WriteCmd = WriteCmd->Next) {
 
-					for (vk_bind_group_write_cmd* WriteCmd = Binding->FirstBindGroupWriteCmd;
-						WriteCmd; WriteCmd = WriteCmd->Next) {
+							Assert((NewFrameIndex - WriteCmd->LastUpdatedFrame) < Context->Frames.Count);
 
-						Assert((NewFrameIndex - WriteCmd->LastUpdatedFrame) < Context->Frames.Count);
+							for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
+								Descriptor; Descriptor = Descriptor->Next) {
 
-						for (vk_bind_group_dynamic_descriptor* Descriptor = WriteCmd->FirstDynamicDescriptor;
-							Descriptor; Descriptor = Descriptor->Next) {
+								vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
+								if (Buffer) {
+									Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
+									
+									VkDescriptorBufferInfo* BufferInfo = Arena_Push_Struct(Scratch, VkDescriptorBufferInfo);
+									BufferInfo->buffer = Buffer->Buffer;
+									BufferInfo->offset = Descriptor->Offset + NewFrame->Index * Buffer->Size;
+									BufferInfo->range = Descriptor->Size;
 
-							vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Descriptor->Buffer);
-							if (Buffer) {
-								Assert(Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC);
-								
-								VkDescriptorBufferInfo* BufferInfo = Arena_Push_Struct(Scratch, VkDescriptorBufferInfo);
-								BufferInfo->buffer = Buffer->Buffer;
-								BufferInfo->offset = Descriptor->Offset + NewFrame->Index * Buffer->Size;
-								BufferInfo->range = Descriptor->Size;
+									if (BufferInfo->range == 0) {
+										BufferInfo->range = Buffer->Size - Descriptor->Offset;
+									}
 
-								if (BufferInfo->range == 0) {
-									BufferInfo->range = Buffer->Size - Descriptor->Offset;
+									VkDescriptorType Type = VK_Get_Descriptor_Type(Layout->Bindings.Ptr[j].Type);
+
+									VkWriteDescriptorSet WriteDescriptor = {
+										.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+										.dstSet = DstSet,
+										.dstBinding = (u32)j,
+										.dstArrayElement = Descriptor->Index,
+										.descriptorCount = 1,
+										.descriptorType = Type,
+										.pBufferInfo = BufferInfo
+									};
+
+									Dynamic_VK_Write_Descriptor_Set_Array_Add(&Writes, WriteDescriptor);
+
+									DescriptorCounts[Descriptor->Index] = 1;
 								}
-
-								VkDescriptorType Type = VK_Get_Descriptor_Type(Layout->Bindings.Ptr[j].Type);
-
-								VkWriteDescriptorSet WriteDescriptor = {
-									.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-									.dstSet = DstSet,
-									.dstBinding = (u32)j,
-									.dstArrayElement = Descriptor->Index,
-									.descriptorCount = 1,
-									.descriptorType = Type,
-									.pBufferInfo = BufferInfo
-								};
-
-								Dynamic_VK_Write_Descriptor_Set_Array_Add(&Writes, WriteDescriptor);
-
-								DescriptorCounts[Descriptor->Index] = 1;
 							}
 						}
-					}
 
-					for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
-						CopyCmd; CopyCmd = CopyCmd->Next) {
-							
-						Assert((NewFrameIndex - CopyCmd->LastUpdatedFrame) < Context->Frames.Count);
-
-
-						vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
-						if (SrcBindGroup) {
+						for (vk_bind_group_copy_cmd* CopyCmd = Binding->FirstBindGroupCopyCmd;
+							CopyCmd; CopyCmd = CopyCmd->Next) {
 								
-							VkCopyDescriptorSet CopyDescriptor = {
-								.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-								.srcSet = SrcBindGroup->Sets[NewFrame->Index],
-								.srcBinding = CopyCmd->SrcBinding,
-								.srcArrayElement = CopyCmd->SrcIndex,
-								.dstSet = DstSet,
-								.dstBinding = (u32)j,
-								.dstArrayElement = CopyCmd->DstIndex,
-								.descriptorCount = CopyCmd->Count
-							};
+							Assert((NewFrameIndex - CopyCmd->LastUpdatedFrame) < Context->Frames.Count);
 
-							Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
-								
-							DescriptorCounts[CopyCmd->DstIndex] = CopyCmd->Count;
-						}
-					}
 
-					u32 StartIndex = 0;
-					for (u32 k = 0; k < Layout->Bindings.Ptr[j].Count; k++) {
-						if (DescriptorCounts[k] > 0) {
-							u32 CopyCount = k - StartIndex;
-							if (CopyCount) {
+							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
+							if (SrcBindGroup) {
+									
 								VkCopyDescriptorSet CopyDescriptor = {
 									.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-									.srcSet = SrcSet,
-									.srcBinding = (u32)j,
-									.srcArrayElement = StartIndex,
+									.srcSet = SrcBindGroup->Sets[NewFrame->Index],
+									.srcBinding = CopyCmd->SrcBinding,
+									.srcArrayElement = CopyCmd->SrcIndex,
 									.dstSet = DstSet,
 									.dstBinding = (u32)j,
-									.dstArrayElement = StartIndex,
-									.descriptorCount = CopyCount
+									.dstArrayElement = CopyCmd->DstIndex,
+									.descriptorCount = CopyCmd->Count
 								};
 
 								Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+									
+								DescriptorCounts[CopyCmd->DstIndex] = CopyCmd->Count;
 							}
+						}
 
-							u32 DescriptorsToSkip = DescriptorCounts[k]-1;
-							for (k = k+1; k < Layout->Bindings.Ptr[j].Count; k++) {
-								if (!DescriptorsToSkip) break;
+						u32 StartIndex = 0;
+						for (u32 k = 0; k < Layout->Bindings.Ptr[j].Count; k++) {
+							if (DescriptorCounts[k] > 0) {
+								u32 CopyCount = k - StartIndex;
+								if (CopyCount) {
+									VkCopyDescriptorSet CopyDescriptor = {
+										.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+										.srcSet = SrcSet,
+										.srcBinding = (u32)j,
+										.srcArrayElement = StartIndex,
+										.dstSet = DstSet,
+										.dstBinding = (u32)j,
+										.dstArrayElement = StartIndex,
+										.descriptorCount = CopyCount
+									};
 
-								DescriptorsToSkip--;
-
-								if (DescriptorCounts[k]) {
-									DescriptorsToSkip = Max(DescriptorCounts[k], DescriptorsToSkip);
+									Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
 								}
 
+								u32 DescriptorsToSkip = DescriptorCounts[k]-1;
+								for (k = k+1; k < Layout->Bindings.Ptr[j].Count; k++) {
+									if (!DescriptorsToSkip) break;
+
+									DescriptorsToSkip--;
+
+									if (DescriptorCounts[k]) {
+										DescriptorsToSkip = Max(DescriptorCounts[k], DescriptorsToSkip);
+									}
+
+								}
+
+								StartIndex = k;
 							}
-
-							StartIndex = k;
 						}
-					}
 
-					if (StartIndex < Layout->Bindings.Ptr[j].Count) {
-						VkCopyDescriptorSet CopyDescriptor = {
-							.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-							.srcSet = SrcSet,
-							.srcBinding = (u32)j,
-							.srcArrayElement = StartIndex,
-							.dstSet = DstSet,
-							.dstBinding = (u32)j,
-							.dstArrayElement = StartIndex,
-							.descriptorCount = Layout->Bindings.Ptr[j].Count-StartIndex
-						};
+						if (StartIndex < Layout->Bindings.Ptr[j].Count) {
+							VkCopyDescriptorSet CopyDescriptor = {
+								.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+								.srcSet = SrcSet,
+								.srcBinding = (u32)j,
+								.srcArrayElement = StartIndex,
+								.dstSet = DstSet,
+								.dstBinding = (u32)j,
+								.dstArrayElement = StartIndex,
+								.descriptorCount = Layout->Bindings.Ptr[j].Count-StartIndex
+							};
 
-						Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+							Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+						}
 					}
 				}
 			}

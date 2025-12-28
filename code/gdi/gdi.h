@@ -97,7 +97,8 @@ typedef enum {
 	GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, texture),
 	GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER),
 	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, writable, buffer),
-	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, writable, texture)
+	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, writable, texture),
+	GDI_BIND_GROUP_TYPE_COUNT
 } gdi_bind_group_type;
 
 Meta()
@@ -237,6 +238,7 @@ typedef struct {
 typedef struct {
 	gdi_bind_group_type Type;
 	u32 				Count;
+	gdi_handle* 		StaticSamplers;
 } gdi_bind_group_binding;
 
 Array_Define(gdi_bind_group_binding);
@@ -701,7 +703,7 @@ struct gdi {
 #define GDI_Shutdown(flags) GDI_Get()->Backend->ShutdownFunc(GDI_Get(), flags)
 
 #define GDI_Get_Devices() GDI_Get()->Devices
-#define GDI_Constant_Buffer_Alignment() GDI_Get()->ConstantBufferAlignment
+#define GDI_Constant_Buffer_Alignment() GDI_Get()->DeviceContext->ConstantBufferAlignment
 
 /* Others */
 

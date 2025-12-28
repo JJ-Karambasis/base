@@ -3407,20 +3407,20 @@ export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
 	}
 }
 
-export_function inline b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID) {
+export_function b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID) {
 	if (!SlotID.ID) return false;
 	u32 Index = SlotID.Index;
 	Assert(Index < SlotMap->Capacity);
 	return SlotMap->Slots[Index] == SlotID.Slot;
 }
 
-export_function inline b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index) {
+export_function b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index) {
 	Assert(Index < SlotMap->Capacity);
 	u32 Slot = SlotMap->Slots[Index];
 	return Read_Bit(Slot, 31) != 0;
 }
 
-export_function inline slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
+export_function slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
 	Assert(Index < SlotMap->Capacity);
 	slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
 	return Result;

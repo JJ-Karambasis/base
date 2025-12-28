@@ -307,7 +307,9 @@ META_MACRO(VK_Enum_Mapper, name, type, mapped_type) {
 	META_FUNCTION(VK_Get_${name}, ${type} Entry) -> ${mapped_type} {
 		static const ${mapped_type} Entries[] = {
 			META_FOR(${type}, flags: NoBraces) {
-				(${mapped_type})${META_GET_TAG_VALUE(vk):upper},
+				META_IF(META_CONTAINS_TAG(vk)) {
+					(${mapped_type})${META_GET_TAG_VALUE(vk):upper},
+				}
 			}
 		};
 

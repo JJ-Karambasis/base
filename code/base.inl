@@ -87,6 +87,9 @@ function inline v4 operator*(v4 A, const m4& B) {
 }
 
 template <typename type>
+struct array;
+
+template <typename type>
 struct span {
 	const type* Ptr = NULL;
 	size_t 		Count = 0;
@@ -98,6 +101,8 @@ struct span {
 	}
 
 	inline span(const type* _Ptr, size_t _Count) : Ptr(_Ptr), Count(_Count) {}
+
+    inline span(const array<type>& Array);
 
 	inline const type& operator[](size_t Index) const {
 		Assert(Index < Count);
@@ -128,6 +133,9 @@ struct array {
 		return Ptr[Index];
 	}
 };
+
+template <typename type>
+inline span<type>::span(const array<type>& Array) : Ptr(Array.Ptr), Count(Array.Count) { }
 
 template <typename type>
 function inline void Array_Init(array<type>* Array, allocator* Allocator = Default_Allocator_Get()) {
@@ -172,9 +180,24 @@ function inline void Array_Clear(array<type>* Array) {
 }
 
 template<typename type>
-function inline void Array_Copy(array<type>* Dst, const array<type>* Src) {
-	size_t CopyCapacity = Min(Dst->Count, Src->Count);
-	Memory_Copy(Dst->Ptr, Src->Ptr, CopyCapacity * sizeof(type));
+function inline array<type> Array_Copy(allocator* Allocator, const array<type>* Src) {
+	array<type> Array(Allocator, Src->Count);
+    Memory_Copy(Array.Ptr, Src->Ptr, Src->Count*sizeof(type));
+    return Array;
+}
+
+template<typename type>
+function inline void Array_Add_Range(array<type>* Array, const type* Ptr, size_t Count) {
+    if (Array->Count+Count >= Array->Capacity) {
+        Array_Reserve(Array, Max(Array->Capacity*2, Array->Count+Count));
+    }
+    Memory_Copy(Array->Ptr + Array->Count, Ptr, Count * sizeof(type));
+    Array->Count += Count;
+}
+
+template <typename type>
+function inline b32 Array_Is_Empty(array<type>* Array) {
+    return !Array->Count || !Array->Ptr;
 }
 
 template<typename type>
@@ -192,6 +215,11 @@ template <typename type>
 struct pool_handle {
 	pool_id ID;
 };
+
+template <typename type>
+function inline b32 Handle_Is_Null(pool_handle<type> Handle) {
+    return Pool_ID_Null(Handle.ID);
+}
 
 template<typename type>
 struct pool_t : public pool {
@@ -468,7 +496,7 @@ function inline void Hashmap_Init(hashmap_t<key, value, hasher, comparer>* Hashm
 }
 
 template<typename key, typename value, typename hasher, typename comparer>
-function inline void Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hashmap, const key& Key, const value& Value) {
+function inline value* Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hashmap, const key& Key, const value& Value) {
 	u32 Hash = hasher{}.Hash(Key);
     Assert((Find_Slot<key, comparer>(Hashmap->Slots, Hashmap->SlotCapacity, Hashmap->Keys, Key, Hash) == -1));
     
@@ -493,7 +521,10 @@ function inline void Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hashma
     Hashmap->Keys[Hashmap->Count] = Key;
     Hashmap->Values[Hashmap->Count] = Value;
 
+    value* Result = Hashmap->Values + Hashmap->Count;
     Hashmap->Count++;
+
+    return Result;
 }
 
 template<typename key, typename value, typename hasher, typename comparer>

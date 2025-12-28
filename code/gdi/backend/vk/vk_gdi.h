@@ -108,7 +108,8 @@ typedef struct {
 } vk_sampler;
 
 typedef struct {
-	VkDescriptorSetLayout Layout;
+	VkDescriptorSetLayout 		 Layout;
+	void* 						 AllocationData;
 	gdi_bind_group_binding_array Bindings;
 } vk_bind_group_layout;
 
