@@ -81,10 +81,12 @@ typedef OS_MUTEX_LOCK_DEFINE(os_mutex_lock_func);
 typedef struct os_rw_mutex os_rw_mutex;
 #define OS_RW_MUTEX_CREATE_DEFINE(name) os_rw_mutex* name()
 #define OS_RW_MUTEX_DELETE_DEFINE(name) void name(os_rw_mutex* Mutex)
+#define OS_RW_MUTEX_TRY_LOCK_DEFINE(name) b32 name(os_rw_mutex* Mutex)
 #define OS_RW_MUTEX_LOCK_DEFINE(name) void name(os_rw_mutex* Mutex)
 
 typedef OS_RW_MUTEX_CREATE_DEFINE(os_rw_mutex_create_func);
 typedef OS_RW_MUTEX_DELETE_DEFINE(os_rw_mutex_delete_func);
+typedef OS_RW_MUTEX_TRY_LOCK_DEFINE(os_rw_mutex_try_lock_func);
 typedef OS_RW_MUTEX_LOCK_DEFINE(os_rw_mutex_lock_func);
 
 typedef struct os_semaphore os_semaphore;
@@ -186,12 +188,13 @@ typedef struct {
 	os_mutex_lock_func* MutexLockFunc;
 	os_mutex_lock_func* MutexUnlockFunc;
 
-	os_rw_mutex_create_func* RWMutexCreateFunc;
-	os_rw_mutex_delete_func* RWMutexDeleteFunc;
-	os_rw_mutex_lock_func* RWMutexReadLockFunc;
-	os_rw_mutex_lock_func* RWMutexReadUnlockFunc;
-	os_rw_mutex_lock_func* RWMutexWriteLockFunc;
-	os_rw_mutex_lock_func* RWMutexWriteUnlockFunc;
+	os_rw_mutex_create_func*   RWMutexCreateFunc;
+	os_rw_mutex_delete_func*   RWMutexDeleteFunc;
+	os_rw_mutex_try_lock_func* RWMutexTryReadLockFunc;
+	os_rw_mutex_lock_func* 	   RWMutexReadLockFunc;
+	os_rw_mutex_lock_func* 	   RWMutexReadUnlockFunc;
+	os_rw_mutex_lock_func* 	   RWMutexWriteLockFunc;
+	os_rw_mutex_lock_func* 	   RWMutexWriteUnlockFunc;
 
 	os_semaphore_create_func* SemaphoreCreateFunc;
 	os_semaphore_delete_func* SemaphoreDeleteFunc;
@@ -289,6 +292,7 @@ typedef struct {
 
 #define OS_RW_Mutex_Create() Base_Get()->OSBase->VTable->RWMutexCreateFunc()
 #define OS_RW_Mutex_Delete(mutex) Base_Get()->OSBase->VTable->RWMutexDeleteFunc(mutex)
+#define OS_RW_Mutex_Try_Read_Lock(mutex) Base_Get()->OSBase->VTable->RWMutexTryReadLockFunc(mutex)
 #define OS_RW_Mutex_Read_Lock(mutex) Base_Get()->OSBase->VTable->RWMutexReadLockFunc(mutex)
 #define OS_RW_Mutex_Read_Unlock(mutex) Base_Get()->OSBase->VTable->RWMutexReadUnlockFunc(mutex)
 #define OS_RW_Mutex_Write_Lock(mutex) Base_Get()->OSBase->VTable->RWMutexWriteLockFunc(mutex)

@@ -477,6 +477,11 @@ function OS_RW_MUTEX_DELETE_DEFINE(Posix_RW_Mutex_Delete) {
     }
 }
 
+function OS_RW_MUTEX_TRY_LOCK_DEFINE(Posix_RW_Mutex_Try_Read_Lock) {
+    if(!Mutex) return false;
+    return pthread_rwlock_tryrdlock(&Mutex->Lock) == 0;
+}
+
 function OS_RW_MUTEX_LOCK_DEFINE(Posix_RW_Mutex_Read_Lock) {
     if(Mutex) {
         pthread_rwlock_rdlock(&Mutex->Lock);
@@ -897,6 +902,7 @@ global os_base_vtable Posix_Base_VTable = {
 
     .RWMutexCreateFunc = Posix_RW_Mutex_Create,
 	.RWMutexDeleteFunc = Posix_RW_Mutex_Delete,
+    .RWMutexTryReadLockFunc = Posix_RW_Mutex_Try_Read_Lock,
 	.RWMutexReadLockFunc = Posix_RW_Mutex_Read_Lock,
 	.RWMutexReadUnlockFunc = Posix_RW_Mutex_Read_Unlock,
 	.RWMutexWriteLockFunc = Posix_RW_Mutex_Write_Lock,
