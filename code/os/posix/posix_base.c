@@ -170,6 +170,19 @@ function OS_WRITE_FILE_DEFINE(Posix_Write_File) {
     return true;
 }
 
+function OS_SET_FILE_POINTER_DEFINE(Posix_Set_File_Pointer) {
+    Assert(File);
+    if(!File) return;
+    lseek(File->Handle, Pointer, SEEK_SET);
+}
+
+function OS_GET_FILE_POINTER_DEFINE(Posix_Get_File_Pointer) {
+    Assert(File);
+    if(!File) return (u64)-1;
+    u64 Result = lseek(File->Handle, 0, SEEK_CUR);
+    return Result;
+}
+
 function OS_CLOSE_FILE_DEFINE(Posix_Close_File) {
     Assert(File);
     if(!File) return;
@@ -413,7 +426,11 @@ function OS_MUTEX_CREATE_DEFINE(Posix_Mutex_Create) {
     
     Memory_Clear(Mutex, sizeof(os_mutex));
 
-    pthread_mutex_init(&Mutex->Lock, NULL);
+    pthread_mutexattr_t Attribute;
+    pthread_mutexattr_init(&Attribute);
+    pthread_mutexattr_settype(&Attribute, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&Mutex->Lock, &Attribute);
+    pthread_mutexattr_destroy(&Attribute);
 
     Atomic_Increment_U64(&Posix->Base.AllocatedMutexCount);
 
@@ -877,6 +894,8 @@ global os_base_vtable Posix_Base_VTable = {
 	.GetFileSizeFunc = Posix_Get_File_Size,
 	.ReadFileFunc = Posix_Read_File,
 	.WriteFileFunc = Posix_Write_File,
+    .SetFilePointerFunc = Posix_Set_File_Pointer,
+    .GetFilePointerFunc = Posix_Get_File_Pointer,
 	.CloseFileFunc = Posix_Close_File,
 
 	.GetAllFilesFunc = Posix_Get_All_Files,

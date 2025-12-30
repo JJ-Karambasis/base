@@ -18,6 +18,8 @@ typedef OS_QUERY_PERFORMANCE_DEFINE(os_query_performance_func);
 #define OS_GET_FILE_SIZE_DEFINE(name) u64 name(os_file* File)
 #define OS_READ_FILE_DEFINE(name) b32 name(os_file* File, void* Data, size_t ReadSize)
 #define OS_WRITE_FILE_DEFINE(name) b32 name(os_file* File, const void* Data, size_t WriteSize)
+#define OS_SET_FILE_POINTER_DEFINE(name) void name(os_file* File, u64 Pointer)
+#define OS_GET_FILE_POINTER_DEFINE(name) u64 name(os_file* File)
 #define OS_CLOSE_FILE_DEFINE(name) void name(os_file* File)
 
 #define OS_GET_ALL_FILES_DEFINE(name) string_array name(allocator* Allocator, string Path, b32 Recursive)
@@ -37,6 +39,8 @@ typedef OS_OPEN_FILE_DEFINE(os_open_file_func);
 typedef OS_GET_FILE_SIZE_DEFINE(os_get_file_size_func);
 typedef OS_READ_FILE_DEFINE(os_read_file_func);
 typedef OS_WRITE_FILE_DEFINE(os_write_file_func);
+typedef OS_SET_FILE_POINTER_DEFINE(os_set_file_pointer_func);
+typedef OS_GET_FILE_POINTER_DEFINE(os_get_file_pointer_func);
 typedef OS_CLOSE_FILE_DEFINE(os_close_file_func);
 
 typedef OS_GET_ALL_FILES_DEFINE(os_get_all_files_func);
@@ -165,6 +169,8 @@ typedef struct {
 	os_get_file_size_func* GetFileSizeFunc;
 	os_read_file_func* ReadFileFunc;
 	os_write_file_func* WriteFileFunc;
+	os_set_file_pointer_func* SetFilePointerFunc;
+	os_get_file_pointer_func* GetFilePointerFunc;
 	os_close_file_func* CloseFileFunc;
 
 	os_get_all_files_func*  GetAllFilesFunc;
@@ -267,6 +273,8 @@ typedef struct {
 #define OS_Get_File_Size(file) Base_Get()->OSBase->VTable->GetFileSizeFunc(file)
 #define OS_Read_File(file, data, size) Base_Get()->OSBase->VTable->ReadFileFunc(file, data, size)
 #define OS_Write_File(file, data, size) Base_Get()->OSBase->VTable->WriteFileFunc(file, data, size)
+#define OS_Set_File_Pointer(file, pointer) Base_Get()->OSBase->VTable->SetFilePointerFunc(file, pointer)
+#define OS_Get_File_Pointer(file) Base_Get()->OSBase->VTable->GetFilePointerFunc(file)
 #define OS_Close_File(file) Base_Get()->OSBase->VTable->CloseFileFunc(file)
 
 #define OS_Get_All_Files(allocator, path, recursive) Base_Get()->OSBase->VTable->GetAllFilesFunc(allocator, path, recursive)
