@@ -1211,6 +1211,7 @@ export_function void* Hashmap_Get_Value_Ptr(hashmap* Hashmap, size_t Index);
 export_function b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value);
 export_function b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key);
 export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* Key, void* Value);
+export_function void Hashmap_Remove(hashmap* Hashmap, void* Key);
 
 typedef struct {
 	union {
@@ -1382,8 +1383,10 @@ export_function u32 U32_Hash_Bytes_With_Seed(void* Data, size_t Size, u32 Seed);
 export_function u64 U64_Hash_Bytes(void* Data, size_t Size);
 export_function u32 U32_Hash_Ptr(const void* Ptr);
 export_function u32 U32_Hash_Ptr_With_Seed(const void* Ptr, u32 Seed);
-export_function u32 Hash_String(void* A);
-export_function b32 Compare_String(void* A, void* B);
+export_function KEY_HASH_FUNC(Hash_String);
+export_function KEY_COMP_FUNC(Compare_String);
+export_function KEY_HASH_FUNC(Hash_U64);
+export_function KEY_COMP_FUNC(Compare_U64);
 export_function buffer Read_Entire_File(allocator* Allocator, string Path);
 export_function b32 Write_Entire_File(string Path, buffer Data);
 #define Read_Entire_File_Str(allocator, path) String_From_Buffer(Read_Entire_File(allocator, path))
@@ -1401,6 +1404,8 @@ typedef struct {
 	allocator_vtable* ArenaVTable;
 	allocator_vtable* HeapVTable;
 	os_thread_callback_func* JobSystemThreadCallback;
+	key_hash_func* HashU64Callback;
+	key_comp_func* CompareU64Callback;
 
 	os_rw_mutex* ArenaLock;
 	size_t 		 ArenaCount;

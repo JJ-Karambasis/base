@@ -79,6 +79,8 @@ export_function base* Base_Init() {
 		Base.ArenaVTable = &Arena_VTable;
 		Base.HeapVTable = &Heap_VTable;
 		Base.JobSystemThreadCallback = Job_System_Thread_Callback;
+		Base.HashU64Callback = Hash_U64;
+		Base.CompareU64Callback = Compare_U64;
 
 		Base_Set(&Base);
 		OS_Base_Init(&Base);
@@ -3349,6 +3351,36 @@ export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* 
 	return true;
 }
 
+export_function void Hashmap_Remove(hashmap* Hashmap, void* Key) {
+	u32 Hash = Hashmap_Hash(Hashmap, Key);
+	u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
+	
+    if(Slot == HASH_INVALID_SLOT) return;
+
+    u32 SlotMask = Hashmap->SlotCapacity-1;
+    u32 BaseSlot = (Hash & SlotMask);
+    u32 Index = Hashmap->Slots[Slot].ItemIndex;
+    u32 LastIndex = Hashmap->ItemCount-1;
+
+    Hashmap->Slots[BaseSlot].BaseCount--;
+    Hashmap->Slots[Slot].ItemIndex = HASH_INVALID_SLOT;
+
+    if(Index != LastIndex) {
+		Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), 
+					Offset_Pointer(Hashmap->Keys, (LastIndex * Hashmap->KeySize)), 
+					Hashmap->KeySize);
+
+		Memory_Copy(Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), 
+					Offset_Pointer(Hashmap->Values, (LastIndex * Hashmap->ValueSize)), 
+					Hashmap->ValueSize);
+
+        Hashmap->ItemSlots[Index] = Hashmap->ItemSlots[LastIndex];
+        Hashmap->Slots[Hashmap->ItemSlots[LastIndex]].ItemIndex = Index;
+    }
+
+    Hashmap->ItemCount--;
+}
+
 export_function void Slot_Map_Clear(slot_map* SlotMap) {
 	SlotMap->FreeCount = SlotMap->Capacity;
 	SlotMap->Count = 0;
@@ -3855,15 +3887,26 @@ export_function u32 U32_Hash_Ptr_With_Seed(const void* Ptr, u32 Seed) {
 	return U32_Hash_Bytes_With_Seed(&Value, sizeof(size_t), Seed);
 }
 
-export_function u32 Hash_String(void* A) {
-	string* StringA = (string*)A;
+export_function KEY_HASH_FUNC(Hash_String) {
+	string* StringA = (string*)Key;
 	return U32_Hash_String(*StringA);
 }
 
-export_function b32 Compare_String(void* A, void* B) {
-	string* StringA = (string*)A;
-	string* StringB = (string*)B;
+export_function KEY_COMP_FUNC(Compare_String) {
+	string* StringA = (string*)KeyA;
+	string* StringB = (string*)KeyB;
 	return String_Equals(*StringA, *StringB);
+}
+
+export_function KEY_HASH_FUNC(Hash_U64) {
+	u64 Value = *(u64*)Key;
+	return U32_Hash_U64(Value);
+}
+
+export_function KEY_COMP_FUNC(Compare_U64) {
+	u64 ValueA = *(u64*)KeyA;
+	u64 ValueB = *(u64*)KeyB;
+	return ValueA == ValueB;
 }
 
 export_function buffer Read_Entire_File(allocator* Allocator, string Path) {

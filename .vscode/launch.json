@@ -11,24 +11,30 @@
       "linux": {
         "MIMode": "gdb",
         "miDebuggerPath": "/usr/bin/gdb"
-      }
+      },
+      "osx": {
+        "MIMode": "lldb"
+      } 
     },
     {
-      "name": "Interactive Test Launch",
+      "name": "Interactive Tests Launch",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/bin/interactive_test",
+      "program": "${workspaceFolder}/bin/interactive_tests",
       "cwd": "${workspaceFolder}/bin",
       "linux": {
         "MIMode": "gdb",
         "miDebuggerPath": "/usr/bin/gdb"
-      }      
+      },
+      "osx": {
+        "MIMode": "lldb"
+      } 
     },
     {
-      "name": "Tests Launch",
+      "name": "Unit Tests Launch",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/bin/tests",
+      "program": "${workspaceFolder}/bin/unit_tests",
       "cwd": "${workspaceFolder}/bin",
       "linux": {
         "MIMode": "gdb",

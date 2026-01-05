@@ -80,7 +80,7 @@ if [ ! -d "$bin_path" ]; then
 fi
 
 app_includes=
-app_defines=" -DENABLE_OVERRIDE=0 -DRPMALLOC_FIRST_CLASS_HEAPS=1"
+app_defines="-DENABLE_OVERRIDE=0 -DRPMALLOC_FIRST_CLASS_HEAPS=1"
 
 if [ $build_debug -eq 1 ]; then 
     app_defines="$app_defines -DDEBUG_BUILD"
@@ -145,7 +145,7 @@ if [ $build_type == "osx" ]; then
 else 
     vulkan_flags="-DVK_USE_PLATFORM_XLIB_KHR"
     if [ $use_xcb -eq 1 ]; then 
-        vulkan_flags="-DDVK_USE_PLATFORM_XCB_KHR"
+        vulkan_flags="-DVK_USE_PLATFORM_XCB_KHR"
     fi
 fi
 
@@ -163,6 +163,7 @@ if [ $build_gdi -eq 1 ]; then
 fi
 
 obj_files="posix_base.o base.o rpmalloc.o"
+
 if [ $build_gdi -eq 1 ]; then 
     obj_files="$obj_files gdi.o vk_vma_usage.o"
 fi
@@ -181,16 +182,25 @@ if [ $build_tests -eq 1 ]; then
         popd
     fi
 
+    sdl_base_path="$code_path/third_party/SDL"
+    if [ ! -f "$sdl_base_path/build/libSDL3.a" ]; then
+        pushd "$sdl_base_path"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF
+            cmake --build build --config Release
+        popd
+    fi
+
     osx_frameworks=
     linux_libs=
 
     if [ $build_type == "osx" ]; then
-        osx_frameworks="-framework QuartzCore -framework AppKit"
+        osx_frameworks="-framework AVFoundation -framework CoreMedia -framework CoreHaptics -framework GameController -framework UniformTypeIdentifiers -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio -framework AudioToolbox -framework Carbon -framework ForceFeedback -framework Metal -framework QuartzCore"
     elif [ $build_type == "linux" ]; then
         linux_libs="-lm -lstdc++"
     fi
 
     pushd "$bin_path"
-        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes $osx_frameworks -I"$code_path" -I"$dxc_base_path/include" "$code_path/tests/tests.cpp" -L"$bin_path" -L"$dxc_base_path/bin/lib" $linux_libs -lbase -ldxcompiler -Wl,-rpath,$dxc_base_path/bin/lib $compile_out tests 
+        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes $osx_frameworks -I"$code_path" -I"$dxc_base_path/include" "$code_path/tests/unit_tests/unit_tests.cpp" -L"$bin_path" -L"$dxc_base_path/bin/lib" $linux_libs -lbase -ldxcompiler -Wl,-rpath,$dxc_base_path/bin/lib $compile_out unit_tests 
+        $compiler_cpp $compile_flags $compile_warnings $app_defines $app_includes $osx_frameworks -I"$code_path" -I"$dxc_base_path/include" -I"$sdl_base_path/include" "$code_path/tests/interactive_tests/interactive_tests.cpp" -L"$bin_path" -L"$dxc_base_path/bin/lib" -L"$sdl_base_path/build" $linux_libs -lbase -ldxcompiler -lSDL3 -Wl,-rpath,$dxc_base_path/bin/lib $compile_out interactive_tests 
     popd
 fi

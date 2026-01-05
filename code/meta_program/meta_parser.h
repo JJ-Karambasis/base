@@ -18,7 +18,8 @@ typedef enum {
 	META_TOKEN_TYPE_ENUM_ENTRY=269,
 	META_TOKEN_TYPE_PREPROCESSOR=270,
 	META_TOKEN_TYPE_ELSE=271,
-	META_TOKEN_TYPE_COUNT=272
+	META_TOKEN_TYPE_EXPORT_FUNCTION=272,
+	META_TOKEN_TYPE_COUNT=273
 } meta_token_type;
 typedef struct meta_token meta_token;
 
@@ -152,6 +153,7 @@ typedef struct {
 	string 	   		ReturnType;
 	meta_token_list CodeTokens;
 	meta_tag_list   Tags;
+	b32 			IsExport;
 } meta_function_type;
 
 typedef struct {

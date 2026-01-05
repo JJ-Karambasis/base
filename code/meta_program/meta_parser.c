@@ -19,6 +19,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_STRUCT"),
 		String_Lit("META_VARIABLE"),
 		String_Lit("META_FUNCTION"),
+		String_Lit("META_EXPORT_FUNCTION"),
 		String_Lit("->"),
 		String_Lit("META_FOR"),
 		String_Lit("META_ENTRY_NAME"),
@@ -34,6 +35,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_TOKEN_TYPE_STRUCT,
 		META_TOKEN_TYPE_VARIABLE_ENTRY,
 		META_TOKEN_TYPE_FUNCTION,
+		META_TOKEN_TYPE_EXPORT_FUNCTION,
 		META_TOKEN_TYPE_RETURN_ARROW,
 		META_TOKEN_TYPE_FOR,
 		META_TOKEN_TYPE_VARIABLE_ENTRY_NAME,
@@ -2185,7 +2187,7 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
 }
 
 function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token) {
-	Assert(Token->Type == META_TOKEN_TYPE_FUNCTION);
+	Assert(Token->Type == META_TOKEN_TYPE_FUNCTION || Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION);
 
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
@@ -2210,6 +2212,7 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 
 	Function = Arena_Push_Struct(Parser->Arena, meta_function_type);
 	Function->Name = String_Copy((allocator*)Parser->Arena, FunctionName);
+	Function->IsExport = Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION;
 	
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	while (TokenIter.Token && TokenIter.Token->Type != ')') {
@@ -2436,7 +2439,8 @@ function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
 
-			case META_TOKEN_TYPE_FUNCTION: {
+			case META_TOKEN_TYPE_FUNCTION: 
+			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
 				meta_token* StructToken = Meta_Parse_Function(Parser, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
@@ -2490,7 +2494,8 @@ function b32 Meta_Parser_Evaluate(meta_parser* Parser) {
 				Token = Meta_Parse_Enum(Parser, Token);
 			} break;
 
-			case META_TOKEN_TYPE_FUNCTION: {
+			case META_TOKEN_TYPE_FUNCTION:
+			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
 				Token = Meta_Parse_Function(Parser, Token);
 			} break;
 

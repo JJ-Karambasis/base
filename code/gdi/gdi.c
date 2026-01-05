@@ -21,6 +21,23 @@ export_function b32 GDI_Set_Device_Context(gdi_device* Device) {
 	return GDI_Backend_Set_Device_Context(Device);
 }
 
+export_function b32 GDI_Set_Default_Device_Context() {
+	//Prioritize the first discrete device type. Otherwise just
+	//grab the first available device
+
+	gdi_device_array Devices = GDI_Get_Devices();
+	gdi_device* TargetDevice = &Devices.Ptr[0];
+
+	for (size_t i = 0; i < Devices.Count; i++) {
+		if (Devices.Ptr[i].Type == GDI_DEVICE_TYPE_DISCRETE) {
+			TargetDevice = &Devices.Ptr[i];
+			break;
+		}
+	}
+
+	return GDI_Set_Device_Context(TargetDevice);
+}
+
 function gdi_device_context* GDI_Get_Device_Context() {
 	gdi* GDI = GDI_Get();
 	Assert(GDI->DeviceContext);

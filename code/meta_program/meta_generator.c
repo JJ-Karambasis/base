@@ -50,7 +50,8 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 		meta_function_type* Function;
 		Hashmap_Get_Value(&Parser->FunctionMap, i, &Function);
 
-		SStream_Writer_Add_Format(&HeaderWriter, "function %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
+		SStream_Writer_Add(&HeaderWriter, Function->IsExport ? String_Lit("export_function") : String_Lit("function"));
+		SStream_Writer_Add_Format(&HeaderWriter, " %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
 		for (meta_parameter* Parameter = Function->FirstParameter; Parameter; Parameter = Parameter->Next) {
 			if (Parameter == Function->LastParameter) {
 				SStream_Writer_Add_Format(&HeaderWriter, "%.*s %.*s", Parameter->Type.Size, Parameter->Type.Ptr,
@@ -68,7 +69,8 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 		meta_function_type* Function;
 		Hashmap_Get_Value(&Parser->FunctionMap, i, &Function);
 
-		SStream_Writer_Add_Format(&SourceWriter, "function %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
+		SStream_Writer_Add(&SourceWriter, Function->IsExport ? String_Lit("export_function") : String_Lit("function"));
+		SStream_Writer_Add_Format(&SourceWriter, " %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
 		for (meta_parameter* Parameter = Function->FirstParameter; Parameter; Parameter = Parameter->Next) {
 			if (Parameter == Function->LastParameter) {
 				SStream_Writer_Add_Format(&SourceWriter, "%.*s %.*s", Parameter->Type.Size, Parameter->Type.Ptr,

@@ -742,6 +742,7 @@ export_function size_t 	   GDI_Get_Format_Size(gdi_format);
 export_function gdi* 	   GDI_Get();
 export_function void 	   GDI_Set(gdi* GDI);
 export_function b32 	   GDI_Set_Device_Context(gdi_device* Device);
+export_function b32        GDI_Set_Default_Device_Context();
 
 export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
 export_function void GDI_Delete_Texture(gdi_handle Texture);
