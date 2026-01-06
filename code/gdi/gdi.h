@@ -234,6 +234,7 @@ typedef struct {
 	v2i 	   Dim;
 	buffer 	   UpdateData;
 } gdi_texture_update;
+Array_Define(gdi_texture_update);
 
 typedef struct {
 	gdi_handle Texture;
