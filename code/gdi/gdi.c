@@ -38,7 +38,7 @@ export_function b32 GDI_Set_Default_Device_Context() {
 	return GDI_Set_Device_Context(TargetDevice);
 }
 
-function gdi_device_context* GDI_Get_Device_Context() {
+export_function gdi_device_context* GDI_Get_Device_Context() {
 	gdi* GDI = GDI_Get();
 	Assert(GDI->DeviceContext);
 	return GDI->DeviceContext;
@@ -72,6 +72,10 @@ export_function void GDI_Delete_Texture(gdi_handle Texture) {
 	if (!GDI_Is_Null(Texture)) {
 		GDI_Backend_Delete_Texture(Texture);
 	}
+}
+
+export_function void GDI_Update_Textures(gdi_texture_update_array Updates) {
+	GDI_Backend_Update_Textures(Updates);
 }
 
 export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture) {

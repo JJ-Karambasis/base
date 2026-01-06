@@ -170,12 +170,26 @@ typedef enum {
 
 /* Structs */
 typedef struct {
-	#ifdef DEBUG_BUILD
+#ifdef DEBUG_BUILD
 	gdi_object_type Type;
-	#endif
+#endif
 	gdi_id ID;
 } gdi_handle;
 Array_Define(gdi_handle);
+
+#ifdef DEBUG_BUILD
+function inline gdi_handle GDI_Make_Handle_(gdi_object_type Type, u32 ID) {
+	gdi_handle Result = { Type, { ID }};
+	return Result;
+}
+#define GDI_Make_Handle(type, id) GDI_Make_Handle_(GDI_OBJECT_TYPE_##type, id)
+#else
+function inline gdi_handle GDI_Make_Handle_(u32 ID) {
+	gdi_handle Result = {{ID}};
+	return Result;
+}
+#define GDI_Make_Handle(type, id) GDI_Make_Handle_(id)
+#endif
 
 typedef union {
 	gdi_id ID;
@@ -212,6 +226,14 @@ typedef struct {
 	gdi_texture_usage Usage;
 	u32 			  MipCount;
 } gdi_texture_info;
+
+typedef struct {
+	gdi_handle Texture;
+	u32 	   MipIndex;
+	v2i 	   Offset;
+	v2i 	   Dim;
+	buffer 	   UpdateData;
+} gdi_texture_update;
 
 typedef struct {
 	gdi_handle Texture;
@@ -533,6 +555,7 @@ typedef struct {
 
 #define GDI_BACKEND_CREATE_TEXTURE_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_create_info* TextureInfo)
 #define GDI_BACKEND_DELETE_TEXTURE_DEFINE(name) void name(gdi* GDI, gdi_handle Texture)
+#define GDI_BACKEND_UPDATE_TEXTURES_DEFINE(name) void name(gdi* GDI, gdi_texture_update_array Updates)
 #define GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(name) gdi_texture_info name(gdi* GDI, gdi_handle Texture)
 
 #define GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_view_create_info* TextureViewInfo)
@@ -574,6 +597,7 @@ typedef GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(gdi_backend_set_device_context_fun
 
 typedef GDI_BACKEND_CREATE_TEXTURE_DEFINE(gdi_backend_create_texture_func);
 typedef GDI_BACKEND_DELETE_TEXTURE_DEFINE(gdi_backend_delete_texture_func);
+typedef GDI_BACKEND_UPDATE_TEXTURES_DEFINE(gdi_backend_update_textures_func);
 typedef GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(gdi_backend_get_texture_info_func);
 
 typedef GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(gdi_backend_create_texture_view_func);
@@ -616,6 +640,7 @@ typedef struct {
 
 	gdi_backend_create_texture_func* CreateTextureFunc;
 	gdi_backend_delete_texture_func* DeleteTextureFunc;
+	gdi_backend_update_textures_func* UpdateTexturesFunc;
 	gdi_backend_get_texture_info_func* GetTextureInfoFunc;
 
 	gdi_backend_create_texture_view_func* CreateTextureViewFunc;
@@ -665,6 +690,7 @@ struct gdi {
 
 #define GDI_Backend_Create_Texture(info) GDI_Get()->Backend->CreateTextureFunc(GDI_Get(), info)
 #define GDI_Backend_Delete_Texture(texture) GDI_Get()->Backend->DeleteTextureFunc(GDI_Get(), texture)
+#define GDI_Backend_Update_Textures(updates) GDI_Get()->Backend->UpdateTexturesFunc(GDI_Get(), updates)
 #define GDI_Backend_Get_Texture_Info(texture) GDI_Get()->Backend->GetTextureInfoFunc(GDI_Get(), texture)
 
 #define GDI_Backend_Create_Texture_View(info) GDI_Get()->Backend->CreateTextureViewFunc(GDI_Get(), info)
@@ -737,15 +763,17 @@ function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
 	return Result;
 }
 
-export_function gdi_format GDI_Get_SRGB_Format(gdi_format Format);
-export_function size_t 	   GDI_Get_Format_Size(gdi_format);
-export_function gdi* 	   GDI_Get();
-export_function void 	   GDI_Set(gdi* GDI);
-export_function b32 	   GDI_Set_Device_Context(gdi_device* Device);
-export_function b32        GDI_Set_Default_Device_Context();
+export_function gdi_format 			GDI_Get_SRGB_Format(gdi_format Format);
+export_function size_t 	   			GDI_Get_Format_Size(gdi_format);
+export_function gdi* 	   			GDI_Get();
+export_function void 	   			GDI_Set(gdi* GDI);
+export_function b32 	   			GDI_Set_Device_Context(gdi_device* Device);
+export_function b32        			GDI_Set_Default_Device_Context();
+export_function gdi_device_context* GDI_Get_Device_Context();
 
 export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
 export_function void GDI_Delete_Texture(gdi_handle Texture);
+export_function void GDI_Update_Textures(gdi_texture_update_array Updates);
 export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture);
 export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo);
 export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Texture);
