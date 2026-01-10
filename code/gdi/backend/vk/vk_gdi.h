@@ -72,6 +72,13 @@ struct vk_bind_group_copy_cmd {
 	vk_bind_group_copy_cmd* Next;
 };
 
+enum {
+	VK_GDI_QUEUE_FLAG_NONE,
+	VK_GDI_QUEUE_FLAG_CREATION = (1 << 0),
+	VK_GDI_QUEUE_FLAG_TRANSFER = (1 << 1)
+};
+typedef u32 vk_gdi_queue_flags;
+
 typedef struct {
 	VkImage    	  	  		   Image;
 	VmaAllocation 	  		   Allocation;
@@ -80,7 +87,7 @@ typedef struct {
 	u32 	   	  	  		   MipCount;
 	gdi_texture_usage 		   Usage;
 	gdi_handle 				   Swapchain;
-	b32 			  		   QueuedBarrier;
+	vk_gdi_queue_flags         QueueFlags;
 } vk_texture;
 
 typedef struct {
@@ -199,8 +206,8 @@ struct vk_render_pass {
 
 typedef struct vk_texture_barrier_cmd vk_texture_barrier_cmd;
 struct vk_texture_barrier_cmd {
-	vk_texture* Texture;
-	b32 IsTransfer;
+	gdi_handle 				Texture;
+	vk_gdi_queue_flags 		QueueFlag;
 	vk_texture_barrier_cmd* Next;
 };
 

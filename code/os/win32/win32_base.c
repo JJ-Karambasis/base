@@ -178,6 +178,25 @@ function OS_WRITE_FILE_DEFINE(Win32_Write_File) {
 	return true;
 }
 
+function OS_SET_FILE_POINTER_DEFINE(Win32_Set_File_Pointer) {
+    Assert(File);
+    if(!File) return;
+	LARGE_INTEGER Offset; 
+	Offset.QuadPart = Pointer;
+	SetFilePointerEx(File->Handle, Offset, NULL, FILE_BEGIN);
+}
+
+function OS_GET_FILE_POINTER_DEFINE(Win32_Get_File_Pointer) {
+    Assert(File);
+    if(!File) return (u64)-1;
+	LARGE_INTEGER Offset;
+	Offset.QuadPart = 0;
+
+	LARGE_INTEGER Result;
+	SetFilePointerEx(File->Handle, Offset, &Result, FILE_CURRENT);
+	return Result.QuadPart;
+}
+
 function OS_CLOSE_FILE_DEFINE(Win32_Close_File) {
 	Assert(File);
 	if (!File) return;
@@ -449,6 +468,11 @@ function OS_RW_MUTEX_DELETE_DEFINE(Win32_RW_Mutex_Delete) {
 	LeaveCriticalSection(&Win32->ResourceLock);
 
 	Atomic_Decrement_U64(&Win32->Base.AllocatedRWMutexCount);
+}
+
+function OS_RW_MUTEX_TRY_LOCK_DEFINE(Win32_RW_Mutex_Try_Read_Lock) {
+    if(!Mutex) return false;
+    return TryAcquireSRWLockShared(&Mutex->SRWLock);
 }
 
 function OS_RW_MUTEX_LOCK_DEFINE(Win32_RW_Mutex_Read_Lock) {
@@ -727,6 +751,8 @@ global os_base_vtable Win32_Base_VTable = {
 	.GetFileSizeFunc = Win32_Get_File_Size,
 	.ReadFileFunc = Win32_Read_File,
 	.WriteFileFunc = Win32_Write_File,
+	.SetFilePointerFunc = Win32_Set_File_Pointer,
+	.GetFilePointerFunc = Win32_Get_File_Pointer,
 	.CloseFileFunc = Win32_Close_File,
 
 	.GetAllFilesFunc = Win32_Get_All_Files,
@@ -752,6 +778,7 @@ global os_base_vtable Win32_Base_VTable = {
 
 	.RWMutexCreateFunc = Win32_RW_Mutex_Create,
 	.RWMutexDeleteFunc = Win32_RW_Mutex_Delete,
+	.RWMutexTryReadLockFunc = Win32_RW_Mutex_Try_Read_Lock,
 	.RWMutexReadLockFunc = Win32_RW_Mutex_Read_Lock,
 	.RWMutexReadUnlockFunc = Win32_RW_Mutex_Read_Unlock,
 	.RWMutexWriteLockFunc = Win32_RW_Mutex_Write_Lock,

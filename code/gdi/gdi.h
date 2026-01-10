@@ -228,11 +228,12 @@ typedef struct {
 } gdi_texture_info;
 
 typedef struct {
-	gdi_handle Texture;
-	u32 	   MipIndex;
-	v2i 	   Offset;
-	v2i 	   Dim;
-	buffer 	   UpdateData;
+	gdi_handle 	  Texture;
+	u32 	   	  MipOffset;
+	u32 	   	  MipCount;
+	v2i 	   	  Offset;
+	v2i 	   	  Dim;
+	const buffer* UpdateData;
 } gdi_texture_update;
 Array_Define(gdi_texture_update);
 

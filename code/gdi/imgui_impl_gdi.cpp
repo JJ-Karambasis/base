@@ -10,13 +10,20 @@ function ImGui_ImplGDI_Data* ImGui_ImplGDI_GetBackendData() {
     return ImGui::GetCurrentContext() ? (ImGui_ImplGDI_Data*)ImGui::GetIO().BackendRendererUserData : nullptr;
 }
 
+export_function gdi_handle ImGui_ImplGDI_GetBindGroup(ImTextureID TexID) {
+	return GDI_Make_Handle(BIND_GROUP, (u32)TexID);
+}
+
 export_function void ImGui_ImplGDI_Init(gdi_handle Swapchain) {
     ImGuiIO* IO = &ImGui::GetIO();
     IMGUI_CHECKVERSION();
     IM_ASSERT(IO->BackendRendererUserData == nullptr && "Already initialized a renderer backend!");
 
     // Setup backend capabilities flags
-    ImGui_ImplGDI_Data* BackendData = IM_NEW(ImGui_ImplGDI_Data)();
+	arena* Arena = Arena_Create(String_Lit("ImGui_GDI_Backend_Renderer"));
+	ImGui_ImplGDI_Data* BackendData = Arena_Push_Struct(Arena, ImGui_ImplGDI_Data);
+	BackendData->Arena = Arena;
+
     IO->BackendRendererUserData = (void*)BackendData;
     IO->BackendRendererName = "imgui_impl_gdi";
     IO->BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
@@ -40,14 +47,20 @@ export_function void ImGui_ImplGDI_Init(gdi_handle Swapchain) {
 
     BackendData->BindGroupLayout = GDI_Create_Bind_Group_Layout(&BindGroupLayoutInfo);
 
+	struct imgui_impl_gdi_vtx {
+		v2  P;
+		v2  UV;
+		u32 C;
+	};
+
     gdi_vtx_attribute Attributes[] = {
         { String_Lit("POSITION"), GDI_FORMAT_R32G32_FLOAT },
         { String_Lit("TEXCOORD"), GDI_FORMAT_R32G32_FLOAT },
-        { String_Lit("COLOR"), GDI_FORMAT_R32G32B32A32_FLOAT }
+        { String_Lit("COLOR"), GDI_FORMAT_R8G8B8A8_UNORM }
     };
     
     gdi_vtx_binding VtxBinding = {
-        .Stride = sizeof(im_vtx_v2_uv2_c),
+        .Stride = sizeof(imgui_impl_gdi_vtx),
         .Attributes = { Attributes, Array_Count(Attributes) }
     };
 
@@ -77,29 +90,98 @@ export_function void ImGui_ImplGDI_NewFrame() {
 }
 
 function void ImGui_ImplGDI_UpdateTexture(ImTextureData* Texture) {
-    if(Texture->Status == ImTextureStatus_OK)
+	ImGui_ImplGDI_Data* BackendData = ImGui_ImplGDI_GetBackendData();
+	
+	if(Texture->Status == ImTextureStatus_OK)
         return;
 
     if(Texture->Status == ImTextureStatus_WantCreate) {
         IM_ASSERT(Texture->TexID == ImTextureID_Invalid && Texture->BackendUserData == nullptr);
         IM_ASSERT(Texture->Format == ImTextureFormat_RGBA32);
+		
 
-        gdi_texture_create_info TextureInfo = {
-            .Dim = V2i(Texture->Width, Texture->Height),
-            .Format = GDI_FORMAT_R8G8B8A8_UNORM,
-            .MipCount = 1,
-            .Usage = GDI_TEXTURE_USAGE_SAMPLED
-        };
+		
+		ImGui_ImplGDI_Texture* BackendTexture = BackendData->FirstFreeTexture;
+		if (BackendTexture) SLL_Pop_Front(BackendData->FirstFreeTexture);
+		else BackendTexture = Arena_Push_Struct_No_Clear(BackendData->Arena, ImGui_ImplGDI_Texture);
+		Memory_Clear(BackendTexture, sizeof(ImGui_ImplGDI_Texture));
 
-        gdi_handle Handle = GDI_Create_Texture(&TextureInfo);
-        Texture->SetTexID((ImTextureID)Handle.ID.ID);
+		//Create the texture handle
+		{
+			gdi_texture_create_info TextureInfo = {
+				.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+				.Dim = V2i(Texture->Width, Texture->Height),
+				.Usage = GDI_TEXTURE_USAGE_SAMPLED,
+				.MipCount = 1
+			};
+
+			BackendTexture->Handle = GDI_Create_Texture(&TextureInfo);
+		}
+
+		//Create the texture view
+		BackendTexture->View = GDI_Create_Texture_View_From_Texture(BackendTexture->Handle);
+
+		//Create the bind group
+		{
+			gdi_bind_group_write Write = { .TextureViews = { &BackendTexture->View, 1 } };
+			gdi_bind_group_create_info BindGroupInfo = {
+				.Layout = BackendData->BindGroupLayout,
+				.Writes = { &Write, 1 }
+			};
+
+			BackendTexture->BindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		}
+
+        Texture->SetTexID((ImTextureID)BackendTexture->BindGroup.ID.ID);
+		Texture->BackendUserData = BackendTexture;
     }
 
     if(Texture->Status == ImTextureStatus_WantCreate || Texture->Status == ImTextureStatus_WantUpdates) {
-        gdi_handle Handle = GDI_Make_Handle(TEXTURE, Texture->GetTexID());
+		scratch Scratch;
+		ImGui_ImplGDI_Texture* BackendTexture = (ImGui_ImplGDI_Texture*)Texture->BackendUserData;
+		gdi_handle Handle = BackendTexture->Handle;
+
+		v2i Offset = V2i((Texture->Status == ImTextureStatus_WantCreate) ? 0 : Texture->UpdateRect.x,
+						 (Texture->Status == ImTextureStatus_WantCreate) ? 0 : Texture->UpdateRect.y);
+		v2i Dim = V2i((Texture->Status == ImTextureStatus_WantCreate) ? Texture->Width : Texture->UpdateRect.w,
+					  (Texture->Status == ImTextureStatus_WantCreate) ? Texture->Height : Texture->UpdateRect.h);
+
+		size_t Pitch = Dim.x*Texture->BytesPerPixel;
+		u8* Texels = Arena_Push_Array(Scratch.Arena, Pitch * Dim.y, u8);
+		u8* TexelsAt = Texels;
+
+		for (s32 i = 0; i < Dim.y; i++) {
+			Memory_Copy(TexelsAt, Texture->GetPixelsAt(Offset.x, Offset.y + i), Pitch);
+			TexelsAt += Pitch;
+		}
+
+		
+		buffer UpdateData = Make_Buffer(Texels, Pitch * Dim.y);
+		gdi_texture_update TextureUpdate = {
+			.Texture = Handle,
+			.MipCount = 1,
+			.Offset = Offset,
+			.Dim = Dim,
+			.UpdateData = &UpdateData
+		};
+		
+		GDI_Update_Textures( { &TextureUpdate, 1 });
+
+		Texture->SetStatus(ImTextureStatus_OK);
     }
 
-    Not_Implemented;
+	if (Texture->Status == ImTextureStatus_WantDestroy) {
+		ImGui_ImplGDI_Texture* BackendTexture = (ImGui_ImplGDI_Texture*)Texture->BackendUserData;
+
+		GDI_Delete_Bind_Group(BackendTexture->BindGroup);
+		GDI_Delete_Texture_View(BackendTexture->View);
+		GDI_Delete_Texture(BackendTexture->Handle);
+
+		Texture->SetTexID(ImTextureID_Invalid);
+		Texture->SetStatus(ImTextureStatus_Destroyed);
+		Texture->BackendUserData = NULL;
+		SLL_Push_Front(BackendData->FirstFreeTexture, BackendTexture);
+	}
 }
 
 function void ImGui_ImplGDI_SetupRenderState(gdi_render_pass* RenderPass, ImDrawData* DrawData) {
@@ -121,6 +203,10 @@ export_function void ImGui_ImplGDI_RenderDrawData(gdi_render_pass* RenderPass, I
     if (FramebufferDim.x <= 0 || FramebufferDim.y <= 0)
         return;
 
+	//If no UI data, don't render either
+	if (!DrawData->TotalVtxCount)
+		return;
+
     ImGui_ImplGDI_Data* BackendData = ImGui_ImplGDI_GetBackendData();
 
     // Catch up with texture updates. Most of the times, the list will have 1 element with an OK status, aka nothing to do.
@@ -133,48 +219,46 @@ export_function void ImGui_ImplGDI_RenderDrawData(gdi_render_pass* RenderPass, I
         }
     }
 
-    if(DrawData->TotalVtxCount) {
-        size_t VertexSize = DrawData->TotalVtxCount*sizeof(ImDrawVert);
-        size_t IndexSize = DrawData->TotalIdxCount*sizeof(ImDrawIdx);
+	size_t VertexSize = DrawData->TotalVtxCount*sizeof(ImDrawVert);
+	size_t IndexSize = DrawData->TotalIdxCount*sizeof(ImDrawIdx);
 
-        if(!GDI_Is_Null(BackendData->VtxBuffer) || BackendData->VtxBufferSize < VertexSize) {
-            if(!GDI_Is_Null(BackendData->VtxBuffer)) {
-                GDI_Delete_Buffer(BackendData->VtxBuffer);
-            }
+	if(!GDI_Is_Null(BackendData->VtxBuffer) || BackendData->VtxBufferSize < VertexSize) {
+		if(!GDI_Is_Null(BackendData->VtxBuffer)) {
+			GDI_Delete_Buffer(BackendData->VtxBuffer);
+		}
 
-            gdi_buffer_create_info BufferInfo = {
-                .Size = VertexSize,
-                .Usage = GDI_BUFFER_USAGE_VTX|GDI_BUFFER_USAGE_DYNAMIC
-            };
-            BackendData->VtxBuffer = GDI_Create_Buffer(&BufferInfo);
-        }
+		gdi_buffer_create_info BufferInfo = {
+			.Size = VertexSize,
+			.Usage = GDI_BUFFER_USAGE_VTX|GDI_BUFFER_USAGE_DYNAMIC
+		};
+		BackendData->VtxBuffer = GDI_Create_Buffer(&BufferInfo);
+	}
 
-        if(!GDI_Is_Null(BackendData->IdxBuffer) || BackendData->IdxBufferSize < IndexSize) {
-            if(!GDI_Is_Null(BackendData->IdxBuffer)) {
-                GDI_Delete_Buffer(BackendData->IdxBuffer);
-            }
+	if(!GDI_Is_Null(BackendData->IdxBuffer) || BackendData->IdxBufferSize < IndexSize) {
+		if(!GDI_Is_Null(BackendData->IdxBuffer)) {
+			GDI_Delete_Buffer(BackendData->IdxBuffer);
+		}
 
-            gdi_buffer_create_info BufferInfo = {
-                .Size = IndexSize,
-                .Usage = GDI_BUFFER_USAGE_IDX|GDI_BUFFER_USAGE_DYNAMIC
-            };
+		gdi_buffer_create_info BufferInfo = {
+			.Size = IndexSize,
+			.Usage = GDI_BUFFER_USAGE_IDX|GDI_BUFFER_USAGE_DYNAMIC
+		};
 
-            BackendData->IdxBuffer = GDI_Create_Buffer(&BufferInfo);
-        }
+		BackendData->IdxBuffer = GDI_Create_Buffer(&BufferInfo);
+	}
 
-        ImDrawVert* Vertices = (ImDrawVert*)GDI_Map_Buffer(BackendData->VtxBuffer, 0, 0);
-        ImDrawIdx* Indices = (ImDrawIdx*)GDI_Map_Buffer(BackendData->IdxBuffer, 0, 0);
+	ImDrawVert* Vertices = (ImDrawVert*)GDI_Map_Buffer(BackendData->VtxBuffer, 0, 0);
+	ImDrawIdx* Indices = (ImDrawIdx*)GDI_Map_Buffer(BackendData->IdxBuffer, 0, 0);
 
-        for(const ImDrawList* DrawList : DrawData->CmdLists) {
-            Memory_Copy(Vertices, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size*sizeof(ImDrawVert));
-            Memory_Copy(Indices, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size*sizeof(ImDrawIdx));
-            Vertices += DrawList->VtxBuffer.Size;
-            Indices += DrawList->IdxBuffer.Size;
-        }
+	for(const ImDrawList* DrawList : DrawData->CmdLists) {
+		Memory_Copy(Vertices, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size*sizeof(ImDrawVert));
+		Memory_Copy(Indices, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size*sizeof(ImDrawIdx));
+		Vertices += DrawList->VtxBuffer.Size;
+		Indices += DrawList->IdxBuffer.Size;
+	}
 
-        GDI_Unmap_Buffer(BackendData->VtxBuffer);
-        GDI_Unmap_Buffer(BackendData->IdxBuffer);
-    }
+	GDI_Unmap_Buffer(BackendData->VtxBuffer);
+	GDI_Unmap_Buffer(BackendData->IdxBuffer);
 
     ImGui_ImplGDI_SetupRenderState(RenderPass, DrawData);
 
@@ -199,7 +283,10 @@ export_function void ImGui_ImplGDI_RenderDrawData(gdi_render_pass* RenderPass, I
                 if (ClipMax.x <= ClipMin.x || ClipMax.y <= ClipMin.y)
                     continue;
 
-                Render_Set_Scissor(RenderPass, ClipMin.x, ClipMin.y, ClipMax.x, ClipMax.x);
+				gdi_handle BindGroup = ImGui_ImplGDI_GetBindGroup(Cmd->GetTexID());
+				Render_Set_Bind_Group(RenderPass, 0, BindGroup);
+
+                Render_Set_Scissor(RenderPass, (s32)ClipMin.x, (s32)ClipMin.y, (s32)ClipMax.x, (s32)ClipMax.y);
                 Render_Draw_Idx(RenderPass, Cmd->ElemCount, Cmd->IdxOffset+IdxOffset, Cmd->VtxOffset+VtxOffset);
             }
         }

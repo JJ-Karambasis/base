@@ -64,6 +64,20 @@ export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* Cre
 	Assert(CreateInfo->Format != GDI_FORMAT_NONE && CreateInfo->Usage != GDI_TEXTURE_USAGE_NONE && 
 		   CreateInfo->Dim.x != 0 && CreateInfo->Dim.y != 0 && CreateInfo->MipCount != 0);
 	gdi_handle Result = GDI_Backend_Create_Texture(CreateInfo);
+	if (!GDI_Is_Null(Result) && CreateInfo->InitialData) {
+		arena* Scratch = Scratch_Get();
+
+		v2i TextureDim = CreateInfo->Dim;
+		gdi_texture_update TextureUpdate = {
+			.Texture = Result,
+			.MipCount = CreateInfo->MipCount,
+			.Dim = CreateInfo->Dim,
+			.UpdateData = CreateInfo->InitialData
+		};
+
+		GDI_Update_Textures( { &TextureUpdate, 1 });
+		Scratch_Release();
+	}
 	return Result;
 }
 

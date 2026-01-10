@@ -167,6 +167,7 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #define Read_Bit(S,N) ((S) & (0x1ul << (N)))
 #define Set_Bit(value, bit_index) ((value) |= (1 << (bit_index)))
 #define Clear_Bit(value, bit_index) ((value) &= ~(1 << (bit_index))) 
+#define Are_Bits_Set(value, mask) (((value) & (mask)) == (mask))
 
 #define SLL_Push_Back_NP(First, Last, Node, Next, Prev) (!First ? (First = Last = Node) : (Last->Next = Node, Last = Node))
 

@@ -1500,7 +1500,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	}
 
 	if (TextureInfo->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-		ImageUsage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+		ImageUsage |= VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	}
 
 	if (TextureInfo->Usage & GDI_TEXTURE_USAGE_STORAGE) {
@@ -1509,10 +1509,6 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 
 	if (TextureInfo->Usage & GDI_TEXTURE_USAGE_READBACK) {
 		ImageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-	}
-
-	if (TextureInfo->InitialData) {
-		ImageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	}
 
 	VkImageCreateInfo ImageCreateInfo = {
@@ -1554,47 +1550,11 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	vk_frame_context* Frame = VK_Lock_Frame(Context);
 	vk_frame_thread_context* ThreadContext = VK_Get_Frame_Thread_Context(Context, Frame);
 
-	if (TextureInfo->InitialData) {
-		size_t TotalSize = 0;
-		for (size_t i = 0; i < TextureInfo->MipCount; i++) {
-			TotalSize += TextureInfo->InitialData[i].Size;
-		}
+	vk_texture_barrier_cmd* Cmd = Arena_Push_Struct(ThreadContext->TempArena, vk_texture_barrier_cmd);
+	Cmd->Texture = Result;
+	Cmd->QueueFlag = VK_GDI_QUEUE_FLAG_CREATION;
+	SLL_Push_Back(ThreadContext->FirstTextureBarrierCmd, ThreadContext->LastTextureBarrierCmd, Cmd);
 
-		vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, TotalSize);
-
-		VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-
-		arena* Scratch = Scratch_Get();
-		VkBufferImageCopy* Regions = Arena_Push_Array(Scratch, Texture->MipCount, VkBufferImageCopy);
-		v2i TextureDim = Texture->Dim;
-
-		VkDeviceSize Offset = 0;
-		for (u32 i = 0; i < Texture->MipCount; i++) {
-			VkBufferImageCopy BufferImageCopy = {
-				.bufferOffset = Upload.Offset + Offset,
-				.imageSubresource = { ImageAspect, i, 0, 1 },
-				.imageExtent = { (u32)TextureDim.x, (u32)TextureDim.y, 1 }
-			};
-			Regions[i] = BufferImageCopy;
-			TextureDim = V2i_Div_S32(TextureDim, 2);
-
-			Memory_Copy(Upload.Ptr + Offset, TextureInfo->InitialData[i].Ptr, TextureInfo->InitialData[i].Size);
-
-			Offset += TextureInfo->InitialData[i].Size;
-		}
-
-		vkCmdCopyBufferToImage(ThreadContext->CmdBuffer, Upload.Buffer, Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, Texture->MipCount, Regions);
-		Scratch_Release();
-	}
-
-	if (!Texture->QueuedBarrier) {
-		vk_texture_barrier_cmd* Cmd = Arena_Push_Struct(ThreadContext->TempArena, vk_texture_barrier_cmd);
-		Cmd->Texture    = Texture;
-		Cmd->IsTransfer = TextureInfo->InitialData ? true : false;
-
-		SLL_Push_Back(ThreadContext->FirstTextureBarrierCmd, ThreadContext->LastTextureBarrierCmd, Cmd);
-		Texture->QueuedBarrier = true;
-	}
 	VK_Unlock_Frame(Context);
 
 	return Result;
@@ -1602,6 +1562,63 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 
 function GDI_BACKEND_DELETE_TEXTURE_DEFINE(VK_Delete_Texture) {
 	VK_Texture_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Texture);
+}
+
+function GDI_BACKEND_UPDATE_TEXTURES_DEFINE(VK_Update_Textures) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+
+	vk_frame_context* Frame = VK_Lock_Frame(Context);
+	vk_frame_thread_context* ThreadContext = VK_Get_Frame_Thread_Context(Context, Frame);
+
+	for (size_t i = 0; i < Updates.Count; i++) {
+		const gdi_texture_update* Update = Updates.Ptr + i;
+
+		//If we are updating multiple mips in one update, make sure they do not have
+		//offsets.
+		Assert(Update->MipCount);
+		Assert((Update->Offset.x == 0 && Update->Offset.y == 0) || (Update->MipCount == 1));
+
+		vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Update->Texture);
+		if (Texture) {
+
+			size_t TotalSize = 0;
+			for (size_t i = 0; i < Update->MipCount; i++) {
+				TotalSize += Update->UpdateData[i].Size;
+			}
+
+			vk_cpu_buffer_push Upload = VK_CPU_Buffer_Push(&ThreadContext->UploadBuffer, TotalSize);
+
+			VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+			arena* Scratch = Scratch_Get();
+			VkBufferImageCopy* Regions = Arena_Push_Array(Scratch, Update->MipCount, VkBufferImageCopy);
+			v2i TextureDim = Update->Dim;
+
+			VkDeviceSize Offset = 0;
+			for (u32 i = 0; i < Update->MipCount; i++) {
+				VkBufferImageCopy BufferImageCopy = {
+					.bufferOffset = Upload.Offset + Offset,
+					.imageSubresource = { ImageAspect, Update->MipOffset + i, 0, 1 },
+					.imageOffset = { Update->Offset.x, Update->Offset.y, 0 },
+					.imageExtent = { (u32)TextureDim.x, (u32)TextureDim.y, 1 }
+				};
+				Regions[i] = BufferImageCopy;
+				TextureDim = V2i_Div_S32(TextureDim, 2);
+
+				Memory_Copy(Upload.Ptr + Offset, Update->UpdateData[i].Ptr, Update->UpdateData[i].Size);
+				Offset += Update->UpdateData[i].Size;
+			}
+			vkCmdCopyBufferToImage(ThreadContext->CmdBuffer, Upload.Buffer, Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, Update->MipCount, Regions);
+			Scratch_Release();
+
+			vk_texture_barrier_cmd* Cmd = Arena_Push_Struct(ThreadContext->TempArena, vk_texture_barrier_cmd);
+			Cmd->Texture = Update->Texture;
+			Cmd->QueueFlag = VK_GDI_QUEUE_FLAG_TRANSFER;
+			SLL_Push_Back(ThreadContext->FirstTextureBarrierCmd, ThreadContext->LastTextureBarrierCmd, Cmd);
+		} Invalid_Else;
+	}
+
+	VK_Unlock_Frame(Context);
 }
 
 function GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(VK_Get_Texture_Info) {
@@ -3370,26 +3387,40 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
 			
 			if (!Thread->NeedsReset) {
 				for (vk_texture_barrier_cmd* Cmd = Thread->FirstTextureBarrierCmd; Cmd; Cmd = Cmd->Next) {
-					vk_texture* Texture = Cmd->Texture;
-					Assert(Texture->QueuedBarrier);
-					VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+					vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Cmd->Texture);
+					if (Texture) {
+						Texture->QueueFlags |= Cmd->QueueFlag;
+					}
+				}
+			}
+		}
 
-					if (Cmd->IsTransfer) {
+		for (size_t i = 0; i < Array_Count(Context->ResourcePool.TexturePool.Entries); i++) {
+			vk_texture* Texture = Context->ResourcePool.TexturePool.Entries + i;
+			if (Texture->QueueFlags) {
+				if (Are_Bits_Set(Texture->QueueFlags, VK_GDI_QUEUE_FLAG_TRANSFER|VK_GDI_QUEUE_FLAG_CREATION)) {
+					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
 						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
 						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
-					} else {
-						if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_SHADER_READ);
-						} else if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
-							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_DEPTH);
-						} else if(Texture->Usage & GDI_TEXTURE_USAGE_RENDER_TARGET) {
-							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_RENDER_TARGET);
-						} else if(Texture->Usage & GDI_TEXTURE_USAGE_STORAGE) {
-							VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
-						} Invalid_Else;
-					}
-					Texture->QueuedBarrier = false;
-				}
+					} Invalid_Else;
+				} else if(Texture->QueueFlags == VK_GDI_QUEUE_FLAG_CREATION) {
+					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_SHADER_READ);
+					} else if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_DEPTH);
+					} else if(Texture->Usage & GDI_TEXTURE_USAGE_RENDER_TARGET) {
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_RENDER_TARGET);
+					} else if(Texture->Usage & GDI_TEXTURE_USAGE_STORAGE) {
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+					} Invalid_Else;
+				} else if (Texture->QueueFlags == VK_GDI_QUEUE_FLAG_TRANSFER) {
+					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
+						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_WRITE);
+						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
+					} Invalid_Else;
+				} Invalid_Else;
+
+				Texture->QueueFlags = 0;
 			}
 		}
 
@@ -3975,6 +4006,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 
 	.CreateTextureFunc = VK_Create_Texture,
 	.DeleteTextureFunc = VK_Delete_Texture,
+	.UpdateTexturesFunc = VK_Update_Textures,
 	.GetTextureInfoFunc = VK_Get_Texture_Info,
 
 	.CreateTextureViewFunc = VK_Create_Texture_View,
