@@ -5,6 +5,10 @@
 
 #include <initializer_list>
 
+function inline v2 operator-(v2 V) {
+    return V2_Negate(V);
+}
+
 function inline v2 operator+(v2 A, v2 B) {
 	return V2_Add_V2(A, B);
 }
@@ -93,17 +97,17 @@ template <typename type>
 struct span {
 	const type* Ptr = NULL;
 	size_t 		Count = 0;
-
+    
 	span() = default;
 	inline span(std::initializer_list<type> List) {
 		Ptr = List.begin();
 		Count = List.size();
 	}
-
+    
 	inline span(const type* _Ptr, size_t _Count) : Ptr(_Ptr), Count(_Count) {}
-
+    
     inline span(const array<type>& Array);
-
+    
 	inline const type& operator[](size_t Index) const {
 		Assert(Index < Count);
 		return Ptr[Index];
@@ -116,18 +120,18 @@ struct array {
 	type* Ptr 			 = NULL;
 	size_t Count 		 = 0;
 	size_t Capacity 	 = 0;
-
+    
 	array() = default;
 	inline array(allocator* _Allocator) : Allocator(_Allocator) { }
 	
 	array(allocator* Allocator, size_t Count);
 	array(allocator* _Allocator, type* _Ptr, size_t _Count);
-
+    
 	inline type& operator[](size_t Index) {
 		Assert(Index < Count);
 		return Ptr[Index];
 	}
-
+    
     inline const type& operator[](size_t Index) const {
 		Assert(Index < Count);
 		return Ptr[Index];
@@ -145,13 +149,13 @@ function inline void Array_Init(array<type>* Array, allocator* Allocator = Defau
 template<typename type>
 function inline void Array_Reserve(array<type>* Array, size_t NewCapacity) {
 	type* NewPtr = Allocator_Allocate_Array(Array->Allocator, NewCapacity, type);
-
+    
 	if(Array->Ptr) {
 		size_t CopyCapacity = Min(NewCapacity, Array->Capacity);
 		Memory_Copy(NewPtr, Array->Ptr, CopyCapacity*sizeof(type));
 		Allocator_Free_Memory(Array->Allocator, Array->Ptr);
 	}
-
+    
 	Array->Ptr = NewPtr;
 	Array->Capacity = NewCapacity;
 }
@@ -170,7 +174,7 @@ function inline void Array_Add(array<type>* Array, const type& Entry) {
 		size_t NewCapacity = Array->Capacity ? Array->Capacity*2 : 32;
 		Array_Reserve(Array, NewCapacity);
 	}
-
+    
 	Array->Ptr[Array->Count++] = Entry;
 }
 
@@ -361,7 +365,7 @@ struct comparer<void*> {
 template <typename key, typename value, typename hasher = hasher<key>, typename comparer = comparer<key>>
 struct hashmap_t {
     static const u32 INVALID = HASH_INVALID_SLOT;
-
+    
     allocator* Allocator = nullptr;
     hash_slot* Slots = nullptr;
     key*       Keys = nullptr;
@@ -370,10 +374,10 @@ struct hashmap_t {
     u32        SlotCapacity = 0;
     u32        ItemCapacity = 0;
     u32        Count = 0;
-
+    
 	hashmap_t() = default;
     inline hashmap_t(allocator* _Allocator) : Allocator(_Allocator) {}
-
+    
 	value& operator[](const key& Key);
 };
 
@@ -403,7 +407,7 @@ function inline u32 Expand_Slots(allocator* Allocator, hash_slot** Slots, u32 Sl
             NewSlots[BaseSlot].BaseCount++;
         }
     }
-
+    
     if(*Slots) Allocator_Free_Memory(Allocator, *Slots);
     *Slots = NewSlots;
     return SlotCapacity;
@@ -414,24 +418,24 @@ template <typename key, typename value>
 function inline u32 Expand_Items(allocator* Allocator, key** Keys, value** Values, u32** ItemSlots, u32 ItemCapacity) {
     u32 OldItemCapacity = ItemCapacity;
     ItemCapacity = ItemCapacity == 0 ? 64 : ItemCapacity*2;
-
+    
     size_t ItemSize = sizeof(key)+sizeof(u32);
     if(Values) ItemSize += sizeof(value);
-
+    
     key* NewKeys = (key*)Allocator_Allocate_Memory(Allocator, ItemSize*ItemCapacity);
     value* NewValues = Values ? (value*)(NewKeys+ItemCapacity) : nullptr;
     u32* NewItemSlots = Values ? (u32*)(NewValues+ItemCapacity) : (u32*)(NewKeys+ItemCapacity);
-
+    
     for(u32 ItemIndex = 0; ItemIndex < ItemCapacity; ItemIndex++)
         NewItemSlots[ItemIndex] = HASH_INVALID_SLOT;
-
+    
     if(*Keys) {
 		Memory_Copy(NewKeys, *Keys, OldItemCapacity * sizeof(key));
         if(NewValues) Memory_Copy(NewValues, *Values, OldItemCapacity*sizeof(value));
         Memory_Copy(NewItemSlots, *ItemSlots, OldItemCapacity*sizeof(u32));
         Allocator_Free_Memory(Allocator, *Keys); 
     }
-
+    
     *Keys = NewKeys;
     if(Values) *Values = NewValues;
     *ItemSlots = NewItemSlots;
@@ -441,7 +445,7 @@ function inline u32 Expand_Items(allocator* Allocator, key** Keys, value** Value
 template <typename key, typename comparer>
 function inline u32 Find_Slot(hash_slot* Slots, u32 SlotCapacity, key* Keys, const key& Key, u32 Hash) {
     if(SlotCapacity == 0 || !Slots) return HASH_INVALID_SLOT;
-
+    
     u32 SlotMask = SlotCapacity-1;
     u32 BaseSlot = (Hash & SlotMask);
     u32 BaseCount = Slots[BaseSlot].BaseCount;
@@ -454,7 +458,7 @@ function inline u32 Find_Slot(hash_slot* Slots, u32 SlotCapacity, key* Keys, con
             if (SlotBase == BaseSlot) {
                 Assert(BaseCount > 0);
                 BaseCount--;
-                            
+                
                 if (SlotHash == Hash) { 
                     comparer Comparer = {};
                     if(Comparer.Equal(Key, Keys[Slots[Slot].ItemIndex]))
@@ -486,7 +490,7 @@ function inline u32 Find_Free_Slot(hash_slot* Slots, u32 SlotMask, u32 BaseSlot)
     Slot = FirstFree;
     while (Slots[Slot].ItemIndex != HASH_INVALID_SLOT) 
         Slot = (Slot + 1) & SlotMask;
-
+    
     return Slot;
 }
 
@@ -502,7 +506,7 @@ function inline value* Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hash
     
     if(Hashmap->Count >= (Hashmap->SlotCapacity - (Hashmap->SlotCapacity/3)))
         Hashmap->SlotCapacity = Expand_Slots(Hashmap->Allocator, &Hashmap->Slots, Hashmap->SlotCapacity, Hashmap->ItemSlots);
-
+    
     u32 SlotMask = Hashmap->SlotCapacity-1;
     u32 BaseSlot = (Hash & SlotMask);
     u32 Slot = Find_Free_Slot(Hashmap->Slots, SlotMask, BaseSlot);
@@ -520,10 +524,10 @@ function inline value* Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hash
     Hashmap->ItemSlots[Hashmap->Count] = Slot;
     Hashmap->Keys[Hashmap->Count] = Key;
     Hashmap->Values[Hashmap->Count] = Value;
-
+    
     value* Result = Hashmap->Values + Hashmap->Count;
     Hashmap->Count++;
-
+    
     return Result;
 }
 
@@ -541,22 +545,22 @@ function inline void Hashmap_Remove(hashmap_t<key, value, hasher, comparer>* Has
     u32 Slot = Find_Slot<key, comparer>(Hashmap->Slots, Hashmap->SlotCapacity, Hashmap->Keys, Key, Hash);
     
     if(Slot == HASH_INVALID_SLOT) return;
-
+    
     u32 SlotMask = Hashmap->SlotCapacity-1;
     u32 BaseSlot = (Hash & SlotMask);
     u32 Index = Hashmap->Slots[Slot].ItemIndex;
     u32 LastIndex = Hashmap->Count-1;
-
+    
     Hashmap->Slots[BaseSlot].BaseCount--;
     Hashmap->Slots[Slot].ItemIndex = HASH_INVALID_SLOT;
-
+    
     if(Index != LastIndex) {
         Hashmap->Keys[Index] = Hashmap->Keys[LastIndex];
         Hashmap->Values[Index] = Hashmap->Values[LastIndex];
         Hashmap->ItemSlots[Index] = Hashmap->ItemSlots[LastIndex];
         Hashmap->Slots[Hashmap->ItemSlots[LastIndex]].ItemIndex = Index;
     }
-
+    
     Hashmap->Count--;
 }
 
@@ -566,7 +570,7 @@ function inline void Hashmap_Clear(hashmap_t<key, value, hasher, comparer>* Hash
 	for(u32 SlotIndex = 0; SlotIndex < Hashmap->SlotCapacity; SlotIndex++) {
 		Hashmap->Slots[SlotIndex].ItemIndex = -1;
     }
-
+    
     for(u32 ItemIndex = 0; ItemIndex < Hashmap->ItemCapacity; ItemIndex++) 
         Hashmap->ItemSlots[ItemIndex] = HASH_INVALID_SLOT;
     Hashmap->Count = 0;
