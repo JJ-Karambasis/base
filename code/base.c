@@ -1,9 +1,5 @@
 #include "base.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define STB_SPRINTF_STATIC
 #define STB_SPRINTF_IMPLEMENTATION
 #include "third_party/stb/stb_sprintf.h"
@@ -20,8 +16,8 @@ extern "C" {
 
 global base* G_Base;
 
-void OS_Base_Init(base* Base);
-void OS_Base_Shutdown(base* Base);
+export_function void OS_Base_Init(base* Base);
+export_function void OS_Base_Shutdown(base* Base);
 
 export_function void Base_Set(base* Base) {
 	G_Base = Base;
@@ -41,7 +37,7 @@ export_function allocator* Default_Allocator_Get() {
 
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Default_Allocate_Memory) {
 	if (!Size) return NULL;
-
+    
 	if (ClearFlag == CLEAR_FLAG_YES) return rpzalloc(Size);
 	else return rpmalloc(Size);
 }
@@ -81,18 +77,18 @@ export_function base* Base_Init() {
 		Base.JobSystemThreadCallback = Job_System_Thread_Callback;
 		Base.HashU64Callback = Hash_U64;
 		Base.CompareU64Callback = Compare_U64;
-
+        
 		Base_Set(&Base);
 		OS_Base_Init(&Base);
 	}
-
+    
 	return Base_Get();
 }
 
 export_function os_memory_stats Base_Shutdown() {
 	base* Base = Base_Get();
 	os_base* OSBase = Base->OSBase;
-
+    
 	//Delete thread contexts
 	thread_context* ThreadContext = Base->FirstThread;
 	while (ThreadContext) {
@@ -104,15 +100,15 @@ export_function os_memory_stats Base_Shutdown() {
 	Base->FirstThread = NULL;
 	Base->LastThread = NULL;
 	Base->ThreadCount = 0;
-
+    
 	if (Base->ThreadContextLock) {
 		OS_Mutex_Delete(Base->ThreadContextLock);
 	}
-
+    
 	if (Base->ThreadContextTLS) {
 		OS_TLS_Delete(Base->ThreadContextTLS);
 	}
-
+    
 	//Delete remaining arenas
 	arena* Arena = Base->FirstArena;
 	while (Arena) {
@@ -123,13 +119,13 @@ export_function os_memory_stats Base_Shutdown() {
 	Base->FirstArena = NULL;
 	Base->LastArena = NULL;
 	Base->ArenaCount = 0;
-
+    
 	OS_Base_Shutdown(Base);
 	rpmalloc_finalize();
-
+    
 	os_memory_stats Result = OS_Get_Memory_Stats();
 	G_Base = NULL;
-
+    
 	return Result;
 }
 
@@ -140,7 +136,7 @@ export_function os_memory_stats OS_Get_Memory_Stats() {
 		.CommittedAmount = Atomic_Load_U64(&Base->CommittedAmount),
 		.ReservedCount = Atomic_Load_U64(&Base->ReservedCount),
 		.CommittedCount = Atomic_Load_U64(&Base->CommittedCount),
-
+        
 		.AllocatedFileCount = Atomic_Load_U64(&Base->AllocatedFileCount),
 		.AllocatedTLSCount = Atomic_Load_U64(&Base->AllocatedTLSCount),
 		.AllocatedThreadCount = Atomic_Load_U64(&Base->AllocatedThreadCount),
@@ -439,7 +435,7 @@ export_function v2 V2_Norm(v2 V) {
 	if (Equal_Zero_Eps_Sq_F32(SqLength)) {
 		return V2_Zero();
 	}
-
+    
 	f32 InvLength = 1.0f / Sqrt_F32(SqLength);
 	return V2_Mul_S(V, InvLength);
 }
@@ -458,7 +454,7 @@ export_function v2 V2_From_V2i(v2i V) {
 export_function v2 Circle_To_Square_Mapping(v2 Circle) {
 	f32 u = Circle.x;
 	f32 v = Circle.y;
-
+    
 	f32 uSq = u * u;
     f32 vSq = v * v;
     f32 twosqrt2 = 2.0f * Sqrt_F32(2.0f);
@@ -468,10 +464,10 @@ export_function v2 Circle_To_Square_Mapping(v2 Circle) {
     f32 termx2 = subtermx - u * twosqrt2;
     f32 termy1 = subtermy + v * twosqrt2;
     f32 termy2 = subtermy - v * twosqrt2;
-
+    
 	if (Equal_Zero_Eps_F32(termx2)) termx2 = 0.0f;
 	if (Equal_Zero_Eps_F32(termy2)) termy2 = 0.0f;
-
+    
 	v2 Result = V2(0.5f * Sqrt_F32(termx1) - 0.5f * Sqrt_F32(termx2),
 				   0.5f * Sqrt_F32(termy1) - 0.5f * Sqrt_F32(termy2));
 	return Result;
@@ -604,7 +600,7 @@ export_function v3 V3_Norm(v3 v) {
 	if (Equal_Zero_Eps_Sq_F32(SqLength)) {
 		return V3_Zero();
 	}
-
+    
 	f32 InvLength = 1.0f / Sqrt_F32(SqLength);
 	return V3_Mul_S(v, InvLength);
 }
@@ -641,11 +637,11 @@ export_function b32 V3_Is_Zero(v3 V, f32 Epsilon) {
 export_function v3 V3_Get_Perp(v3 Direction) {
 	v3  Z = V3_Norm(Direction);
 	v3  Up = V3(0, 1, 0);
-
+    
 	f32 Diff = 1 - Abs(V3_Dot(Z, Up));
 	if(Equal_Zero_Eps_F32(Diff))
 		Up = V3(0, 0, 1);
-
+    
 	v3 Result = V3_Negate(V3_Norm(V3_Cross(Z, Up)));
 	return Result;
 }
@@ -701,10 +697,10 @@ export_function v4 V4_Color_From_U32(u32 Color) {
 
 export_function u32 U32_Color_From_V4(v4 Color) {
 	u32 Result = 
-		(((u32)(Color.x * 255.0f)) |
-		((u32)(Color.y * 255.0f) << 8) |
-		((u32)(Color.z * 255.0f) << 16) |
-		((u32)(Color.w * 255.0f) << 24));
+    (((u32)(Color.x * 255.0f)) |
+     ((u32)(Color.y * 255.0f) << 8) |
+     ((u32)(Color.z * 255.0f) << 16) |
+     ((u32)(Color.w * 255.0f) << 24));
 	return Result;
 }
 
@@ -735,7 +731,7 @@ export_function quat Quat_From_Euler(v3 Euler) {
     f32 sy = Sin_F32(Euler.y * 0.5f);
     f32 cz = Cos_F32(Euler.z * 0.5f);
     f32 sz = Sin_F32(Euler.z * 0.5f);
-
+    
 	quat q;
     q.w = cx * cy * cz + sx * sy * sz;
     q.x = sx * cy * cz - cx * sy * sz;
@@ -746,22 +742,22 @@ export_function quat Quat_From_Euler(v3 Euler) {
 
 export_function v3 Euler_From_Quat(quat q) {
     v3 Result;
-
+    
     // pitch (x-axis rotation)
     f32 sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
     f32 cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
     Result.x = ATan2_F32(sinr_cosp, cosr_cosp);
-
+    
     // yaw (y-axis rotation)
     f32 sinp = Sqrt_F32(1 + 2 * (q.w * q.y - q.x * q.z));
     f32 cosp = Sqrt_F32(1 - 2 * (q.w * q.y - q.x * q.z));
     Result.y = 2 * ATan2_F32(sinp, cosp) - PI / 2;
-
+    
     // roll (z-axis rotation)
     f32 siny_cosp = 2 * (q.w * q.z + q.x * q.y);
     f32 cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
     Result.z = ATan2_F32(siny_cosp, cosy_cosp);
-
+    
     return Result;
 }
 
@@ -822,7 +818,7 @@ export_function quat Quat_Norm(quat V) {
 	if (Equal_Zero_Eps_Sq_F32(SqLength)) {
 		return Quat_Identity();
 	}
-
+    
 	f32 InvLength = 1.0f / Sqrt_F32(SqLength);
 	return Quat_Mul_S(V, InvLength);
 }
@@ -877,11 +873,11 @@ export_function m3 M3_From_Quat(quat q) {
 	f32 qwqy = q.w * q.y;
 	f32 qyqz = q.y * q.z;
 	f32 qwqx = q.w * q.x;
-        	         
+    
 	f32 qxqx = q.x * q.x;
 	f32 qyqy = q.y * q.y;
 	f32 qzqz = q.z * q.z;
-
+    
 	m3 Result = {
 		.x = V3(1 - 2*(qyqy + qzqz), 2*(qxqy + qwqz),     2*(qxqz - qwqy)),
 		.y = V3(2*(qxqy - qwqz),     1 - 2*(qxqx + qzqz), 2*(qyqz + qwqx)),
@@ -900,16 +896,16 @@ export_function m3 M3_Transpose(const m3* M) {
 		.m00 = M->m00, 
 		.m01 = M->m10, 
 		.m02 = M->m20, 
-
+        
 		.m10 = M->m01,
 		.m11 = M->m11,
 		.m12 = M->m21,
-
+        
 		.m20 = M->m02,
 		.m21 = M->m12,
 		.m22 = M->m22
 	};
-
+    
 	return Result;
 }
 
@@ -917,15 +913,15 @@ export_function m3 M3_Inverse(const m3* M) {
 	f32 xSq = V3_Sq_Mag(M->x);
 	f32 ySq = V3_Sq_Mag(M->y);
 	f32 zSq = V3_Sq_Mag(M->z);
-
+    
 	f32 sx = Equal_Zero_Eps_Sq_F32(xSq) ? 0.0f : 1.0f/xSq;
 	f32 sy = Equal_Zero_Eps_Sq_F32(ySq) ? 0.0f : 1.0f/ySq;
 	f32 sz = Equal_Zero_Eps_Sq_F32(zSq) ? 0.0f : 1.0f/zSq;
-
+    
 	v3 NewX = V3_Mul_S(M->x, sx);
 	v3 NewY = V3_Mul_S(M->y, sy);
 	v3 NewZ = V3_Mul_S(M->z, sz);
-
+    
 	m3 Result = {
 		.Data = {
 			NewX.x, NewY.x, NewZ.x,
@@ -950,20 +946,20 @@ export_function m3 M3_Mul_S(const m3* M, f32 S) {
 
 export_function m3 M3_Mul_M3(const m3* A, const m3* B) {
 	m3 BTransposed = M3_Transpose(B);
-
+    
 	m3 Result;
 	Result.Data[0] = V3_Dot(A->Rows[0], BTransposed.Rows[0]);
 	Result.Data[1] = V3_Dot(A->Rows[0], BTransposed.Rows[1]);
 	Result.Data[2] = V3_Dot(A->Rows[0], BTransposed.Rows[2]);
-
+    
 	Result.Data[3] = V3_Dot(A->Rows[1], BTransposed.Rows[0]);
 	Result.Data[4] = V3_Dot(A->Rows[1], BTransposed.Rows[1]);
 	Result.Data[5] = V3_Dot(A->Rows[1], BTransposed.Rows[2]);
-
+    
 	Result.Data[6] = V3_Dot(A->Rows[2], BTransposed.Rows[0]);
 	Result.Data[7] = V3_Dot(A->Rows[2], BTransposed.Rows[1]);
 	Result.Data[8] = V3_Dot(A->Rows[2], BTransposed.Rows[2]);
-
+    
 	return Result;
 }
 
@@ -986,11 +982,11 @@ export_function m3 M3_Scale(v3 S) {
 export_function m3 M3_Basis(v3 Direction) {
 	v3 Z = V3_Norm(Direction);
 	v3 Up = V3(0, 1, 0);
-
+    
 	f32 Diff = 1 - Abs(V3_Dot(Z, Up));
 	if(Equal_Zero_Eps_F32(Diff))
 		Up = V3(0, 0, 1);
-
+    
 	v3 X = V3_Negate(V3_Norm(V3_Cross(Z, Up)));
 	v3 Y = V3_Cross(Z, X);
 	return M3_XYZ(X, Y, Z);
@@ -998,7 +994,7 @@ export_function m3 M3_Basis(v3 Direction) {
 
 export_function v3 V3_Mul_M3(v3 A, const m3* B) {
 	m3 BTransposed = M3_Transpose(B);
-
+    
 	v3 Result;
 	Result.x = V3_Dot(A, BTransposed.Rows[0]);
 	Result.y = V3_Dot(A, BTransposed.Rows[1]);
@@ -1052,7 +1048,7 @@ export_function m4 M4_Inv_Transform(v3 x, v3 y, v3 z, v3 t) {
 	tInv.x = -V3_Dot(x, t);
 	tInv.y = -V3_Dot(y, t);
 	tInv.z = -V3_Dot(z, t);
-
+    
 	m4 Result = {
 		{
 			x.x, y.x, z.x, 0, 
@@ -1075,7 +1071,7 @@ export_function m4 M4_Look_At(v3 Position, v3 Target) {
 	if (Equal_Zero_Eps_F32(Diff)) {
 		Up = G_YAxis;
 	}
-
+    
 	v3 X = V3_Negate(V3_Norm(V3_Cross(Direction, Up)));
 	v3 Y = V3_Cross(Direction, X);
 	return M4_Inv_Transform(X, Y, Direction, Position);
@@ -1087,49 +1083,49 @@ export_function m4 M4_Transpose(const m4* M) {
 	Result.m01 = M->m10;
 	Result.m02 = M->m20;
 	Result.m03 = M->m30;
-
+    
 	Result.m10 = M->m01;
 	Result.m11 = M->m11;
 	Result.m12 = M->m21;
 	Result.m13 = M->m31;
-
+    
 	Result.m20 = M->m02;
 	Result.m21 = M->m12;
 	Result.m22 = M->m22;
 	Result.m23 = M->m32;
-
+    
 	Result.m30 = M->m03;
 	Result.m31 = M->m13;
 	Result.m32 = M->m23;
 	Result.m33 = M->m33;
-
+    
 	return Result;
 }
 
 export_function m4 M4_Mul_M4(const m4* A, const m4* B) {
 	m4 BTransposed = M4_Transpose(B);
-
+    
 	m4 Result;
 	Result.Data[0] = V4_Dot(A->Rows[0], BTransposed.Rows[0]);
 	Result.Data[1] = V4_Dot(A->Rows[0], BTransposed.Rows[1]);
 	Result.Data[2] = V4_Dot(A->Rows[0], BTransposed.Rows[2]);
 	Result.Data[3] = V4_Dot(A->Rows[0], BTransposed.Rows[3]);
-
+    
 	Result.Data[4] = V4_Dot(A->Rows[1], BTransposed.Rows[0]);
 	Result.Data[5] = V4_Dot(A->Rows[1], BTransposed.Rows[1]);
 	Result.Data[6] = V4_Dot(A->Rows[1], BTransposed.Rows[2]);
 	Result.Data[7] = V4_Dot(A->Rows[1], BTransposed.Rows[3]);
-
+    
 	Result.Data[8]  = V4_Dot(A->Rows[2], BTransposed.Rows[0]);
 	Result.Data[9]  = V4_Dot(A->Rows[2], BTransposed.Rows[1]);
 	Result.Data[10] = V4_Dot(A->Rows[2], BTransposed.Rows[2]);
 	Result.Data[11] = V4_Dot(A->Rows[2], BTransposed.Rows[3]);
-
+    
 	Result.Data[12] = V4_Dot(A->Rows[3], BTransposed.Rows[0]);
 	Result.Data[13] = V4_Dot(A->Rows[3], BTransposed.Rows[1]);
 	Result.Data[14] = V4_Dot(A->Rows[3], BTransposed.Rows[2]);
 	Result.Data[15] = V4_Dot(A->Rows[3], BTransposed.Rows[3]);
-
+    
 	return Result;
 }
 
@@ -1137,13 +1133,13 @@ export_function m4 M4_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f32 ZFar)
 	f32 t = 1.0f/Tan_F32(FOV*0.5f);
 	f32 n = ZNear;
 	f32 f = ZFar;
-
+    
 	f32 a = t/AspectRatio;
 	f32 b = t;
 	f32 c = f/(n-f);
 	f32 d = (n*f)/(n-f);
 	f32 e = -1;
-
+    
 	f32 Data[] = {
 		a, 0, 0, 0, 
 		0, b, 0, 0, 
@@ -1157,13 +1153,13 @@ export_function m4 M4_Inverse_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f
 	f32 t = 1.0f/Tan_F32(FOV*0.5f);
 	f32 n = ZNear;
 	f32 f = ZFar;
-
+    
 	f32 a = t/AspectRatio;
 	f32 b = t;
 	f32 c = f/(n-f);
 	f32 d = (n*f)/(n-f);
 	f32 e = -1;
-
+    
 	f32 Data[] = {
 		1.0f/a, 0,     0,     0, 
 		0,     1.0f/b, 0,     0, 
@@ -1195,7 +1191,7 @@ export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f3
 
 export_function v4 V4_Mul_M4(v4 A, const m4* B) {
 	m4 BTransposed = M4_Transpose(B);
-
+    
 	v4 Result;
 	Result.x = V4_Dot(A, BTransposed.Rows[0]);
 	Result.y = V4_Dot(A, BTransposed.Rows[1]);
@@ -1277,24 +1273,24 @@ export_function m4_affine_transposed M4_Affine_Transpose(const m4_affine* M) {
 		.m01 = M->m10, 
 		.m02 = M->m20, 
 		.m03 = M->m30,
-
+        
 		.m10 = M->m01,
 		.m11 = M->m11,
 		.m12 = M->m21,
 		.m13 = M->m31,
-
+        
 		.m20 = M->m02,
 		.m21 = M->m12,
 		.m22 = M->m22,
 		.m23 = M->m32
 	};
-
+    
 	return Result;
 }
 
 export_function v3 V4_Mul_M4_Affine(v4 A, const m4_affine* B) {
 	m4_affine_transposed BTransposed = M4_Affine_Transpose(B);
-
+    
 	v3 Result;
 	Result.x = V4_Dot(A, BTransposed.Rows[0]);
 	Result.y = V4_Dot(A, BTransposed.Rows[1]);
@@ -1304,81 +1300,81 @@ export_function v3 V4_Mul_M4_Affine(v4 A, const m4_affine* B) {
 
 export_function m4_affine M4_Affine_Mul_M4_Affine(const m4_affine* A, const m4_affine* B) {
 	m4_affine_transposed BTransposed = M4_Affine_Transpose(B);
-
+    
 	m4_affine Result = {
 		.m00 = V3_Dot(A->Rows[0], BTransposed.Rows[0].xyz),
 		.m01 = V3_Dot(A->Rows[0], BTransposed.Rows[1].xyz),
 		.m02 = V3_Dot(A->Rows[0], BTransposed.Rows[2].xyz),
-
+        
 		.m10 = V3_Dot(A->Rows[1], BTransposed.Rows[0].xyz),
 		.m11 = V3_Dot(A->Rows[1], BTransposed.Rows[1].xyz),
 		.m12 = V3_Dot(A->Rows[1], BTransposed.Rows[2].xyz),
-
+        
 		.m20 = V3_Dot(A->Rows[2], BTransposed.Rows[0].xyz),
 		.m21 = V3_Dot(A->Rows[2], BTransposed.Rows[1].xyz),
 		.m22 = V3_Dot(A->Rows[2], BTransposed.Rows[2].xyz),
-
+        
 		.m30 = V3_Dot(A->Rows[3], BTransposed.Rows[0].xyz) + BTransposed.Rows[0].w,
 		.m31 = V3_Dot(A->Rows[3], BTransposed.Rows[1].xyz) + BTransposed.Rows[1].w,
 		.m32 = V3_Dot(A->Rows[3], BTransposed.Rows[2].xyz) + BTransposed.Rows[2].w,
 	};
-
+    
 	return Result;
 }
 
 export_function m4 M4_Affine_Mul_M4(const m4_affine* A, const m4* B) {
 	m4 BTransposed = M4_Transpose(B);
-
+    
 	m4 Result = {
 		.m00 = V3_Dot(A->Rows[0], BTransposed.Rows[0].xyz),
 		.m01 = V3_Dot(A->Rows[0], BTransposed.Rows[1].xyz),
 		.m02 = V3_Dot(A->Rows[0], BTransposed.Rows[2].xyz),
 		.m03 = V3_Dot(A->Rows[0], BTransposed.Rows[3].xyz),
-
+        
 		.m10 = V3_Dot(A->Rows[1], BTransposed.Rows[0].xyz),
 		.m11 = V3_Dot(A->Rows[1], BTransposed.Rows[1].xyz),
 		.m12 = V3_Dot(A->Rows[1], BTransposed.Rows[2].xyz),
 		.m13 = V3_Dot(A->Rows[1], BTransposed.Rows[3].xyz),
-
+        
 		.m20 = V3_Dot(A->Rows[2], BTransposed.Rows[0].xyz),
 		.m21 = V3_Dot(A->Rows[2], BTransposed.Rows[1].xyz),
 		.m22 = V3_Dot(A->Rows[2], BTransposed.Rows[2].xyz),
 		.m23 = V3_Dot(A->Rows[2], BTransposed.Rows[3].xyz),
-
+        
 		.m30 = V3_Dot(A->Rows[3], BTransposed.Rows[0].xyz) + BTransposed.Rows[0].w,
 		.m31 = V3_Dot(A->Rows[3], BTransposed.Rows[1].xyz) + BTransposed.Rows[1].w,
 		.m32 = V3_Dot(A->Rows[3], BTransposed.Rows[2].xyz) + BTransposed.Rows[2].w,
 		.m33 = V3_Dot(A->Rows[3], BTransposed.Rows[3].xyz) + BTransposed.Rows[3].w,
 	};
-
+    
 	return Result;
 }
 
 export_function m4 M4_Mul_M4_Affine(const m4* A, const m4_affine* B) {
 	m4_affine_transposed BTransposed = M4_Affine_Transpose(B);
-
+    
 	m4 Result = {
 		.m00 = V4_Dot(A->Rows[0], BTransposed.Rows[0]),
 		.m01 = V4_Dot(A->Rows[0], BTransposed.Rows[1]),
 		.m02 = V4_Dot(A->Rows[0], BTransposed.Rows[2]),
 		.m03 = A->m03,
-
+        
 		.m10 = V4_Dot(A->Rows[1], BTransposed.Rows[0]),
 		.m11 = V4_Dot(A->Rows[1], BTransposed.Rows[1]),
 		.m12 = V4_Dot(A->Rows[1], BTransposed.Rows[2]),
 		.m13 = A->m13,
-
+        
 		.m20 = V4_Dot(A->Rows[2], BTransposed.Rows[0]),
 		.m21 = V4_Dot(A->Rows[2], BTransposed.Rows[1]),
 		.m22 = V4_Dot(A->Rows[2], BTransposed.Rows[2]),
 		.m23 = A->m23,
-
+        
 		.m30 = V4_Dot(A->Rows[3], BTransposed.Rows[0]),
 		.m31 = V4_Dot(A->Rows[3], BTransposed.Rows[1]),
 		.m32 = V4_Dot(A->Rows[3], BTransposed.Rows[2]),
 		.m33 = A->m33,
 	};
-
+    
 	return Result;
 }
 
@@ -1386,19 +1382,19 @@ export_function m4_affine M4_Affine_Inverse(const m4_affine* M) {
 	f32 xSq = V3_Sq_Mag(M->x);
 	f32 ySq = V3_Sq_Mag(M->y);
 	f32 zSq = V3_Sq_Mag(M->z);
-
+    
 	f32 sx = Equal_Zero_Eps_Sq_F32(xSq) ? 0.0f : 1.0f/xSq;
 	f32 sy = Equal_Zero_Eps_Sq_F32(ySq) ? 0.0f : 1.0f/ySq;
 	f32 sz = Equal_Zero_Eps_Sq_F32(zSq) ? 0.0f : 1.0f/zSq;
-
+    
 	v3 NewX = V3_Mul_S(M->x, sx);
 	v3 NewY = V3_Mul_S(M->y, sy);
 	v3 NewZ = V3_Mul_S(M->z, sz);
-
+    
 	f32 tx = -V3_Dot(M->t, NewX);
 	f32 ty = -V3_Dot(M->t, NewY);
 	f32 tz = -V3_Dot(M->t, NewZ);
-
+    
 	m4_affine Result = {
 		.Data = {
 			NewX.x, NewY.x, NewZ.x,
@@ -1407,7 +1403,7 @@ export_function m4_affine M4_Affine_Inverse(const m4_affine* M) {
 			tx,     ty,     tz
 		}
 	};
-
+    
 	return Result;
 }
 
@@ -1415,14 +1411,14 @@ export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M) {
 	f32 tx = -V3_Dot(M->t, M->x);
 	f32 ty = -V3_Dot(M->t, M->y);
 	f32 tz = -V3_Dot(M->t, M->z);
-
+    
 	f32 Data[] = {
 		M->m00, M->m10, M->m20,
 		M->m01, M->m11, M->m21,
 		M->m02, M->m12, M->m22,
 		tx,     ty,     tz
 	};
-
+    
 	return M4_Affine_F32(Data);
 }
 
@@ -1430,14 +1426,14 @@ export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M
 	f32 tx = -V3_Dot(T, M->x);
 	f32 ty = -V3_Dot(T, M->y);
 	f32 tz = -V3_Dot(T, M->z);
-
+    
 	f32 Data[] = {
 		M->m00, M->m10, M->m20,
 		M->m01, M->m11, M->m21,
 		M->m02, M->m12, M->m22,
 		tx,     ty,     tz
 	};
-
+    
 	return M4_Affine_F32(Data);
 }
 
@@ -1457,10 +1453,10 @@ export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target) {
 	if (Equal_Zero_Eps_F32(Diff)) {
 		Up = G_YAxis;
 	}
-
+    
 	v3 X = V3_Negate(V3_Norm(V3_Cross(Direction, Up)));
 	v3 Y = V3_Cross(Direction, X);
-
+    
 	m3 M = M3_XYZ(X, Y, Direction);
 	return M4_Affine_Inverse_Transform_No_Scale(Position, &M);
 }
@@ -1483,7 +1479,7 @@ export_function rect2 Rect2_Offset(rect2 Rect, v2 Offset) {
 
 export_function b32 Rect2_Contains_V2(rect2 Rect, v2 V) {
 	return (Rect.p0.x <= V.x && Rect.p0.y <= V.y) && 
-		   (Rect.p1.x >= V.x && Rect.p1.y >= V.y);
+    (Rect.p1.x >= V.x && Rect.p1.y >= V.y);
 }
 
 export_function v2 Rect2_Size(rect2 Rect) {
@@ -1503,7 +1499,7 @@ export_function v3 RGB_To_HSV(v3 rgb) {
         const f32 tmp = rgb.r; rgb.r = rgb.g; rgb.g = tmp;
         K = -2.f / 6.f - K;
     }
-
+    
     const f32 chroma = rgb.r - (rgb.g < rgb.b ? rgb.g : rgb.b);
     
 	v3 hsv;
@@ -1521,14 +1517,14 @@ export_function v3 HSV_To_RGB(v3 hsv) {
 		v3 Result = V3_All(hsv.v);
         return Result;
     }
-
+    
     hsv.h = FMod_F32(hsv.h, 1.0f) / (60.0f/360.0f);
     s32 i = (s32)hsv.h;
     f32 f = hsv.h - (f32)i;
     f32 p = hsv.v * (1.0f - hsv.s);
     f32 q = hsv.v * (1.0f - hsv.s * f);
     f32 t = hsv.v * (1.0f - hsv.s * (1.0f - f));
-
+    
 	v3 rgb;
     switch (i) {
 		case 0:  rgb.r = hsv.v; rgb.g = t; 	   rgb.b = p; break;
@@ -1538,7 +1534,7 @@ export_function v3 HSV_To_RGB(v3 hsv) {
 		case 4:  rgb.r = t; 	rgb.g = p; 	   rgb.b = hsv.v; break;
 		default: rgb.r = hsv.v; rgb.g = p; 	   rgb.b = q; break;
     }
-
+    
 	return rgb;
 }
 
@@ -1550,13 +1546,13 @@ export_function v3 Get_Triangle_Centroid(v3 P0, v3 P1, v3 P2) {
 
 export_function memory_reserve Make_Memory_Reserve(size_t Size) {
 	memory_reserve Result = { 0 };
-
+    
 	Size = Align(Size, OS_Page_Size());
 	Result.BaseAddress = (u8*)OS_Reserve_Memory(Size);
 	if (!Result.BaseAddress) {
 		return Result;
 	}
-
+    
 	Result.ReserveSize = Size;
 	Result.CommitSize  = 0;
 	return Result;
@@ -1573,14 +1569,14 @@ export_function memory_reserve Subdivide_Memory_Reserve(memory_reserve* Reserve,
 	
 	Assert((Offset % PageSize) == 0);
 	Assert((Size % PageSize) == 0);
-
+    
 	size_t CommitSize = (size_t)Max((intptr_t)Reserve->CommitSize-(intptr_t)Offset, 0);
 	memory_reserve Result = {
 		.BaseAddress = Reserve->BaseAddress+Offset,
 		.ReserveSize = Size,
 		.CommitSize  = CommitSize
 	};
-
+    
 	return Result;
 }
 
@@ -1592,20 +1588,20 @@ export_function void* Commit_New_Size(memory_reserve* Reserve, size_t NewSize) {
 	//Get the proper offset to the commit address and find the new commit size.
 	//Committed size must align on a page boundary	
 	size_t PageSize = OS_Page_Size();
-
+    
 	u8* BaseCommit = Reserve->BaseAddress + Reserve->CommitSize;
 	size_t NewCommitSize = Align(NewSize, PageSize);
 	size_t DeltaSize = NewCommitSize - Reserve->CommitSize;
-
+    
 	if (NewCommitSize > Reserve->ReserveSize) {
 		//todo: Diagnostic and error logging
 		return NULL;
 	}
-
+    
 	Assert(NewCommitSize <= Reserve->ReserveSize);
 	Assert((NewCommitSize % PageSize) == 0);
 	Assert((DeltaSize % PageSize) == 0);
-
+    
 	void* Result = BaseCommit;
 	if (DeltaSize > 0) {
 		//Commit the new memory pages
@@ -1615,7 +1611,7 @@ export_function void* Commit_New_Size(memory_reserve* Reserve, size_t NewSize) {
 			return NULL;
 		}
 	}
-
+    
 	Reserve->CommitSize = NewCommitSize;
 	return Result;
 }
@@ -1626,16 +1622,16 @@ export_function void Decommit_New_Size(memory_reserve* Reserve, size_t NewSize) 
 		Assert(NewSize == 0);
 		return;
 	}
-
+    
 	size_t PageSize = OS_Page_Size();
-
+    
 	size_t NewCommitSize = Align(NewSize, PageSize);
 	Assert(Reserve->CommitSize >= NewCommitSize);
 	size_t DeltaSize = Reserve->CommitSize - NewCommitSize;
-
+    
 	Assert((NewCommitSize % PageSize) == 0);
 	Assert((DeltaSize % PageSize) == 0);
-
+    
 	if (DeltaSize) {
 		//If we have more memory than needed, decommit the pages
 		u8* BaseCommit = Reserve->BaseAddress + NewCommitSize;
@@ -1711,13 +1707,13 @@ function void Arena_Remove_From_Global_List(arena* Arena) {
 
 export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSize) {
 	base* Base = Base_Get();
-
+    
 	memory_reserve MemoryReserve = Make_Memory_Reserve(ReserveSize + sizeof(arena));
 	if (!MemoryReserve.BaseAddress) {
 		//todo: Diagnostic and error logging
 		return NULL;
 	}
-
+    
 	arena* Arena = (arena*)Commit_New_Size(&MemoryReserve, sizeof(arena));
 	Asan_Poison_Memory_Region(Arena, MemoryReserve.CommitSize);
 	Asan_Unpoison_Memory_Region(Arena, sizeof(arena));
@@ -1726,10 +1722,10 @@ export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSi
 	Arena->Type = ARENA_TYPE_VIRTUAL;
 	Arena->Reserve 	   = MemoryReserve;
 	Arena->Used        = sizeof(arena);
-
+    
 	Allocator_Set_Name((allocator*)Arena, DebugName);
 	Arena_Add_To_Global_List(Arena);
-
+    
 	return Arena;
 }
 
@@ -1740,14 +1736,14 @@ export_function arena* Arena_Create(string DebugName) {
 
 export_function arena* Arena_Create_With_Allocator(string DebugName, allocator* Allocator) {
 	base* Base = Base_Get();
-
+    
 	arena* Arena = Allocator_Allocate_Struct(Allocator, arena);
 	Arena->Base.VTable = Base->ArenaVTable;
 	Arena->Type = ARENA_TYPE_ALLOCATOR;
 	Arena->Allocator = Allocator;
 	Allocator_Set_Name((allocator*)Arena, DebugName);
 	Arena_Add_To_Global_List(Arena);
-
+    
 	return Arena;
 }
 
@@ -1755,7 +1751,7 @@ export_function void Arena_Delete(arena* Arena) {
 	if (Arena) {
 		Arena_Remove_From_Global_List(Arena);
 		Allocator_Free_Name((allocator*)Arena);
-
+        
 		if (Arena->Type == ARENA_TYPE_VIRTUAL) {
 			if (Arena->Reserve.BaseAddress) {
 				Delete_Memory_Reserve(&Arena->Reserve);
@@ -1772,7 +1768,7 @@ export_function void Arena_Delete(arena* Arena) {
 			Arena->CurrentBlock = NULL;
 			Arena->LastBlock = NULL;
 			Arena->Allocator = NULL;
-
+            
 			Allocator_Free_Memory(Allocator, Arena);
 		}
 	}
@@ -1806,24 +1802,24 @@ function arena_block* Arena_Get_Current_Block(arena* Arena, size_t Size, size_t 
 function  arena_block* Arena_Create_New_Block(arena* Arena, size_t BlockSize) {
 	Assert(Arena->Type == ARENA_TYPE_ALLOCATOR);
 	allocator* Allocator = Arena->Allocator;
-
+    
 	size_t AllocationSize = BlockSize + sizeof(arena_block);
 	arena_block* Block = (arena_block*)Allocator_Allocate_Memory(Allocator, AllocationSize);
 	if (!Block) return NULL;
-
+    
 	Block->Memory = (u8*)(Block + 1);
 	Block->Used = 0;
 	Block->Size = BlockSize;
-
+    
 	SLL_Push_Back(Arena->FirstBlock, Arena->LastBlock, Block);
 	Asan_Poison_Memory_Region(Block, AllocationSize);
-
+    
 	return Block;
 }
 
 export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, size_t Alignment) {
 	Assert(Is_Pow2(Alignment));
-
+    
 	if (!Size) return NULL;
 	
 	void* Result = NULL;
@@ -1838,7 +1834,7 @@ export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, siz
 			}
 			Asan_Poison_Memory_Region(Reserve->BaseAddress+OldCommitSize, Reserve->CommitSize-OldCommitSize);
 		}
-
+        
 		Arena->Used = NewUsed;
 		Result = Reserve->BaseAddress + Arena->Used;
 		Arena->Used += Size;
@@ -1855,7 +1851,7 @@ export_function void* Arena_Push_Aligned_No_Clear(arena* Arena, size_t Size, siz
 		Arena->CurrentBlock = CurrentBlock;
 		CurrentBlock->Used = Align_Pow2(CurrentBlock->Used, Alignment);
 		Assert(CurrentBlock->Used + Size <= CurrentBlock->Size);
-
+        
 		Result = CurrentBlock->Memory + CurrentBlock->Used;
 		CurrentBlock->Used += Size;
 	}
@@ -2006,7 +2002,7 @@ export_function thread_context* Thread_Context_Get() {
 	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
 	if (!ThreadContext) {
 		ThreadContext = Allocator_Allocate_Struct(Default_Allocator_Get(), thread_context);
-
+        
 		//Add to global list
 		OS_Mutex_Lock(G_Base->ThreadContextLock);
 		DLL_Push_Back(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
@@ -2022,13 +2018,13 @@ export_function thread_context* Thread_Context_Get() {
 export_function void Thread_Context_Remove() {
 	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
 	if (ThreadContext) {
-
+        
 		//Remove from global list
 		OS_Mutex_Lock(G_Base->ThreadContextLock);
 		DLL_Remove(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
 		G_Base->ThreadCount--;
 		OS_Mutex_Unlock(G_Base->ThreadContextLock);
-
+        
 		//Delete all the scratch arenas
 		for (size_t i = 0; i < MAX_SCRATCH_COUNT; i++) {
 			if (ThreadContext->ScratchArenas[i]) {
@@ -2036,7 +2032,7 @@ export_function void Thread_Context_Remove() {
 				ThreadContext->ScratchArenas[i] = NULL;
 			}
 		}
-
+        
 		//Free the memory
 		Allocator_Free_Memory(Default_Allocator_Get(), ThreadContext);
 		OS_TLS_Set(G_Base->ThreadContextTLS, NULL);
@@ -2053,14 +2049,14 @@ export_function void Thread_Context_Validate_() {
 export_function arena* Scratch_Get() {
 	thread_context* ThreadContext = Thread_Context_Get();
 	Assert(ThreadContext->ScratchIndex < MAX_SCRATCH_COUNT);
-
+    
 	size_t ScratchIndex = ThreadContext->ScratchIndex++;
 	if (!ThreadContext->ScratchArenas[ScratchIndex]) {
 		char ScratchName[1024];
 		int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", (u32)ScratchIndex);
 		ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create(Make_String(ScratchName, TotalLength));
 	}
-
+    
 	ThreadContext->ScratchMarkers[ScratchIndex] = Arena_Get_Marker(ThreadContext->ScratchArenas[ScratchIndex]);
 	return ThreadContext->ScratchArenas[ScratchIndex];
 }
@@ -2080,13 +2076,13 @@ export_function random32_xor_shift Random32_XOrShift_Init() {
 
 export_function u32 Random32_XOrShift(random32_xor_shift* Random) {
 	u32 x = Random->State;
-
+    
 	x ^= x << 13;
 	x ^= x >> 17;
 	x ^= x << 5;
-
+    
 	Random->State = x;
-
+    
 	return x;
 }
 
@@ -2134,7 +2130,7 @@ export_function u32 UTF8_Read(const char* Str, u32* OutLength) {
         {
             u8 NextBytes[2] = {(u8)Str[1], (u8)Str[2]};
             if(G_ClassUTF8[NextBytes[0] >> 3] == 0 &&
-                G_ClassUTF8[NextBytes[1] >> 3] == 0)
+               G_ClassUTF8[NextBytes[1] >> 3] == 0)
             {
                 Result = (Byte & BITMASK_4) << 12;
                 Result |= ((NextBytes[0] & BITMASK_6) << 6);
@@ -2146,8 +2142,8 @@ export_function u32 UTF8_Read(const char* Str, u32* OutLength) {
         {
             u8 NextBytes[3] = {(u8)Str[1], (u8)Str[2], (u8)Str[3]};
             if(G_ClassUTF8[NextBytes[0] >> 3] == 0 &&
-                G_ClassUTF8[NextBytes[1] >> 3] == 0 &&
-                G_ClassUTF8[NextBytes[2] >> 3] == 0)
+               G_ClassUTF8[NextBytes[1] >> 3] == 0 &&
+               G_ClassUTF8[NextBytes[2] >> 3] == 0)
             {
                 Result = (Byte & BITMASK_3) << 18;
                 Result |= ((NextBytes[0] & BITMASK_6) << 12);
@@ -2308,11 +2304,11 @@ export_function string String_Copy(allocator* Allocator, string Str) {
 export_function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex) {
 	Assert(LastIndex != STRING_INVALID_INDEX && LastIndex != STRING_INVALID_INDEX);
 	if (FirstIndex == LastIndex) return String_Empty();
-
+    
 	LastIndex = Min(LastIndex, Str.Size);
-
+    
 	Assert(LastIndex > FirstIndex);
-
+    
 	const char* At = Str.Ptr + FirstIndex;
 	return Make_String(At, LastIndex - FirstIndex);
 }
@@ -2324,7 +2320,7 @@ export_function string_array String_Split(allocator* Allocator, string String, s
 		Dynamic_String_Array_Add(&Result, String);
 		return String_Array_Init(Result.Ptr, Result.Count);
 	}
-
+    
 	size_t StartIndex = 0;
 	size_t StringIndex = 0;
 	while (StringIndex < String.Size) {
@@ -2338,19 +2334,19 @@ export_function string_array String_Split(allocator* Allocator, string String, s
 				break;
 			}
 		}
-
+        
 		if (SubstringIndex == Substr.Size) {
 			Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
 			StartIndex = StringIndex+Substr.Size;
 		}
-
+        
 		StringIndex++;
 	}
-
+    
 	if (StartIndex < StringIndex) {
 		Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
 	}
-
+    
 	return String_Array_Init(Result.Ptr, Result.Count);
 }
 
@@ -2364,13 +2360,13 @@ export_function b32 String_Is_Null_Term(string String) {
 
 export_function b32 String_Equals(string StringA, string StringB) {
 	if (StringA.Size != StringB.Size) return false;
-
+    
 	for (size_t i = 0; i < StringA.Size; i++) {
 		if (StringA.Ptr[i] != StringB.Ptr[i]) {
 			return false;
 		}
 	}
-
+    
 	return true;
 }
 
@@ -2380,7 +2376,7 @@ export_function size_t String_Find_First_Char(string String, char Character) {
 			return Index;
 		}
 	}
-
+    
 	return STRING_INVALID_INDEX;
 }
 
@@ -2391,7 +2387,7 @@ export_function size_t String_Find_Last_Char(string String, char Character) {
 			return ArrayIndex;
 		}
 	}
-
+    
 	return STRING_INVALID_INDEX;
 }
 
@@ -2402,7 +2398,7 @@ export_function string String_Combine(allocator* Allocator, string* Strings, siz
 	}
 	char* Ptr = Allocator_Allocate_Array(Allocator, TotalSize + 1, char);
 	char* At = Ptr;
-
+    
 	for (size_t i = 0; i < Count; i++) {
 		Memory_Copy(At, Strings[i].Ptr, Strings[i].Size);
 		At += Strings[i].Size;		
@@ -2422,7 +2418,7 @@ export_function string String_Concat(allocator* Allocator, string StringA, strin
 export_function size_t String_Get_Last_Directory_Slash_Index(string Directory) {
 	size_t DoubleSlashPathIndex = String_Find_Last_Char(Directory, '\\');
 	size_t SlashPathIndex = String_Find_Last_Char(Directory, '/');
-
+    
 	size_t PathIndex = STRING_INVALID_INDEX;
 	if (DoubleSlashPathIndex != STRING_INVALID_INDEX && SlashPathIndex != STRING_INVALID_INDEX) {
 		PathIndex = Max(SlashPathIndex, DoubleSlashPathIndex);
@@ -2431,7 +2427,7 @@ export_function size_t String_Get_Last_Directory_Slash_Index(string Directory) {
 	} else if (SlashPathIndex != STRING_INVALID_INDEX) {
 		PathIndex = SlashPathIndex;
 	}
-
+    
 	return PathIndex;
 }
 
@@ -2449,7 +2445,7 @@ export_function string String_Directory_Concat(allocator* Allocator, string Stri
 	
 	if (StringA.Ptr[StringA.Size - 1] != '\\' && StringA.Ptr[StringA.Size - 1] != '/') {
 		Strings[0] = StringA;
-		Strings[1] = String_Lit("/");
+		Strings[1] = OS_DELIMTER_STRING;
 		Strings[2] = StringB;
 		StringCount = 3;
 	} else {
@@ -2457,7 +2453,7 @@ export_function string String_Directory_Concat(allocator* Allocator, string Stri
 		Strings[1] = StringB;
 		StringCount = 2;
 	}
-
+    
 	string String = String_Combine(Allocator, Strings, StringCount);
 	return String;
 }
@@ -2482,20 +2478,20 @@ export_function string String_Get_Filename_Ext(string Filename) {
 export_function string String_Get_Filename_Without_Ext(string Filename) {
 	size_t DotIndex = String_Find_Last_Char(Filename, '.');
 	size_t PathIndex = String_Get_Last_Directory_Slash_Index(Filename);
-
+    
 	size_t FirstIndex = 0;
 	size_t LastIndex = Filename.Size;
-
+    
 	if (PathIndex != STRING_INVALID_INDEX) {
 		FirstIndex = PathIndex + 1;
 	}
-
+    
 	if (DotIndex != STRING_INVALID_INDEX) {
 		if (DotIndex > FirstIndex) {
 			LastIndex = DotIndex;
 		}
 	}
-
+    
 	string Result = String_Substr(Filename, FirstIndex, LastIndex);
 	return Result;
 }
@@ -2525,20 +2521,20 @@ export_function string String_Pascal_Case(allocator* Allocator, string String) {
 	for (size_t i = 0; i < String.Size; i++) {
 		Buffer[i] = String.Ptr[i];
 		b32 IsAlpha = Is_Alpha(Buffer[i]);
-
+        
 		if (IsAlpha && !LastAlpha) {
 			Buffer[i] = To_Upper(Buffer[i]);
 		}
-
+        
 		if (IsAlpha && LastAlpha) {
 			Buffer[i] = To_Lower(Buffer[i]);
 		}
-
+        
 		LastAlpha = IsAlpha;
 	}
-
+    
 	Buffer[String.Size] = 0;
-
+    
 	return Make_String(Buffer, String.Size);
 }
 
@@ -2551,9 +2547,9 @@ export_function string String_Trim_Whitespace(string String) {
 			break;
 		}
 	}
-
+    
 	if (StartOffset == String.Size) return String_Empty();
-
+    
 	size_t EndOffset = String.Size;
 	for (size_t i = String.Size; i > 0; i--) {
 		if (Is_Whitespace(String.Ptr[i - 1])) {
@@ -2562,7 +2558,7 @@ export_function string String_Trim_Whitespace(string String) {
 			break;
 		}
 	}
-
+    
 	Assert(EndOffset > StartOffset);
 	return Make_String(String.Ptr + StartOffset, EndOffset - StartOffset);
 }
@@ -2596,10 +2592,10 @@ export_function string String_Remove(allocator* Allocator, string String, size_t
 	if (String_Is_Empty(String)) {
 		return String;
 	}
-
+    
 	Assert(Cursor < String.Size);
 	Assert((Cursor + Size) <= String.Size);
-
+    
 	if (Cursor == 0) {
 		return String_Substr(String, Cursor + Size, String.Size);
 	} else if (Cursor + Size == String.Size) {
@@ -2611,16 +2607,16 @@ export_function string String_Remove(allocator* Allocator, string String, size_t
 		};
 		return String_Combine(Allocator, Strings, Array_Count(Strings));
 	}
-
+    
 }
 
 export_function b32 String_Ends_With(string String, string Substr) {
 	Assert(String.Size && Substr.Size);
 	if (Substr.Size > String.Size) return false;
-
+    
 	const char* StrEnd = String.Ptr + (String.Size-1);
 	const char* SubstrEnd = Substr.Ptr + (Substr.Size-1);
-
+    
 	while (Substr.Size) {
 		if (*SubstrEnd != *StrEnd) {
 			return false;
@@ -2630,14 +2626,14 @@ export_function b32 String_Ends_With(string String, string Substr) {
 		StrEnd--;
 		Substr.Size--;
 	}
-
+    
 	return true;
 }
 
 export_function b32 String_Contains(string String, string Substr) {
 	Assert(String.Size && Substr.Size);
 	if (Substr.Size > String.Size) return false;
-
+    
 	size_t StringIndex = 0;
 	while (StringIndex < String.Size) {
 		size_t SubstringIndex = 0;
@@ -2650,21 +2646,21 @@ export_function b32 String_Contains(string String, string Substr) {
 				break;
 			}
 		}
-
+        
 		if (SubstringIndex == Substr.Size) {
 			return true;
 		}
-
+        
 		StringIndex++;
 	}
-
+    
 	return false;
 }
 
 export_function size_t String_Find_First(string String, string Substr) {
 	Assert(String.Size && Substr.Size);
 	if (Substr.Size > String.Size) return STRING_INVALID_INDEX;
-
+    
 	size_t StringIndex = 0;
 	while (StringIndex < String.Size) {
 		size_t SubstringIndex = 0;
@@ -2677,40 +2673,40 @@ export_function size_t String_Find_First(string String, string Substr) {
 				break;
 			}
 		}
-
+        
 		if (SubstringIndex == Substr.Size) {
 			return StringIndex;
 		}
-
+        
 		StringIndex++;
 	}
-
+    
 	return STRING_INVALID_INDEX;
 }
 
 export_function string String_From_WString(allocator* Allocator, wstring WString) {
 	arena* Scratch = Scratch_Get();
-
+    
     const wchar_t* WStrAt = WString.Ptr;
     const wchar_t* WStrEnd = WStrAt+WString.Size;
-
+    
     char* StrStart = (char*)Arena_Push(Scratch, (WString.Size*4)+1);
     char* StrEnd = StrStart + WString.Size*4;
     char* StrAt = StrStart;
-
+    
     for(;;) {
         Assert(StrAt <= StrEnd);
         if(WStrAt >= WStrEnd) {
             Assert(WStrAt == WStrEnd);
             break;
         }
-
+        
         u32 Length;
         u32 Codepoint = UTF16_Read(WStrAt, &Length);
         WStrAt += Length;
         StrAt += UTF8_Write(StrAt, Codepoint);
     }
-
+    
     *StrAt = 0;
 	string Result = String_Copy(Allocator, Make_String(StrStart, (size_t)(StrAt - StrStart)));
 	Scratch_Release();
@@ -2723,13 +2719,13 @@ export_function b32 Try_Parse_Bool(string String, b32* OutBool) {
 		if (OutBool) *OutBool = true;
 		return true;
 	}
-
+    
 	b32 EqualsFalse = String_Equals(String, String_Lit("false"));
 	if (EqualsFalse) {
 		if (OutBool) *OutBool = false;
 		return true;
 	}
-
+    
 	return false;
 }
 
@@ -2779,27 +2775,27 @@ export_function wstring WString_Copy(allocator* Allocator, wstring WStr) {
 
 export_function wstring WString_From_String(allocator* Allocator, string String) {
     arena* Scratch = Scratch_Get();
-
+    
     const char* StrAt = String.Ptr;
     const char* StrEnd = StrAt+String.Size;
-
+    
     wchar_t* WStrStart = Arena_Push_Array(Scratch, (String.Size+1), wchar_t);
     wchar_t* WStrEnd = WStrStart + String.Size;
     wchar_t* WStrAt = WStrStart;
-
+    
     for(;;) {
         Assert(WStrAt <= WStrEnd);
         if(StrAt >= StrEnd) {
             Assert(StrAt == StrEnd);
             break;
         }
-
+        
         u32 Length;
         u32 Codepoint = UTF8_Read(StrAt, &Length);
         StrAt += Length;
         WStrAt += UTF16_Write(WStrAt, Codepoint);
     }
-
+    
     *WStrAt = 0; 
     wstring Result = WString_Copy(Allocator, Make_WString(WStrStart, (size_t)(WStrAt-WStrStart)));
 	Scratch_Release();
@@ -2813,7 +2809,7 @@ export_function sstream_reader SStream_Reader_Begin(string Content) {
 	Reader.End = Content.Ptr + Content.Size;
 	Reader.LineIndex   = 1;
 	Reader.ColumnIndex = 1;
-
+    
 	return Reader;
 }
 
@@ -2833,7 +2829,7 @@ export_function sstream_char SStream_Reader_Peek_Char(sstream_reader* Reader) {
 		.LineIndex = Reader->LineIndex,
 		.ColumnIndex = Reader->ColumnIndex
 	};
-
+    
 	return Result;
 }
 
@@ -2843,7 +2839,7 @@ export_function sstream_char SStream_Reader_Consume_Char(sstream_reader* Reader)
 		case '\t': {
 			Reader->ColumnIndex += 4;
 		} break;
-
+        
 		default: {
 			if (Is_Newline(Result.Char)) {
 				Reader->LineIndex++;
@@ -2863,12 +2859,12 @@ export_function void SStream_Reader_Eat_Whitespace(sstream_reader* Reader) {
 		if (!Is_Whitespace(Result.Char)) {
 			return;
 		}
-
+        
 		switch (Result.Char) {
 			case '\t': {
 				Reader->ColumnIndex += 4;
 			} break;
-
+            
 			default: {
 				if (Is_Newline(Result.Char)) {
 					Reader->LineIndex++;
@@ -2878,7 +2874,7 @@ export_function void SStream_Reader_Eat_Whitespace(sstream_reader* Reader) {
 				}
 			} break;
 		}
-
+        
 		Reader->At++;
 	}
 }
@@ -2889,12 +2885,12 @@ export_function void SStream_Reader_Eat_Whitespace_Without_Line(sstream_reader* 
 		if (!Is_Whitespace(Result.Char)) {
 			return;
 		}
-
+        
 		switch (Result.Char) {
 			case '\t': {
 				Reader->ColumnIndex += 4;
 			} break;
-
+            
 			default: {
 				if (Is_Newline(Result.Char)) {
 					return;
@@ -2903,27 +2899,27 @@ export_function void SStream_Reader_Eat_Whitespace_Without_Line(sstream_reader* 
 				}
 			} break;
 		}
-
+        
 		Reader->At++;
 	}
 }
 
 export_function string SStream_Reader_Consume_Token(sstream_reader* Reader) {
 	SStream_Reader_Eat_Whitespace(Reader);
-
+    
 	const char* Ptr = Reader->At;
 	while (SStream_Reader_Is_Valid(Reader)) {
 		sstream_char Result = SStream_Reader_Peek_Char(Reader);
 		if (Is_Whitespace(Result.Char)) {
 			break;
 		}
-
+        
 		SStream_Reader_Consume_Char(Reader);
 	}
-
+    
 	size_t Size = (size_t)(Reader->At - Ptr);
 	Ptr = Size == 0 ? NULL : Ptr;
-
+    
 	return Make_String(Ptr, Size);
 }
 
@@ -2936,7 +2932,7 @@ export_function string SStream_Reader_Peek_Line(sstream_reader* Reader) {
 		}
 		At++;
 	}
-
+    
 	size_t Size = (size_t)(At - Ptr);
 	Ptr = Size == 0 ? NULL : Ptr;
 	return Make_String(Ptr, Size);
@@ -2950,7 +2946,7 @@ export_function string SStream_Reader_Consume_Line(sstream_reader* Reader) {
 			break;
 		}
 	}
-
+    
 	size_t Size = (size_t)(Reader->At - Ptr);
 	Ptr = Size == 0 ? NULL : Ptr;
 	return Make_String(Ptr, Size);
@@ -2973,12 +2969,12 @@ export_function sstream_writer SStream_Writer_Begin(allocator* Allocator) {
 export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Entry) {
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
 	Node->Entry = String_Copy(Writer->Allocator, Entry);
-
+    
 	SLL_Push_Front(Writer->First, Node);
 	if (!Writer->Last) {
 		Writer->Last = Writer->First;
 	}
-
+    
 	Writer->NodeCount++;
 	Writer->TotalCharCount += Entry.Size;
 }
@@ -2987,7 +2983,7 @@ export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry) {
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
 	Node->Entry = String_Copy(Writer->Allocator, Entry);
 	SLL_Push_Back(Writer->First, Writer->Last, Node);
-
+    
 	Writer->NodeCount++;
 	Writer->TotalCharCount += Entry.Size;
 }
@@ -2997,11 +2993,11 @@ export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const cha
 	va_start(List, Format);
 	string String = String_FormatV(Writer->Allocator, Format, List);
 	va_end(List);
-
+    
 	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
 	Node->Entry = String;
 	SLL_Push_Back(Writer->First, Writer->Last, Node);
-
+    
 	Writer->NodeCount++;
 	Writer->TotalCharCount += String.Size;
 }
@@ -3012,7 +3008,7 @@ export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Al
 	size_t TotalStringSize = Writer->TotalCharCount + ((Writer->NodeCount-1)*JoinChars.Size);
 	char* Buffer = Allocator_Allocate_Array(Allocator, TotalStringSize + 1, char);
 	char* At = Buffer;
-
+    
 	for (sstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
 		Memory_Copy(At, Node->Entry.Ptr, Node->Entry.Size * sizeof(char));
 		At += Node->Entry.Size;
@@ -3021,7 +3017,7 @@ export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Al
 			At += JoinChars.Size;
 		}
 	}
-
+    
 	Assert((size_t)(At - Buffer) == TotalStringSize);
 	Buffer[TotalStringSize] = 0;
 	return Make_String(Buffer, TotalStringSize);
@@ -3062,22 +3058,22 @@ export_function bstream_writer BStream_Writer_Begin(allocator* Allocator) {
 export_function void BStream_Writer_Front(bstream_writer* Writer, size_t Size, const void* Data) {
 	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
 	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
-
+    
 	Writer->NodeCount++;
 	Writer->TotalByteCount += Size;
-
+    
 	SLL_Push_Front(Writer->First, Node);	
 }
 
 export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, const void* Data) {
 	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
 	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
-
+    
 	Writer->NodeCount++;
 	Writer->TotalByteCount += Size;
 	
 	SLL_Push_Back(Writer->First, Writer->Last, Node);
-
+    
 	if (!Writer->Last) {
 		Writer->Last = Writer->First;
 	}
@@ -3085,13 +3081,13 @@ export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, c
 
 export_function buffer BStream_Writer_Join(bstream_writer* Writer, allocator* Allocator) {
 	void* Data = Allocator_Allocate_Memory(Allocator, Writer->TotalByteCount);
-
+    
 	u8* DataAt = (u8*)Data;
 	for (bstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
 		Memory_Copy(DataAt, Node->Entry.Ptr, Node->Entry.Size);
 		DataAt += Node->Entry.Size;
 	}
-
+    
 	return Make_Buffer(Data, Writer->TotalByteCount);
 }
 
@@ -3100,20 +3096,20 @@ export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t Valu
 	Result.ItemCapacity = ItemCapacity;
 	Result.KeySize = KeySize;
 	Result.ValueSize = ValueSize;
-
+    
 	Result.HashFunc = HashFunc;
 	Result.CompareFunc = CompareFunc;
-
+    
 	size_t TotalKeySize = KeySize * ItemCapacity;
 	size_t TotalValueSize = ValueSize * ItemCapacity;
 	size_t TotalSlotSize = sizeof(u32) * ItemCapacity;
-
+    
 	Result.Keys = Allocator_Allocate_Memory(Result.Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
 	Result.Values = Offset_Pointer(Result.Keys, TotalKeySize);
 	Result.ItemSlots = (u32*)Offset_Pointer(Result.Values, TotalValueSize);
-
+    
 	Result.ItemCount = 0;
-
+    
 	return Result;
 }
 
@@ -3133,30 +3129,30 @@ export_function b32 Hashmap_Is_Valid(hashmap* Hashmap) {
 
 export_function void Hashmap_Clear(hashmap* Hashmap) {
 	Assert(Hashmap_Is_Valid(Hashmap));
-
+    
 	Memory_Clear(Hashmap->Slots, Hashmap->SlotCapacity * sizeof(hash_slot));
-
+    
 	for(u32 SlotIndex = 0; SlotIndex < Hashmap->SlotCapacity; SlotIndex++) {
 		Hashmap->Slots[SlotIndex].ItemIndex = HASH_INVALID_SLOT;
     }
-
+    
 	Memory_Clear(Hashmap->Keys, Hashmap->KeySize * Hashmap->ItemCount);
 	Memory_Clear(Hashmap->Values, Hashmap->ValueSize * Hashmap->ItemCount);
 	for (u32 i = 0; i < Hashmap->ItemCount; i++) {
 		Hashmap->ItemSlots[i] = HASH_INVALID_SLOT;
 	}
-
+    
     Hashmap->ItemCount = 0;
 }
 
 export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash) {
 	if (Hashmap->SlotCapacity == 0 || !Hashmap->Slots) return HASH_INVALID_SLOT;
-
+    
 	u32 SlotMask = Hashmap->SlotCapacity - 1;
 	u32 BaseSlot = (Hash & SlotMask);
 	u32 BaseCount = Hashmap->Slots[BaseSlot].BaseCount;
 	u32 Slot = BaseSlot;
-
+    
 	while (BaseCount > 0) {
 		if (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT) {
 			u32 SlotHash = Hashmap->Slots[Slot].Hash;
@@ -3164,7 +3160,7 @@ export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash) {
 			if (SlotBase == BaseSlot) {
 				Assert(BaseCount > 0);
 				BaseCount--;
-
+                
 				if (SlotHash == Hash) {
 					void* KeyComp = Offset_Pointer(Hashmap->Keys, Hashmap->Slots[Slot].ItemIndex * Hashmap->KeySize);
 					if (Hashmap->CompareFunc(Key, KeyComp)) {
@@ -3173,22 +3169,22 @@ export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash) {
 				}
 			}
 		}
-
+        
 		Slot = (Slot + 1) & SlotMask;
 	}
-
+    
 	return HASH_INVALID_SLOT;
 }
 
 export_function void Hashmap_Expand_Slots(hashmap* Hashmap, u32 NewCapacity) {
 	NewCapacity = Ceil_Pow2_U32(NewCapacity);
 	u32 SlotMask = NewCapacity - 1;
-
+    
 	hash_slot* NewSlots = Allocator_Allocate_Array(Hashmap->Allocator, NewCapacity, hash_slot);
 	for (u32 i = 0; i < NewCapacity; i++) {
 		NewSlots[i].ItemIndex = HASH_INVALID_SLOT;
 	}
-
+    
 	for (u32 i = 0; i < Hashmap->SlotCapacity; i++) {
 		if (Hashmap->Slots[i].ItemIndex != HASH_INVALID_SLOT) {
 			u32 Hash = Hashmap->Slots[i].ItemIndex;
@@ -3204,7 +3200,7 @@ export_function void Hashmap_Expand_Slots(hashmap* Hashmap, u32 NewCapacity) {
 			NewSlots[BaseSlot].BaseCount++;
 		}
 	}
-
+    
 	if (Hashmap->Slots) {
 		Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
 	}
@@ -3215,15 +3211,15 @@ export_function void Hashmap_Expand_Slots(hashmap* Hashmap, u32 NewCapacity) {
 export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash) {
 	Assert(Hashmap_Is_Valid(Hashmap));
 	Assert(Hashmap_Find_Slot(Hashmap, Key, Hash) == HASH_INVALID_SLOT);
-
+    
 	if (Hashmap->ItemCount >= (Hashmap->SlotCapacity - (Hashmap->SlotCapacity / 3))) {
 		u32 NewSlotCapacity = Hashmap->SlotCapacity ? Hashmap->SlotCapacity*2 : 128;
 		Hashmap_Expand_Slots(Hashmap, NewSlotCapacity);
 	}
-
+    
 	u32 SlotMask = Hashmap->SlotCapacity - 1;
 	u32 BaseSlot = (Hash & SlotMask);
-
+    
 	//Linear probing. This is not great for preventing collision
     u32 BaseCount = Hashmap->Slots[BaseSlot].BaseCount;
     u32 Slot = BaseSlot;
@@ -3242,36 +3238,36 @@ export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Valu
     while (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT)  {
         Slot = (Slot + 1) & SlotMask;
 	}
-
+    
 	if (Hashmap->ItemCount == Hashmap->ItemCapacity) {
 		size_t NewItemCapacity = Hashmap->ItemCapacity * 2;
 		size_t TotalKeySize = Hashmap->KeySize * NewItemCapacity;
 		size_t TotalValueSize = Hashmap->ValueSize * NewItemCapacity;
 		size_t TotalSlotSize = sizeof(u32) * NewItemCapacity;
-
+        
 		void* Keys = Allocator_Allocate_Memory(Hashmap->Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
 		void* Values = Offset_Pointer(Hashmap->Keys, TotalKeySize);
 		u32* ItemSlots = (u32*)Offset_Pointer(Hashmap->Values, TotalValueSize);
-
+        
 		Memory_Copy(Keys, Hashmap->Keys, Hashmap->ItemCapacity * Hashmap->KeySize);
 		Memory_Copy(Values, Hashmap->Values, Hashmap->ItemCapacity * Hashmap->ValueSize);
 		Memory_Copy(ItemSlots, Hashmap->ItemSlots, Hashmap->ItemCapacity * sizeof(u32));
-
+        
 		Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
-
+        
 		Hashmap->ItemCapacity = (u32)NewItemCapacity;
 		Hashmap->Keys = Keys;
 		Hashmap->Values = Values;
 		Hashmap->ItemSlots = ItemSlots;
 	}
 	Assert(Hashmap->ItemCount < Hashmap->ItemCapacity);
-
+    
 	u32 Index = Hashmap->ItemCount++;
-
+    
 	Hashmap->Slots[Slot].Hash = Hash;
 	Hashmap->Slots[Slot].ItemIndex = Index;
 	Hashmap->Slots[BaseSlot].BaseCount++;
-
+    
 	Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index*Hashmap->KeySize)), Key, Hashmap->KeySize);
 	Memory_Copy(Offset_Pointer(Hashmap->Values, (Index*Hashmap->ValueSize)), Value, Hashmap->ValueSize);
 	Hashmap->ItemSlots[Index] = Slot;
@@ -3356,28 +3352,28 @@ export_function void Hashmap_Remove(hashmap* Hashmap, void* Key) {
 	u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
 	
     if(Slot == HASH_INVALID_SLOT) return;
-
+    
     u32 SlotMask = Hashmap->SlotCapacity-1;
     u32 BaseSlot = (Hash & SlotMask);
     u32 Index = Hashmap->Slots[Slot].ItemIndex;
     u32 LastIndex = Hashmap->ItemCount-1;
-
+    
     Hashmap->Slots[BaseSlot].BaseCount--;
     Hashmap->Slots[Slot].ItemIndex = HASH_INVALID_SLOT;
-
+    
     if(Index != LastIndex) {
 		Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), 
 					Offset_Pointer(Hashmap->Keys, (LastIndex * Hashmap->KeySize)), 
 					Hashmap->KeySize);
-
+        
 		Memory_Copy(Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), 
 					Offset_Pointer(Hashmap->Values, (LastIndex * Hashmap->ValueSize)), 
 					Hashmap->ValueSize);
-
+        
         Hashmap->ItemSlots[Index] = Hashmap->ItemSlots[LastIndex];
         Hashmap->Slots[Hashmap->ItemSlots[LastIndex]].ItemIndex = Index;
     }
-
+    
     Hashmap->ItemCount--;
 }
 
@@ -3425,15 +3421,15 @@ export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
 	
 	u32 Index = ID.Index;
 	Assert(Index < SlotMap->Capacity);
-
+    
 	if (SlotMap->Slots[Index] == ID.Slot) {
 		SlotMap->Slots[Index]++;
 		Clear_Bit(SlotMap->Slots[Index], 31);
-
+        
 		if (!SlotMap->Slots[Index]) {
 			SlotMap->Slots[Index] = 1;
 		}
-
+        
 		SlotMap->FreeIndices[SlotMap->FreeCount++] = Index;
 		SlotMap->Count--;
 	}
@@ -3492,7 +3488,7 @@ export_function pool_id Pool_Allocate(pool* Pool) {
 				Debug_Log("Failed to commit more memory for the pool");
 				return Empty_Pool_ID();
 			}
-
+            
 			size_t Iter = Index;
 			while (Iter*Pool_Entry_Size(Pool) < Pool->Reserve.CommitSize) {
 				pool_id* PoolID = Pool_Get_Internal_ID(Pool, Iter);
@@ -3502,10 +3498,10 @@ export_function pool_id Pool_Allocate(pool* Pool) {
 			}
 		}
 	}
-
+    
 	pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
 	PoolID->Index = Index;
-
+    
 	return *PoolID;
 }
 
@@ -3555,7 +3551,7 @@ export_function pool_iter Pool_Begin_Iter(pool* Pool) {
 	pool_iter Result = {
 		.Pool = Pool
 	};
-
+    
 	for (u32 i = 0; i < Pool->MaxUsed; i++) {
 		pool_id* PoolID = Pool_Get_Internal_ID(Result.Pool, i);
 		if (i == Pool_Get_Internal_ID(Pool, i)->Index) {
@@ -3565,7 +3561,7 @@ export_function pool_iter Pool_Begin_Iter(pool* Pool) {
 			return Result;
 		}
 	}
-
+    
 	return Result;
 }
 
@@ -3616,14 +3612,14 @@ function void* Binary_Heap_Get_Data(binary_heap* Heap, size_t Index) {
 
 function void Binary_Heap_Swap(binary_heap* Heap, size_t Index0, size_t Index1) {
 	arena* Scratch = Scratch_Get();
-
+    
 	void* Tmp = Arena_Push(Scratch, Heap->ItemSize);
 	void* Data1 = Binary_Heap_Get_Data(Heap, Index0);
 	Memory_Copy(Tmp, Data1, Heap->ItemSize);
 	void* Data2 = Binary_Heap_Get_Data(Heap, Index1);
 	Memory_Copy(Data1, Data2, Heap->ItemSize);
 	Memory_Copy(Data2, Tmp, Heap->ItemSize);
-
+    
 	Scratch_Release();
 }
 
@@ -3633,20 +3629,20 @@ function void Binary_Heap_Maxify(binary_heap* Heap) {
 	do {
 		size_t Left = Binary_Heap_Left(Index);
 		size_t Right = Binary_Heap_Right(Index);
-
+        
 		size_t Count = Heap->Count;
-
+        
 		binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
 		if (Left < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Left),
 										Binary_Heap_Get_Data(Heap, Index))) {
 			Largest = Left;
 		}
-
+        
 		if (Right < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Right),
 										 Binary_Heap_Get_Data(Heap, Largest))) {
 			Largest = Right;
 		}
-
+        
 		if (Largest != Index) {
 			Binary_Heap_Swap(Heap, Index, Largest);
 			Index = Largest;
@@ -3661,7 +3657,7 @@ export_function void Binary_Heap_Push(binary_heap* Heap, void* Data) {
 	Memory_Copy(Binary_Heap_Get_Data(Heap, Index), 
 				Data, Heap->ItemSize);
 	binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
-
+    
 	//If the parent of the binary heap is smaller, we need to fixup the structure
 	while (Index != 0 && !CompareFunc(Binary_Heap_Get_Data(Heap, Binary_Heap_Parent(Index)),
 									  Binary_Heap_Get_Data(Heap, Index))) {
@@ -3676,7 +3672,7 @@ export_function void* Binary_Heap_Pop(binary_heap* Heap) {
 		Heap->Count--;
 		return Heap->Ptr;
 	}
-
+    
 	Binary_Heap_Swap(Heap, 0, Heap->Count-1);
 	void* Result = Binary_Heap_Get_Data(Heap, Heap->Count-1);
 	Heap->Count--;
@@ -3724,7 +3720,7 @@ export_function void Async_Stack_Index16_Push(async_stack_index16* StackIndex, u
 export_function u16 Async_Stack_Index16_Pop(async_stack_index16* StackIndex) {
     for(;;) {
         async_stack_index16_key CurrentTop = { Atomic_Load_U32(&StackIndex->Head)};
-
+        
         u16 Index = CurrentTop.Index;
         if(Index == ASYNC_STACK_INDEX16_INVALID) {
             /*No more jobs avaiable*/
@@ -3780,7 +3776,7 @@ export_function void Async_Stack_Index32_Push(async_stack_index32* StackIndex, u
 export_function u32 Async_Stack_Index32_Pop(async_stack_index32* StackIndex) {
     for(;;) {
         async_stack_index32_key CurrentTop = { Atomic_Load_U64(&StackIndex->Head)};
-
+        
         u32 Index = CurrentTop.Index;
         if(Index == ASYNC_STACK_INDEX32_INVALID) {
             /*No more jobs avaiable*/
@@ -3798,21 +3794,22 @@ export_function u32 Async_Stack_Index32_Pop(async_stack_index32* StackIndex) {
 
 export_function void Debug_Log(const char* Format, ...) {
 	arena* Scratch = Scratch_Get();
-
+    
 	va_list List;
 	va_start(List, Format);
 	string String = String_FormatV((allocator *)Scratch, Format, List);
 	va_end(List);
-
+    
 #ifdef OS_WIN32
 	wstring WString = WString_From_String((allocator *)Scratch, String);
 	OutputDebugStringW(WString.Ptr);
-
-	if(WString.Size) OutputDebugStringA("\n");
+    
+	if(WString.Size && !(WString.Size == 1 && WString.Ptr[0] == '\n')) OutputDebugStringA("\n");
 #endif
-
-	if(String.Size) printf("%.*s\n", (int)String.Size, String.Ptr);
-
+    
+    printf("%.*s", (int)String.Size, String.Ptr);
+	if(String.Size && !(String.Size == 1 && String.Ptr[0] == '\n')) printf("\n");
+    
 	Scratch_Release();
 }
 
@@ -3912,15 +3909,15 @@ export_function KEY_COMP_FUNC(Compare_U64) {
 export_function buffer Read_Entire_File(allocator* Allocator, string Path) {
 	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_READ);
 	if (!File) return Buffer_Empty();
-
+    
 	size_t Size = OS_Get_File_Size(File);
 	buffer Result = Buffer_Alloc(Allocator, Size);
-
+    
 	if (!OS_Read_File(File, Result.Ptr, Result.Size)) {
 		Allocator_Free_Memory(Allocator, Result.Ptr);
 		Result = Buffer_Empty();
 	}
-
+    
 	OS_Close_File(File);
 	return Result;
 }
@@ -3928,14 +3925,10 @@ export_function buffer Read_Entire_File(allocator* Allocator, string Path) {
 export_function b32 Write_Entire_File(string Path, buffer Data) {
 	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_WRITE);
 	if (!File) return false;
-
+    
 	b32 Result = OS_Write_File(File, Data.Ptr, Data.Size);
 	OS_Close_File(File);
 	return Result;
 }
 
 #include "profiler.c"
-
-#ifdef __cplusplus
-}
-#endif

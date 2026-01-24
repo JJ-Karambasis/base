@@ -11,6 +11,11 @@ set build_gdi=1
 set build_tests=0
 
 set base_path=%~dp0
+
+REM We are removing the trailing slash so our file paths are cleaned up
+if "%base_path:~-1%"=="\" set "base_path=%base_path:~0,-1%"
+
+
 set code_path=%base_path%\code
 set bin_path=%base_path%\bin
 

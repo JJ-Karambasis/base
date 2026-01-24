@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+    
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
@@ -15,43 +15,43 @@ extern "C" {
 #include <ctype.h>
 #include <wchar.h>
 #include <inttypes.h>
-
+    
 #ifdef _WIN32
-// Windows (both 32-bit and 64-bit)
+    // Windows (both 32-bit and 64-bit)
 #define OS_WIN32
-
+    
 #ifndef _WIN64
 #define USE_32_BIT
 #endif
-
+    
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
-
+    
 #if TARGET_OS_OSX
 #define OS_OSX
-
+    
 #else
 #error "Not Implemented!"
 #endif
-
+    
 #elif defined(__linux__)
-
+    
 #define OS_LINUX
-
+    
 #else
-
+    
 #error "Not Implemented!"
-
+    
 #endif
-
+    
 #if defined(__clang__)
 #define COMPILER_CLANG
 #elif defined(_MSC_VER)
 #define COMPILER_MSVC
 #endif
-
+    
 #ifdef OS_WIN32
-//todo: Are we sure we want to include windows.h?
+    //todo: Are we sure we want to include windows.h?
 #include <windows.h>
 #ifdef __cplusplus
 #define export_function extern "C" __declspec(dllexport)
@@ -65,7 +65,7 @@ extern "C" {
 #define export_function
 #endif
 #endif
-
+    
 #if defined(COMPILER_MSVC)
 # if defined(__SANITIZE_ADDRESS__)
 #  define ASAN_ENABLED
@@ -83,98 +83,104 @@ extern "C" {
 #else
 # define NO_ASAN
 #endif
-
+    
+#ifdef OS_WIN32
+#define OS_DELIMTER_STRING String_Lit("\\")
+#else
+#define OS_DELIMTER_STRING String_Lit("/")
+#endif
+    
 #define Stringify_(x) #x
 #define Stringify(x) Stringify_(x)
-
+    
 #ifdef ASAN_ENABLED
 #pragma comment(lib, "clang_rt.asan_dynamic-x86_64.lib")
-void __asan_poison_memory_region(void const volatile *addr, size_t size);
-void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+    void __asan_poison_memory_region(void const volatile *addr, size_t size);
+    void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 # define Asan_Poison_Memory_Region(addr, size)   __asan_poison_memory_region((addr), (size))
 # define Asan_Unpoison_Memory_Region(addr, size) __asan_unpoison_memory_region((addr), (size))
 #else
 # define Asan_Poison_Memory_Region(addr, size)   ((void)(addr), (void)(size))
 # define Asan_Unpoison_Memory_Region(addr, size) ((void)(addr), (void)(size))
 #endif
-
+    
 #define function static 
 #define global static
 #define local static
 #define Array_Count(array) (sizeof(array)/sizeof((array)[0]))
-
+    
 #define PTR_SIZE sizeof(size_t)
-
+    
 #define Memory_Copy(dst, src, size) memcpy(dst, src, size)
 #define Memory_Clear(dst, size) memset(dst, 0, size)
 #define Zero_Struct(dst) Memory_Clear(&(dst), sizeof(dst))
-
+    
 #define Radians_Const 0.0174533f
 #define To_Radians(degrees) ((degrees)*Radians_Const)
-
+    
 #define Degrees_Const 57.295779513f
 #define To_Degrees(radians) ((radians)*Degrees_Const)
-
+    
 #define Abs(v) (((v) < 0) ? -(v) : (v))
 #define Sq(v) ((v)*(v))
-
+    
 #define Offset_Of(type, variable) offsetof(type, variable)
-
+    
 #define Sign_Of(v) ((v) < 0 ? -1 : 1)
-
+    
 #define Max(a, b) (((a) > (b)) ? (a) : (b))
 #define Min(a, b) (((a) < (b)) ? (a) : (b))
 #define Clamp(min, v, max) Min(Max(min, v), max)
 #define Saturate(v) Clamp(0, v, 1)
-
+    
 #define Is_Pow2(x) (((x) != 0) && (((x) & ((x) - 1)) == 0))
 #define Align_Pow2(x, a) (((x) + (a)-1) & ~((a)-1))
-
+    
 #define KB(x) (x*1024)
 #define MB(x) (KB(x) * 1024)
 #define GB(x) (MB(x) * 1024)
-
+    
 #define Offset_Pointer(ptr, offset) (void*)(((u8*)(ptr)) + (intptr_t)(offset))
-
+    
 #define DEFAULT_ALIGNMENT 16
-
+    
 #define PI 3.14159265359f
 #define TAU 6.28318530717958647692f
-
+    
 #ifdef DEBUG_BUILD 
 #include <assert.h>
 #define Assert(c) assert(c)
 #define Static_Assert(c) static_assert((c), "(" #c ") failed")
 #else
 #define Assert(c)
-
+    
 #ifdef __cplusplus
 #define Static_Assert(c) static_assert((c), "(" #c ") failed")
 #else
 #define Static_Assert(c) _Static_assert((c), "(" #c ") failed")
 #endif
-
+    
 #endif
-
+    
 #define Invalid_Default_Case default: { Assert(false); } break
 #define Invalid_Else else Assert(false)
 #define Not_Implemented Assert(false)
-
-//Generic link list macros
+    
+    //Generic link list macros
 #define SLL_Pop_Front_N(First, Next) ((First) = (First)->Next)
 #define SLL_Push_Front_N(First, Node, Next) (Node->Next = First, First = Node)
-
+    
 #define Read_Bit(S,N) ((S) & (0x1ul << (N)))
 #define Set_Bit(value, bit_index) ((value) |= (1 << (bit_index)))
 #define Clear_Bit(value, bit_index) ((value) &= ~(1 << (bit_index))) 
 #define Are_Bits_Set(value, mask) (((value) & (mask)) == (mask))
-
+    
 #define SLL_Push_Back_NP(First, Last, Node, Next, Prev) (!First ? (First = Last = Node) : (Last->Next = Node, Last = Node))
-
+    
 #define SLL_Push_Back(First, Last, Node) SLL_Push_Back_NP(First, Last, Node, Next, Prev)
 #define SLL_Push_Front(First, Node) SLL_Push_Front_N(First, Node, Next)
 #define SLL_Pop_Front(First) SLL_Pop_Front_N(First, Next)
-
+    
 #define DLL_Remove_Front_NP(First, Last, Next, Prev) \
 do { \
 if(First == Last) \
@@ -184,7 +190,7 @@ First = First->Next; \
 First->Prev = NULL; \
 } \
 } while(0)
-
+    
 #define DLL_Remove_Back_NP(First, Last, Next, Prev) \
 do { \
 if(First == Last) \
@@ -194,7 +200,7 @@ Last = Last->Prev; \
 Last->Next = NULL; \
 } \
 } while(0)
-
+    
 #define DLL_Push_Front_NP(First, Last, Node, Next, Prev) (!(First) ? ((First) = (Last) = (Node)) : ((Node)->Next = (First), (First)->Prev = (Node), (First) = (Node)))
 #define DLL_Push_Back_NP(First, Last, Node, Next, Prev) (!(First) ? ((First) = (Last) = (Node)) : ((Node)->Prev = (Last), (Last)->Next = (Node), (Last) = (Node)))
 #define DLL_Remove_NP(First, Last, Node, Next, Prev) \
@@ -212,7 +218,7 @@ if(Node->Next) Node->Next->Prev = Node->Prev; \
 Node->Prev = NULL; \
 Node->Next = NULL; \
 } while(0)
-
+    
 #define DLL_Insert_After_NP(First, Last, Target, Node, Next, Prev) \
 do { \
 if(Target->Next) { \
@@ -226,7 +232,7 @@ Last = Node; \
 Node->Prev = Target; \
 Target->Next = Node; \
 } while(0)
-
+    
 #define DLL_Insert_Prev_NP(First, Last, Target, Node, Next, Prev) \
 do { \
 if(Target->Prev) { \
@@ -240,48 +246,45 @@ First = Node; \
 Node->Next = Target; \
 Target->Prev = Node; \
 } while (0)
-
+    
 #define DLL_Remove_Back(First, Last) DLL_Remove_Back_NP(First, Last, Next, Prev)
 #define DLL_Remove_Front(First, Last) DLL_Remove_Front_NP(First, Last, Next, Prev)
 #define DLL_Push_Front(First, Last, Node) DLL_Push_Front_NP(First, Last, Node, Next, Prev)
 #define DLL_Push_Back(First, Last, Node) DLL_Push_Back_NP(First, Last, Node, Next, Prev)
 #define DLL_Remove(First, Last, Node) DLL_Remove_NP(First, Last, Node, Next, Prev)
 #define DLL_Push_Front_Only(First, Node) DLL_Push_Front_Only_NP(First, Node, Next, Prev)
-
-//C++ macros only (uses c++20 features)
+    
+    //C++ macros only (uses c++20 features)
 #ifdef __cplusplus
 #define Swap(a, b) \
 do { \
-	auto _temp_ = a; \
-	a = b; \
-	b = _temp_; \
+auto _temp_ = a; \
+a = b; \
+b = _temp_; \
 } while(0)
 #endif
-
-typedef int8_t   s8;
-typedef int16_t  s16;
-typedef int32_t  s32;
-typedef int64_t  s64;
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-typedef s8 	 	 b8;
-typedef s16 	 b16;
-typedef s32 	 b32;
-typedef s64 	 b64;
-typedef float    f32;
-typedef double   f64;
-
+    
+    typedef int8_t   s8;
+    typedef int16_t  s16;
+    typedef int32_t  s32;
+    typedef int64_t  s64;
+    typedef uint8_t  u8;
+    typedef uint16_t u16;
+    typedef uint32_t u32;
+    typedef uint64_t u64;
+    typedef s8 	 	 b8;
+    typedef s16 	 b16;
+    typedef s32 	 b32;
+    typedef s64 	 b64;
+    typedef float    f32;
+    typedef double   f64;
+    
 #ifdef __cplusplus
 }
 #endif
 
 #include "atomic/atomic.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon);
 export_function b32 Equal_Zero_Eps_F32(f32 Value);
@@ -321,16 +324,16 @@ export_function b32 Is_Nan(f32 V);\
 export_function b32 Is_Close(f32 A, f32 B, f32 ToleranceSq);
 
 typedef struct {
-	union {
-		f32 Data[2];
-		struct {
-			f32 x, y;
-		};
-	};
+    union {
+        f32 Data[2];
+        struct {
+            f32 x, y;
+        };
+    };
 } v2;
 
 typedef struct {
-	s32 x, y;
+    s32 x, y;
 } v2i;
 
 
@@ -370,26 +373,26 @@ export_function v2i V2i_Div_S32(v2i a, s32 b);
 export_function b32 V2i_Equal(v2i a, v2i b);
 
 typedef struct {
-	union {
-		f32 Data[3];
-		struct {
-			f32 x, y, z;
-		};
-		struct {
-			f32 r, g, b;
-		};
-		struct {
-			f32 h, s, v;
-		};
-		struct {
-			v2 xy;
-			f32 __unused0__;
-		};
-	};
+    union {
+        f32 Data[3];
+        struct {
+            f32 x, y, z;
+        };
+        struct {
+            f32 r, g, b;
+        };
+        struct {
+            f32 h, s, v;
+        };
+        struct {
+            v2 xy;
+            f32 __unused0__;
+        };
+    };
 } v3;
 
 typedef struct {
-	s32 x, y, z;
+    s32 x, y, z;
 } v3i;
 
 export_function v3 V3_F64(const f64* V);
@@ -424,42 +427,42 @@ global const v3 G_ZAxis    = { 0.0f, 0.0f, 1.0f };
 global const v3 G_UpVector = { 0.0f, 0.0f, 1.0f };
 
 typedef struct {
-	union {
-		f32 Data[4];
-		struct {
-			f32 x, y, z, w;
-		};
-		v3 xyz;
-		struct {
-			f32 __unused0__;
-			v3 yzw;
-		};
-		struct {
-			v2 xy;
-			v2 zw;
-		};
-	};
+    union {
+        f32 Data[4];
+        struct {
+            f32 x, y, z, w;
+        };
+        v3 xyz;
+        struct {
+            f32 __unused0__;
+            v3 yzw;
+        };
+        struct {
+            v2 xy;
+            v2 zw;
+        };
+    };
 } v4;
 
 typedef struct {
-	union {
-		s32 Data[4];
-		struct {
-			s32 x, y, z, w;
-		};
-		struct {
-			v2i xy, zw;
-		};
-	};
+    union {
+        s32 Data[4];
+        struct {
+            s32 x, y, z, w;
+        };
+        struct {
+            v2i xy, zw;
+        };
+    };
 } v4i;
 
 typedef struct {
-	union {
-		u32 Data[4];
-		struct {
-			u32 x, y, z, w;
-		};
-	};
+    union {
+        u32 Data[4];
+        struct {
+            u32 x, y, z, w;
+        };
+    };
 } v4u;
 
 export_function v4 V4(f32 x, f32 y, f32 z, f32 w);
@@ -475,12 +478,12 @@ export_function u32 U32_Color_From_V4(v4 Color);
 export_function v4i V4i(s32 x, s32 y, s32 z, s32 w);
 
 typedef struct {
-	union {
-		f32 Data[4];
-		v4  Q;
-		struct { f32 x, y, z, w; };
-		struct { v3 v; f32 s; };
-	};
+    union {
+        f32 Data[4];
+        v4  Q;
+        struct { f32 x, y, z, w; };
+        struct { v3 v; f32 s; };
+    };
 } quat;
 
 export_function quat Quat(f32 x, f32 y, f32 z, f32 w);
@@ -504,20 +507,20 @@ export_function b32 Quat_Is_Nan(quat Q);
 export_function v3 Quat_Rotate(v3 V, quat Q);
 
 typedef struct {
-	union {
-		f32 Data[12];
-		v3  Rows[3];
-		struct {
-			v3 x;
-			v3 y;
-			v3 z;
-		};
-		struct {
-			f32 m00, m01, m02;
-			f32 m10, m11, m12;
-			f32 m20, m21, m22;
-		};
-	};
+    union {
+        f32 Data[12];
+        v3  Rows[3];
+        struct {
+            v3 x;
+            v3 y;
+            v3 z;
+        };
+        struct {
+            f32 m00, m01, m02;
+            f32 m10, m11, m12;
+            f32 m20, m21, m22;
+        };
+    };
 } m3;
 
 typedef struct m4 m4;
@@ -536,22 +539,22 @@ export_function m3 M3_Basis(v3 Direction);
 export_function v3 V3_Mul_M3(v3 A, const m3* B);
 
 struct m4 {
-	union {
-		f32 Data[16];
-		v4  Rows[4];
-		struct {
-			v3 x; f32 __unused0__;
-			v3 y; f32 __unused1__;
-			v3 z; f32 __unused2__;
-			v3 t; f32 __unused3__;
-		};
-		struct {
-			f32 m00, m01, m02, m03;
-			f32 m10, m11, m12, m13;
-			f32 m20, m21, m22, m23;
-			f32 m30, m31, m32, m33;
-		};
-	};
+    union {
+        f32 Data[16];
+        v4  Rows[4];
+        struct {
+            v3 x; f32 __unused0__;
+            v3 y; f32 __unused1__;
+            v3 z; f32 __unused2__;
+            v3 t; f32 __unused3__;
+        };
+        struct {
+            f32 m00, m01, m02, m03;
+            f32 m10, m11, m12, m13;
+            f32 m20, m21, m22, m23;
+            f32 m30, m31, m32, m33;
+        };
+    };
 };
 
 export_function m4 M4_F32(const f32* Data);
@@ -571,36 +574,36 @@ export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f3
 export_function v4 V4_Mul_M4(v4 A, const m4* B);
 
 typedef struct {
-	union {
-		f32 Data[12];
-		v3  Rows[4];
-		m3  M;
-		struct {
-			v3 x;
-			v3 y;
-			v3 z;
-			v3 t;
-		};
-		struct {
-			f32 m00, m01, m02;
-			f32 m10, m11, m12;
-			f32 m20, m21, m22;
-			f32 m30, m31, m32;
-		};
-	};
+    union {
+        f32 Data[12];
+        v3  Rows[4];
+        m3  M;
+        struct {
+            v3 x;
+            v3 y;
+            v3 z;
+            v3 t;
+        };
+        struct {
+            f32 m00, m01, m02;
+            f32 m10, m11, m12;
+            f32 m20, m21, m22;
+            f32 m30, m31, m32;
+        };
+    };
 } m4_affine;
 
 typedef struct {
-	union {
-		f32 Data[12];
-		v4  Rows[3];
-		struct {
-			f32 m00, m01, m02, m03;
-			f32 m10, m11, m12, m13;
-			f32 m20, m21, m22, m23;
-		};
-	};
-
+    union {
+        f32 Data[12];
+        v4  Rows[3];
+        struct {
+            f32 m00, m01, m02, m03;
+            f32 m10, m11, m12, m13;
+            f32 m20, m21, m22, m23;
+        };
+    };
+    
 } m4_affine_transposed;
 
 Static_Assert(sizeof(m4_affine) == sizeof(m4_affine_transposed));
@@ -625,8 +628,8 @@ export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q
 export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target);
 
 typedef struct {
-	v2 p0;
-	v2 p1;
+    v2 p0;
+    v2 p1;
 } rect2;
 
 export_function rect2 Rect2(v2 p0, v2 p1);
@@ -636,9 +639,9 @@ export_function b32 Rect2_Contains_V2(rect2 Rect, v2 V);
 export_function v2 Rect2_Size(rect2 Rect);
 
 typedef struct {
-	v3 P0;
-	v3 P1;
-	v3 P2;
+    v3 P0;
+    v3 P1;
+    v3 P2;
 } triangle3D;
 
 export_function v3 RGB_To_HSV(v3 rgb);
@@ -646,9 +649,9 @@ export_function v3 HSV_To_RGB(v3 hsv);
 export_function v3 Get_Triangle_Centroid(v3 P0, v3 P1, v3 P2);
 
 typedef struct {
-	u8*    BaseAddress;
-	size_t ReserveSize;
-	size_t CommitSize;
+    u8*    BaseAddress;
+    size_t ReserveSize;
+    size_t CommitSize;
 } memory_reserve;
 
 export_function memory_reserve Make_Memory_Reserve(size_t Size);
@@ -660,18 +663,18 @@ export_function void Decommit_New_Size(memory_reserve* Reserve, size_t NewSize);
 export_function b32 Commit_All(memory_reserve* Reserve);
 
 typedef enum {
-	CLEAR_FLAG_NO,
-	CLEAR_FLAG_YES
+    CLEAR_FLAG_NO,
+    CLEAR_FLAG_YES
 } clear_flag;
 
 //Need to define string early since the allocator uses it for the debug name
 typedef struct {
-	const char* Ptr;
-	size_t Size;
+    const char* Ptr;
+    size_t Size;
 } string;
 
 typedef struct {
-	size_t AllocatedAmount;
+    size_t AllocatedAmount;
 } allocator_stats;
 
 typedef struct allocator allocator;
@@ -684,14 +687,14 @@ typedef ALLOCATOR_FREE_MEMORY_DEFINE(allocator_free_memory_func);
 typedef ALLOCATOR_GET_STATS_DEFINE(allocator_get_stats_func);
 
 typedef struct {
-	allocator_allocate_memory_func* AllocateMemoryFunc;
-	allocator_free_memory_func* 	FreeMemoryFunc;
-	allocator_get_stats_func* 		GetStatsFunc;
+    allocator_allocate_memory_func* AllocateMemoryFunc;
+    allocator_free_memory_func* 	FreeMemoryFunc;
+    allocator_get_stats_func* 		GetStatsFunc;
 } allocator_vtable;
 
 struct allocator {
-	allocator_vtable* VTable;
-	string 			  DebugName;
+    allocator_vtable* VTable;
+    string 			  DebugName;
 };
 
 export_function allocator* Default_Allocator_Get();
@@ -705,43 +708,43 @@ export_function allocator* Default_Allocator_Get();
 
 typedef struct arena_block arena_block;
 struct arena_block {
-	u8*    Memory;
-	size_t Used;
-	size_t Size;
-	arena_block* Next;
+    u8*    Memory;
+    size_t Used;
+    size_t Size;
+    arena_block* Next;
 };
 
 typedef enum {
-	ARENA_TYPE_VIRTUAL,
-	ARENA_TYPE_ALLOCATOR
+    ARENA_TYPE_VIRTUAL,
+    ARENA_TYPE_ALLOCATOR
 } arena_type;
 
 typedef struct arena arena;
 struct arena {
-	allocator  Base;
-	arena_type Type;
-	union {
-		struct {
-			memory_reserve Reserve;
-			size_t Used;
-		};
-
-		struct {
-			allocator*   Allocator;
-			arena_block* FirstBlock;
-			arena_block* LastBlock;
-			arena_block* CurrentBlock;
-		};
-	};
-	
-	arena* Next;
-	arena* Prev;
+    allocator  Base;
+    arena_type Type;
+    union {
+        struct {
+            memory_reserve Reserve;
+            size_t Used;
+        };
+        
+        struct {
+            allocator*   Allocator;
+            arena_block* FirstBlock;
+            arena_block* LastBlock;
+            arena_block* CurrentBlock;
+        };
+    };
+    
+    arena* Next;
+    arena* Prev;
 };
 
 typedef struct {
-	arena* 		 Arena;
-	arena_block* Block;
-	size_t 		 Used;
+    arena* 		 Arena;
+    arena_block* Block;
+    size_t 		 Used;
 } arena_marker;
 
 export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSize);
@@ -781,8 +784,8 @@ size_t Count; \
 
 #define Array_Define_Ptr(type) \
 typedef struct { \
-	type** Ptr; \
-	size_t Count; \
+type** Ptr; \
+size_t Count; \
 } type##_array
 
 #define Dynamic_Array_Define(type, name) \
@@ -899,19 +902,19 @@ Dynamic_Array_Define_Type(char);
 Dynamic_Array_Define(char*, char_ptr);
 
 typedef struct {
-	u32 State;
+    u32 State;
 } random32_xor_shift;
 
 typedef struct thread_context thread_context;
 
 #define MAX_SCRATCH_COUNT 64
 struct thread_context {
-	random32_xor_shift Random32;
-	size_t 		 	   ScratchIndex;
-	arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
-	arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];
-	thread_context*    Next;
-	thread_context*    Prev;
+    random32_xor_shift Random32;
+    size_t 		 	   ScratchIndex;
+    arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
+    arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];
+    thread_context*    Next;
+    thread_context*    Prev;
 };
 
 export_function thread_context* Thread_Context_Get();
@@ -923,38 +926,38 @@ export_function random32_xor_shift Random32_XOrShift_Init();
 export_function u32 Random32_XOrShift(random32_xor_shift* Random);
 
 function inline f32 Random32_XOrShift_UNorm(random32_xor_shift* Random) {
-	f32 Result = (f32)Random32_XOrShift(Random) / (f32)UINT32_MAX;
-	return Result;
+    f32 Result = (f32)Random32_XOrShift(Random) / (f32)UINT32_MAX;
+    return Result;
 }
 
 function inline f32 Random32_XOrShift_SNorm(random32_xor_shift* Random) {
-	f32 Result = -1.0f + 2.0f * Random32_XOrShift_UNorm(Random);
-	return Result;
+    f32 Result = -1.0f + 2.0f * Random32_XOrShift_UNorm(Random);
+    return Result;
 }
 
 function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min, s32 Max) {
-	s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
-	return Result;
+    s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
+    return Result;
 }
 
 function inline u32 Random32() {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift(Random);
+    random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+    return Random32_XOrShift(Random);
 }
 
 function inline f32 Random32_UNorm() {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift_UNorm(Random);
+    random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+    return Random32_XOrShift_UNorm(Random);
 }
 
 function inline f32 Random32_SNorm() {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift_SNorm(Random);
+    random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+    return Random32_XOrShift_SNorm(Random);
 }
 
 function inline s32 Random32_Range(s32 Min, s32 Max) {
-	random32_xor_shift* Random = &Thread_Context_Get()->Random32;
-	return Random32_XOrShift_Range(Random, Min, Max);
+    random32_xor_shift* Random = &Thread_Context_Get()->Random32;
+    return Random32_XOrShift_Range(Random, Min, Max);
 }
 
 #ifdef DEBUG_BUILD
@@ -966,8 +969,8 @@ export_function void Thread_Context_Validate_();
 
 
 typedef struct {
-	u8*    Ptr;
-	size_t Size;
+    u8*    Ptr;
+    size_t Size;
 } buffer;
 
 export_function buffer Make_Buffer(void* Data, size_t Size);
@@ -984,19 +987,19 @@ export_function u32 UTF16_Write(wchar_t* Str, u32 Codepoint);
 
 typedef struct string_entry string_entry;
 struct string_entry {
-	string String;
-	string_entry* Next;
+    string String;
+    string_entry* Next;
 };
 
 typedef struct {
-	string_entry* First;
-	string_entry* Last;
-	size_t Count;
+    string_entry* First;
+    string_entry* Last;
+    size_t Count;
 } string_list;
 
 typedef struct {
-	const wchar_t* Ptr;
-	size_t Size;
+    const wchar_t* Ptr;
+    size_t Size;
 } wstring;
 
 Array_Define(string);
@@ -1053,18 +1056,18 @@ export_function wstring WString_From_String(allocator* Allocator, string String)
 #define String_Expand(str) { str, sizeof(str)-1 }
 
 typedef struct {
-	const char* Start;
-	const char* End;
-	const char* At;
-	size_t 		LineIndex;
-	size_t 		ColumnIndex;
+    const char* Start;
+    const char* End;
+    const char* At;
+    size_t 		LineIndex;
+    size_t 		ColumnIndex;
 } sstream_reader;
 
 typedef struct {
-	char   Char;
-	size_t Index;
-	size_t LineIndex;
-	size_t ColumnIndex;
+    char   Char;
+    size_t Index;
+    size_t LineIndex;
+    size_t ColumnIndex;
 } sstream_char;
 
 export_function sstream_reader SStream_Reader_Begin(string Content);
@@ -1081,16 +1084,16 @@ export_function void SStream_Reader_Skip_Line(sstream_reader* Reader);
 
 typedef struct sstream_writer_node sstream_writer_node;
 struct sstream_writer_node {
-	string Entry;
-	sstream_writer_node* Next;
+    string Entry;
+    sstream_writer_node* Next;
 };
 
 typedef struct {
-	allocator*           Allocator;
-	sstream_writer_node* First;
-	sstream_writer_node* Last;
-	size_t 				 NodeCount;
-	size_t 				 TotalCharCount;
+    allocator*           Allocator;
+    sstream_writer_node* First;
+    sstream_writer_node* Last;
+    size_t 				 NodeCount;
+    size_t 				 TotalCharCount;
 } sstream_writer;
 
 export_function sstream_writer SStream_Writer_Begin(allocator* Allocator);
@@ -1100,25 +1103,25 @@ export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const cha
 export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator, string JoinChars);
 
 function inline void SStream_Writer_Add_Char(sstream_writer* Writer, char Char) {
-	SStream_Writer_Add(Writer, Make_String(&Char, 1));
+    SStream_Writer_Add(Writer, Make_String(&Char, 1));
 }
 
 function inline void SStream_Writer_Add_Newline(sstream_writer* Writer) {
-	SStream_Writer_Add_Char(Writer, '\n');
+    SStream_Writer_Add_Char(Writer, '\n');
 }
 
 function inline void SStream_Writer_Add_Tab(sstream_writer* Writer) {
-	SStream_Writer_Add_Char(Writer, '\t');
+    SStream_Writer_Add_Char(Writer, '\t');
 }
 
 function inline void SStream_Writer_Add_Space(sstream_writer* Writer) {
-	SStream_Writer_Add_Char(Writer, ' ');
+    SStream_Writer_Add_Char(Writer, ' ');
 }
 
 typedef struct {
-	const u8* Start;
-	const u8* End;
-	const u8* At;
+    const u8* Start;
+    const u8* End;
+    const u8* At;
 } bstream_reader;
 
 export_function bstream_reader BStream_Reader_Begin(buffer Buffer);
@@ -1127,33 +1130,33 @@ export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t S
 export_function u32 BStream_Reader_U32(bstream_reader* Reader);
 
 function inline const void* BStream_Reader_Peek(bstream_reader* Reader) {
-	return Reader->At;
+    return Reader->At;
 }
 
 function inline void BStream_Reader_Skip(bstream_reader* Reader, size_t SkipCount) {
-	Assert(Reader->At + SkipCount <= Reader->End);
-	Reader->At += SkipCount;
+    Assert(Reader->At + SkipCount <= Reader->End);
+    Reader->At += SkipCount;
 }
 
 #define BStream_Reader_Struct(reader, type) *(const type *)BStream_Reader_Size(reader, sizeof(type))
 
 function inline string BStream_Reader_String(bstream_reader* Reader) {
-	size_t Size = *(const size_t*)BStream_Reader_Size(Reader, sizeof(size_t));
-	return Make_String((const char*)BStream_Reader_Size(Reader, Size), Size);
+    size_t Size = *(const size_t*)BStream_Reader_Size(Reader, sizeof(size_t));
+    return Make_String((const char*)BStream_Reader_Size(Reader, Size), Size);
 }
 
 typedef struct bstream_writer_node bstream_writer_node;
 struct bstream_writer_node {
-	buffer Entry;
-	bstream_writer_node* Next;
+    buffer Entry;
+    bstream_writer_node* Next;
 };
 
 typedef struct {
-	allocator*           Allocator;
-	bstream_writer_node* First;
-	bstream_writer_node* Last;
-	size_t 				 NodeCount;
-	size_t 				 TotalByteCount;
+    allocator*           Allocator;
+    bstream_writer_node* First;
+    bstream_writer_node* Last;
+    size_t 				 NodeCount;
+    size_t 				 TotalByteCount;
 } bstream_writer;
 
 export_function bstream_writer BStream_Writer_Begin(allocator* Allocator);
@@ -1162,15 +1165,15 @@ export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, c
 export_function buffer BStream_Writer_Join(bstream_writer* Writer, allocator* Allocator);
 
 function inline void BStream_Writer_Write_String(bstream_writer* Writer, string String) {
-	BStream_Writer_Write(Writer, sizeof(size_t), &String.Size);
-	BStream_Writer_Write(Writer, String.Size * sizeof(char), String.Ptr);
+    BStream_Writer_Write(Writer, sizeof(size_t), &String.Size);
+    BStream_Writer_Write(Writer, String.Size * sizeof(char), String.Ptr);
 }
 
 #define HASH_INVALID_SLOT (u32)-1
 typedef struct {
-	u32 Hash;
-	u32 ItemIndex;
-	u32 BaseCount;
+    u32 Hash;
+    u32 ItemIndex;
+    u32 BaseCount;
 } hash_slot;
 
 #define KEY_HASH_FUNC(name) u32 name(void* Key)
@@ -1180,19 +1183,19 @@ typedef KEY_HASH_FUNC(key_hash_func);
 typedef KEY_COMP_FUNC(key_comp_func);
 
 typedef struct {
-	allocator* Allocator;
-	hash_slot* Slots;
-	u32 	   SlotCapacity;
-	void*      Keys;
-	void*      Values;
-	u32*       ItemSlots;
-	size_t 	   KeySize;
-	size_t 	   ValueSize;
-	u32 	   ItemCapacity;
-	u32 	   ItemCount;
-
-	key_hash_func* HashFunc;
-	key_comp_func* CompareFunc;
+    allocator* Allocator;
+    hash_slot* Slots;
+    u32 	   SlotCapacity;
+    void*      Keys;
+    void*      Values;
+    u32*       ItemSlots;
+    size_t 	   KeySize;
+    size_t 	   ValueSize;
+    u32 	   ItemCapacity;
+    u32 	   ItemCount;
+    
+    key_hash_func* HashFunc;
+    key_comp_func* CompareFunc;
 } hashmap;
 
 export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t ValueSize, size_t KeySize, u32 ItemCapacity, key_hash_func* HashFunc, key_comp_func* CompareFunc);
@@ -1215,31 +1218,31 @@ export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* 
 export_function void Hashmap_Remove(hashmap* Hashmap, void* Key);
 
 typedef struct {
-	union {
-		u64 ID;
-		struct {
-			u32 Index;
-			u32 Slot;
-		};
-	};
+    union {
+        u64 ID;
+        struct {
+            u32 Index;
+            u32 Slot;
+        };
+    };
 } slot_id;
 
 typedef struct {
-	allocator* Allocator;
-	u32*   	   Slots;
-	u32*   	   FreeIndices;
-	size_t 	   FreeCount;
-	size_t 	   Capacity;
-	size_t 	   Count;
+    allocator* Allocator;
+    u32*   	   Slots;
+    u32*   	   FreeIndices;
+    size_t 	   FreeCount;
+    size_t 	   Capacity;
+    size_t 	   Count;
 } slot_map;
 
 function inline slot_id Slot_Null() {
-	slot_id Result = { .ID = 0 };
-	return Result;
+    slot_id Result = { .ID = 0 };
+    return Result;
 }
 
 function inline b32 Slot_Is_Null(slot_id SlotID) {
-	return SlotID.ID == 0;
+    return SlotID.ID == 0;
 }
 
 export_function void Slot_Map_Clear(slot_map* SlotMap);
@@ -1252,47 +1255,47 @@ export_function b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index)
 export_function slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index);
 
 typedef struct {
-	union {
-		u64 ID;
-		struct {
-			u32 Generation;
-			union {
-				u32 Index;
-				u32 NextIndex;
-			};
-		};
-	};
+    union {
+        u64 ID;
+        struct {
+            u32 Generation;
+            union {
+                u32 Index;
+                u32 NextIndex;
+            };
+        };
+    };
 } pool_id;
 
 #define INVALID_POOL_INDEX ((u32)-1)
 typedef struct {
-	size_t 	   	   ItemSize;
-	u32 	   	   MaxUsed;
-	u32 		   Count;
-	u32 		   FirstFreeIndex;
-	memory_reserve Reserve;
-	void* 		   Data;
+    size_t 	   	   ItemSize;
+    u32 	   	   MaxUsed;
+    u32 		   Count;
+    u32 		   FirstFreeIndex;
+    memory_reserve Reserve;
+    void* 		   Data;
 } pool;
 
 typedef struct {
-	pool* Pool;
-	u32   Index;
-	b32   IsValid;
-	void* Data;
+    pool* Pool;
+    u32   Index;
+    b32   IsValid;
+    void* Data;
 } pool_iter;
 
 inline function pool_id Empty_Pool_ID() {
-	pool_id Result;
-	Memory_Clear(&Result, sizeof(pool_id));
-	return Result;
+    pool_id Result;
+    Memory_Clear(&Result, sizeof(pool_id));
+    return Result;
 }
 
 inline function b32 Pool_ID_Equal(pool_id A, pool_id B) {
-	return A.Index == B.Index && A.Generation == B.Generation;
+    return A.Index == B.Index && A.Generation == B.Generation;
 }
 
 inline function b32 Pool_ID_Null(pool_id ID) {
-	return ID.ID == 0;
+    return ID.ID == 0;
 }
 
 export_function void Pool_Init_With_Size(pool* Pool, size_t ItemSize, size_t ReserveSize);
@@ -1312,11 +1315,11 @@ export_function void Pool_Iter_Next(pool_iter* Iter);
 typedef BINARY_HEAP_COMPARE_FUNC(binary_heap_compare_func);
 
 typedef struct {
-	binary_heap_compare_func* CompareFunc;
-	size_t Capacity;
-	size_t Count;
-	size_t ItemSize;
-	u8*    Ptr;
+    binary_heap_compare_func* CompareFunc;
+    size_t Capacity;
+    size_t Count;
+    size_t ItemSize;
+    u8*    Ptr;
 } binary_heap;
 
 export_function b32 Binary_Heap_Is_Empty(binary_heap* Heap);
@@ -1328,17 +1331,17 @@ export_function void* Binary_Heap_Pop(binary_heap* Heap);
 #define ASYNC_STACK_INDEX16_INVALID ((u16)-1) 
 
 typedef union {
-	u32 ID;
-	struct {
-		u16 Index;
-		u16 Key;
-	};
+    u32 ID;
+    struct {
+        u16 Index;
+        u16 Key;
+    };
 } async_stack_index16_key;
 
 typedef struct {
-	u16*  	   NextIndices;
-	atomic_u32 Head;
-	u16   	   Capacity;
+    u16*  	   NextIndices;
+    atomic_u32 Head;
+    u16   	   Capacity;
 } async_stack_index16;
 
 export_function void Async_Stack_Index16_Init_Raw(async_stack_index16* StackIndex, u16* IndicesPtr, u16 Capacity);
@@ -1349,17 +1352,17 @@ export_function u16  Async_Stack_Index16_Pop(async_stack_index16* StackIndex);
 #define ASYNC_STACK_INDEX32_INVALID ((u32)-1) 
 
 typedef union {
-	u64 ID;
-	struct {
-		u32 Index;
-		u32 Key;
-	};
+    u64 ID;
+    struct {
+        u32 Index;
+        u32 Key;
+    };
 } async_stack_index32_key;
 
 typedef struct {
-	u32*  	   NextIndices;
-	atomic_u64 Head;
-	u32   	   Capacity;
+    u32*  	   NextIndices;
+    atomic_u64 Head;
+    u32   	   Capacity;
 } async_stack_index32;
 
 export_function void Async_Stack_Index32_Init_Raw(async_stack_index32* StackIndex, u32* IndicesPtr, u32 Capacity);
@@ -1394,24 +1397,24 @@ export_function b32 Write_Entire_File(string Path, buffer Data);
 #define Write_Entire_File_Str(path, content) Write_Entire_File(path, Buffer_From_String(content))
 
 typedef struct {
-	os_tls*   		ThreadContextTLS;
-	os_mutex* 		ThreadContextLock;
-	thread_context* FirstThread;
-	thread_context* LastThread;
-	size_t 			ThreadCount;
-
-	allocator DefaultAllocator;
-	os_base*  OSBase;
-	allocator_vtable* ArenaVTable;
-	allocator_vtable* HeapVTable;
-	os_thread_callback_func* JobSystemThreadCallback;
-	key_hash_func* HashU64Callback;
-	key_comp_func* CompareU64Callback;
-
-	os_rw_mutex* ArenaLock;
-	size_t 		 ArenaCount;
-	arena* 		 FirstArena;
-	arena* 		 LastArena;
+    os_tls*   		ThreadContextTLS;
+    os_mutex* 		ThreadContextLock;
+    thread_context* FirstThread;
+    thread_context* LastThread;
+    size_t 			ThreadCount;
+    
+    allocator DefaultAllocator;
+    os_base*  OSBase;
+    allocator_vtable* ArenaVTable;
+    allocator_vtable* HeapVTable;
+    os_thread_callback_func* JobSystemThreadCallback;
+    key_hash_func* HashU64Callback;
+    key_comp_func* CompareU64Callback;
+    
+    os_rw_mutex* ArenaLock;
+    size_t 		 ArenaCount;
+    arena* 		 FirstArena;
+    arena* 		 LastArena;
 } base;
 
 export_function void Base_Set(base* Base);
@@ -1428,10 +1431,6 @@ export_function void End_Arena_List();
 #include "job.h"
 #include "profiler.h"
 
-#ifdef __cplusplus
-}
-#endif
-
 #include "meta_program/meta_defines.h"
 #include "base.inl"
 
@@ -1440,28 +1439,28 @@ export_function void End_Arena_List();
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Scratch_Allocate_Memory);
 function ALLOCATOR_FREE_MEMORY_DEFINE(Scratch_Free_Memory);
 global allocator_vtable Scratch_VTable = {
-	.AllocateMemoryFunc = Scratch_Allocate_Memory,
-	.FreeMemoryFunc = Scratch_Free_Memory
+    .AllocateMemoryFunc = Scratch_Allocate_Memory,
+    .FreeMemoryFunc = Scratch_Free_Memory
 };
 
 struct scratch : public allocator {
-	arena* Arena;
-
-	inline scratch() {
-		Arena = Scratch_Get();
-		VTable = &Scratch_VTable;
-	}
-
-	inline ~scratch() { Scratch_Release(); }
+    arena* Arena;
+    
+    inline scratch() {
+        Arena = Scratch_Get();
+        VTable = &Scratch_VTable;
+    }
+    
+    inline ~scratch() { Scratch_Release(); }
 };
 
 function inline ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Scratch_Allocate_Memory) {
-	scratch* Scratch = (scratch*)Allocator;
-	return Arena_Push(Scratch->Arena, Size);
+    scratch* Scratch = (scratch*)Allocator;
+    return Arena_Push(Scratch->Arena, Size);
 }
 
 function inline ALLOCATOR_FREE_MEMORY_DEFINE(Scratch_Free_Memory) {
-	//Noop
+    //Noop
 }
 
 #endif

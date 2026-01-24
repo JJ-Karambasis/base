@@ -362,6 +362,12 @@ struct comparer<void*> {
     }
 };
 
+template <typename key, typename value>
+struct kvp {
+	key Key;
+	value Value;
+};
+
 template <typename key, typename value, typename hasher = hasher<key>, typename comparer = comparer<key>>
 struct hashmap_t {
     static const u32 INVALID = HASH_INVALID_SLOT;
@@ -529,6 +535,14 @@ function inline value* Hashmap_Add(hashmap_t<key, value, hasher, comparer>* Hash
     Hashmap->Count++;
     
     return Result;
+}
+
+template<typename key, typename value, typename hasher, typename comparer>
+function inline void Hashmap_Init(hashmap_t<key, value, hasher, comparer>* Hashmap, allocator* Allocator, std::initializer_list<kvp<key, value>> KVPs) {
+	Hashmap_Init(Hashmap, Allocator);
+	for(auto KVP : KVPs) {
+		Hashmap_Add(Hashmap, KVP.Key, KVP.Value);
+	}
 }
 
 template<typename key, typename value, typename hasher, typename comparer>

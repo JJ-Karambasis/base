@@ -8,354 +8,350 @@ TODO:
 #ifndef GDI_H
 #define GDI_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define GDI_MAX_RENDER_TARGET_COUNT 4
 #define GDI_MAX_BIND_GROUP_COUNT 4
 #define GDI_MAX_VTX_BUFFER_COUNT 4
 
 /* Misc */
 typedef union {
-	u32 ID;
-	struct {
-		u16 Index;
-		u16 Generation;
-	};
+    u32 ID;
+    struct {
+        u16 Index;
+        u16 Generation;
+    };
 } gdi_id;
 
 Meta()
 typedef enum {
-	GDI_DEVICE_TYPE_UNKNOWN Tags(vk: VK_PHYSICAL_DEVICE_TYPE_OTHER),
-	GDI_DEVICE_TYPE_INTEGRATED Tags(vk: VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU),
-	GDI_DEVICE_TYPE_DISCRETE Tags(vk: VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+    GDI_DEVICE_TYPE_UNKNOWN Tags(vk: VK_PHYSICAL_DEVICE_TYPE_OTHER),
+    GDI_DEVICE_TYPE_INTEGRATED Tags(vk: VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU),
+    GDI_DEVICE_TYPE_DISCRETE Tags(vk: VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 } gdi_device_type;
 
 /* Enums */
 Meta()
 typedef enum {
-	GDI_FORMAT_NONE Tags(size: 0, vk: VK_FORMAT_UNDEFINED),
-	GDI_FORMAT_R8_UNORM Tags(size: 1, vk: VK_FORMAT_R8_UNORM),
-	GDI_FORMAT_R8G8_UNORM Tags(size: 2, vk: VK_FORMAT_R8G8_UNORM),
-	GDI_FORMAT_R8G8B8_UNORM Tags(size: 3, vk: VK_FORMAT_R8G8B8_UNORM),
-	GDI_FORMAT_R8G8B8A8_UNORM Tags(HasSRGB, size: 4, vk: VK_FORMAT_R8G8B8A8_UNORM),
-	GDI_FORMAT_B8G8R8A8_UNORM Tags(HasSRGB, size: 4, vk: VK_FORMAT_B8G8R8A8_UNORM),
-	GDI_FORMAT_R8G8B8A8_SRGB Tags(HasSRGB, size: 4, vk: VK_FORMAT_R8G8B8A8_SRGB),
-	GDI_FORMAT_B8G8R8A8_SRGB Tags(HasSRGB, size: 4, vk: VK_FORMAT_B8G8R8A8_SRGB),
-	GDI_FORMAT_R32_FLOAT Tags(size: 4, vk: VK_FORMAT_R32_SFLOAT),
-	GDI_FORMAT_R32G32_FLOAT Tags(size: 8, vk: VK_FORMAT_R32G32_SFLOAT),
-	GDI_FORMAT_R32G32B32_FLOAT Tags(size: 12, vk: VK_FORMAT_R32G32B32_SFLOAT),
-	GDI_FORMAT_R32G32B32A32_FLOAT Tags(size: 16, vk: VK_FORMAT_R32G32B32A32_SFLOAT),
-	GDI_FORMAT_D32_FLOAT Tags(HasDepth, size: 4, vk: VK_FORMAT_D32_SFLOAT)
+    GDI_FORMAT_NONE Tags(size: 0, vk: VK_FORMAT_UNDEFINED),
+    GDI_FORMAT_R8_UNORM Tags(size: 1, vk: VK_FORMAT_R8_UNORM),
+    GDI_FORMAT_R8G8_UNORM Tags(size: 2, vk: VK_FORMAT_R8G8_UNORM),
+    GDI_FORMAT_R8G8B8_UNORM Tags(size: 3, vk: VK_FORMAT_R8G8B8_UNORM),
+    GDI_FORMAT_R8G8B8A8_UNORM Tags(HasSRGB, size: 4, vk: VK_FORMAT_R8G8B8A8_UNORM),
+    GDI_FORMAT_B8G8R8A8_UNORM Tags(HasSRGB, size: 4, vk: VK_FORMAT_B8G8R8A8_UNORM),
+    GDI_FORMAT_R8G8B8A8_SRGB Tags(HasSRGB, size: 4, vk: VK_FORMAT_R8G8B8A8_SRGB),
+    GDI_FORMAT_B8G8R8A8_SRGB Tags(HasSRGB, size: 4, vk: VK_FORMAT_B8G8R8A8_SRGB),
+    GDI_FORMAT_R32_FLOAT Tags(size: 4, vk: VK_FORMAT_R32_SFLOAT),
+    GDI_FORMAT_R32G32_FLOAT Tags(size: 8, vk: VK_FORMAT_R32G32_SFLOAT),
+    GDI_FORMAT_R32G32B32_FLOAT Tags(size: 12, vk: VK_FORMAT_R32G32B32_SFLOAT),
+    GDI_FORMAT_R32G32B32A32_FLOAT Tags(size: 16, vk: VK_FORMAT_R32G32B32A32_SFLOAT),
+    GDI_FORMAT_D32_FLOAT Tags(HasDepth, size: 4, vk: VK_FORMAT_D32_SFLOAT)
 } gdi_format;
 
 enum {
-	GDI_TEXTURE_USAGE_NONE = 0,
-	GDI_TEXTURE_USAGE_SAMPLED = (1 << 0),
-	GDI_TEXTURE_USAGE_DEPTH = (1 << 1),
-	GDI_TEXTURE_USAGE_RENDER_TARGET = (1 << 2),
-	GDI_TEXTURE_USAGE_STORAGE = (1 << 3),
-	GDI_TEXTURE_USAGE_READBACK = (1 << 4)
+    GDI_TEXTURE_USAGE_NONE = 0,
+    GDI_TEXTURE_USAGE_SAMPLED = (1 << 0),
+    GDI_TEXTURE_USAGE_DEPTH = (1 << 1),
+    GDI_TEXTURE_USAGE_RENDER_TARGET = (1 << 2),
+    GDI_TEXTURE_USAGE_STORAGE = (1 << 3),
+    GDI_TEXTURE_USAGE_READBACK = (1 << 4)
 };
 typedef u32 gdi_texture_usage;
 
 enum {
-	GDI_BUFFER_USAGE_NONE = 0,
-	GDI_BUFFER_USAGE_VTX = (1 << 0),
-	GDI_BUFFER_USAGE_IDX = (1 << 1),
-	GDI_BUFFER_USAGE_CONSTANT = (1 << 2),
-	GDI_BUFFER_USAGE_STORAGE = (1 << 3),
-	GDI_BUFFER_USAGE_READBACK = (1 << 4),
-	GDI_BUFFER_USAGE_DYNAMIC = (1 << 5)
+    GDI_BUFFER_USAGE_NONE = 0,
+    GDI_BUFFER_USAGE_VTX = (1 << 0),
+    GDI_BUFFER_USAGE_IDX = (1 << 1),
+    GDI_BUFFER_USAGE_CONSTANT = (1 << 2),
+    GDI_BUFFER_USAGE_STORAGE = (1 << 3),
+    GDI_BUFFER_USAGE_READBACK = (1 << 4),
+    GDI_BUFFER_USAGE_DYNAMIC = (1 << 5)
 };
 typedef u32 gdi_buffer_usage;
 
 enum {
-	GDI_SHUTDOWN_FLAG_NONE = 0,
-	GDI_SHUTDOWN_FLAG_FREE_RESOURCES = (1 << 0)
+    GDI_SHUTDOWN_FLAG_NONE = 0,
+    GDI_SHUTDOWN_FLAG_FREE_RESOURCES = (1 << 0)
 };
 typedef u32 gdi_shutdown_flags;
 
 Meta()
 typedef enum {
-	GDI_FILTER_NEAREST,
-	GDI_FILTER_LINEAR
+    GDI_FILTER_NEAREST,
+    GDI_FILTER_LINEAR
 } gdi_filter;
 
 Meta()
 typedef enum {
-	GDI_ADDRESS_MODE_REPEAT Tags(vk: VK_SAMPLER_ADDRESS_MODE_REPEAT),
-	GDI_ADDRESS_MODE_CLAMP Tags(vk: VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-	GDI_ADDRESS_MODE_BORDER Tags(vk: VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER)
+    GDI_ADDRESS_MODE_REPEAT Tags(vk: VK_SAMPLER_ADDRESS_MODE_REPEAT),
+    GDI_ADDRESS_MODE_CLAMP Tags(vk: VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
+    GDI_ADDRESS_MODE_BORDER Tags(vk: VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER)
 } gdi_address_mode;
 
 Meta()
 typedef enum {
-	GDI_BIND_GROUP_TYPE_NONE Tags(vk: -1),
-	GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer),
-	GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, texture),
-	GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER),
-	GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, writable, buffer),
-	GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, writable, texture),
-	GDI_BIND_GROUP_TYPE_COUNT
+    GDI_BIND_GROUP_TYPE_NONE Tags(vk: -1),
+    GDI_BIND_GROUP_TYPE_CONSTANT_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer),
+    GDI_BIND_GROUP_TYPE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, texture),
+    GDI_BIND_GROUP_TYPE_SAMPLER Tags(vk: VK_DESCRIPTOR_TYPE_SAMPLER),
+    GDI_BIND_GROUP_TYPE_STORAGE_BUFFER Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, writable, buffer),
+    GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE Tags(vk: VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, writable, texture),
+    GDI_BIND_GROUP_TYPE_COUNT
 } gdi_bind_group_type;
 
 Meta()
 typedef enum {
-	GDI_COMPARE_FUNC_NONE Tags(vk: VK_COMPARE_OP_NEVER),
-	GDI_COMPARE_FUNC_LESS Tags(vk: VK_COMPARE_OP_LESS),
-	GDI_COMPARE_FUNC_LEQUAL Tags(vk: VK_COMPARE_OP_LESS_OR_EQUAL)
+    GDI_COMPARE_FUNC_NONE Tags(vk: VK_COMPARE_OP_NEVER),
+    GDI_COMPARE_FUNC_LESS Tags(vk: VK_COMPARE_OP_LESS),
+    GDI_COMPARE_FUNC_LEQUAL Tags(vk: VK_COMPARE_OP_LESS_OR_EQUAL)
 } gdi_compare_func;
 
 Meta()
 typedef enum {
-	GDI_IDX_FORMAT_NONE Tags(vk: -1),
-	GDI_IDX_FORMAT_16_BIT Tags(vk: VK_INDEX_TYPE_UINT16),
-	GDI_IDX_FORMAT_32_BIT Tags(vk: VK_INDEX_TYPE_UINT32)
+    GDI_IDX_FORMAT_NONE Tags(vk: -1),
+    GDI_IDX_FORMAT_16_BIT Tags(vk: VK_INDEX_TYPE_UINT16),
+    GDI_IDX_FORMAT_32_BIT Tags(vk: VK_INDEX_TYPE_UINT32)
 } gdi_idx_format;
 
 Meta()
 typedef enum {
-	GDI_PRIMITIVE_TRIANGLE Tags(vk: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
-	GDI_PRIMITIVE_LINE Tags(vk: VK_PRIMITIVE_TOPOLOGY_LINE_LIST)
+    GDI_PRIMITIVE_TRIANGLE Tags(vk: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
+    GDI_PRIMITIVE_LINE Tags(vk: VK_PRIMITIVE_TOPOLOGY_LINE_LIST)
 } gdi_primitive;
 
 Meta()
 typedef enum {
-	GDI_CULL_MODE_NONE Tags(vk: VK_CULL_MODE_NONE),
-	GDI_CULL_MODE_BACK Tags(vk: VK_CULL_MODE_BACK_BIT)
+    GDI_CULL_MODE_NONE Tags(vk: VK_CULL_MODE_NONE),
+    GDI_CULL_MODE_BACK Tags(vk: VK_CULL_MODE_BACK_BIT)
 } gdi_cull_mode;
 
 Meta()
 typedef enum {
-	GDI_BLEND_ZERO Tags(vk: VK_BLEND_FACTOR_ZERO),
-	GDI_BLEND_ONE Tags(vk: VK_BLEND_FACTOR_ONE),
-	GDI_BLEND_SRC_COLOR Tags(vk: VK_BLEND_FACTOR_SRC_COLOR),
-	GDI_BLEND_INV_SRC_COLOR Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR),
-	GDI_BLEND_DST_COLOR Tags(vk: VK_BLEND_FACTOR_DST_COLOR),
-	GDI_BLEND_INV_DST_COLOR Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR),
-	GDI_BLEND_SRC_ALPHA Tags(vk: VK_BLEND_FACTOR_SRC_ALPHA),
-	GDI_BLEND_INV_SRC_ALPHA Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA),
-	GDI_BLEND_DST_ALPHA Tags(vk: VK_BLEND_FACTOR_DST_ALPHA),
-	GDI_BLEND_INV_DST_ALPHA Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
+    GDI_BLEND_ZERO Tags(vk: VK_BLEND_FACTOR_ZERO),
+    GDI_BLEND_ONE Tags(vk: VK_BLEND_FACTOR_ONE),
+    GDI_BLEND_SRC_COLOR Tags(vk: VK_BLEND_FACTOR_SRC_COLOR),
+    GDI_BLEND_INV_SRC_COLOR Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR),
+    GDI_BLEND_DST_COLOR Tags(vk: VK_BLEND_FACTOR_DST_COLOR),
+    GDI_BLEND_INV_DST_COLOR Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR),
+    GDI_BLEND_SRC_ALPHA Tags(vk: VK_BLEND_FACTOR_SRC_ALPHA),
+    GDI_BLEND_INV_SRC_ALPHA Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA),
+    GDI_BLEND_DST_ALPHA Tags(vk: VK_BLEND_FACTOR_DST_ALPHA),
+    GDI_BLEND_INV_DST_ALPHA Tags(vk: VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
 } gdi_blend;
 
 typedef enum {
-	GDI_DRAW_TYPE_NONE,
-	GDI_DRAW_TYPE_IDX,
-	GDI_DRAW_TYPE_VTX
+    GDI_DRAW_TYPE_NONE,
+    GDI_DRAW_TYPE_IDX,
+    GDI_DRAW_TYPE_VTX
 } gdi_draw_type;
 
 Meta()
 typedef enum {
-	GDI_LOG_TYPE_INFO,
-	GDI_LOG_TYPE_WARNING,
-	GDI_LOG_TYPE_ERROR
+    GDI_LOG_TYPE_INFO,
+    GDI_LOG_TYPE_WARNING,
+    GDI_LOG_TYPE_ERROR
 } gdi_log_type;
 
 #ifdef DEBUG_BUILD
 typedef enum {
-	GDI_OBJECT_TYPE_NONE,
-	GDI_OBJECT_TYPE_TEXTURE,
-	GDI_OBJECT_TYPE_TEXTURE_VIEW,
-	GDI_OBJECT_TYPE_BUFFER,
-	GDI_OBJECT_TYPE_SAMPLER,
-	GDI_OBJECT_TYPE_BIND_GROUP_LAYOUT,
-	GDI_OBJECT_TYPE_BIND_GROUP,
-	GDI_OBJECT_TYPE_SHADER,
-	GDI_OBJECT_TYPE_SWAPCHAIN
+    GDI_OBJECT_TYPE_NONE,
+    GDI_OBJECT_TYPE_TEXTURE,
+    GDI_OBJECT_TYPE_TEXTURE_VIEW,
+    GDI_OBJECT_TYPE_BUFFER,
+    GDI_OBJECT_TYPE_SAMPLER,
+    GDI_OBJECT_TYPE_BIND_GROUP_LAYOUT,
+    GDI_OBJECT_TYPE_BIND_GROUP,
+    GDI_OBJECT_TYPE_SHADER,
+    GDI_OBJECT_TYPE_SWAPCHAIN
 } gdi_object_type;
 #endif
 
 /* Structs */
 typedef struct {
 #ifdef DEBUG_BUILD
-	gdi_object_type Type;
+    gdi_object_type Type;
 #endif
-	gdi_id ID;
+    gdi_id ID;
 } gdi_handle;
 Array_Define(gdi_handle);
 
 #ifdef DEBUG_BUILD
 function inline gdi_handle GDI_Make_Handle_(gdi_object_type Type, u32 ID) {
-	gdi_handle Result = { Type, { ID }};
-	return Result;
+    gdi_handle Result = { Type, { ID }};
+    return Result;
 }
 #define GDI_Make_Handle(type, id) GDI_Make_Handle_(GDI_OBJECT_TYPE_##type, id)
 #else
 function inline gdi_handle GDI_Make_Handle_(u32 ID) {
-	gdi_handle Result = {{ID}};
-	return Result;
+    gdi_handle Result = {{ID}};
+    return Result;
 }
 #define GDI_Make_Handle(type, id) GDI_Make_Handle_(id)
 #endif
 
 typedef union {
-	gdi_id ID;
-	struct {
-		u16 	   Index;
-		atomic_u16 Generation;
-	};
+    gdi_id ID;
+    struct {
+        u16 	   Index;
+        atomic_u16 Generation;
+    };
 } gdi_pool_id;
 
 typedef struct {
-	async_stack_index16 FreeIndices;
-	gdi_pool_id* 		IDs;
+    async_stack_index16 FreeIndices;
+    gdi_pool_id* 		IDs;
 } gdi_pool;
 
 typedef struct {
-	gdi_device_type Type;
-	u32 			DeviceIndex;
-	string 			DeviceName;
+    gdi_device_type Type;
+    u32 			DeviceIndex;
+    string 			DeviceName;
 } gdi_device;
 Array_Define(gdi_device);
 
 typedef struct {
-	gdi_format 		  Format;
-	v2i 			  Dim;
-	gdi_texture_usage Usage;
-	u32 			  MipCount;
-	const buffer* 	  InitialData;
-	string 			  DebugName;
+    gdi_format 		  Format;
+    v2i 			  Dim;
+    gdi_texture_usage Usage;
+    u32 			  MipCount;
+    const buffer* 	  InitialData;
+    string 			  DebugName;
 } gdi_texture_create_info;
 
 typedef struct {
-	gdi_format 		  Format;
-	v2i 	   		  Dim;
-	gdi_texture_usage Usage;
-	u32 			  MipCount;
+    gdi_format 		  Format;
+    v2i 	   		  Dim;
+    gdi_texture_usage Usage;
+    u32 			  MipCount;
 } gdi_texture_info;
 
 typedef struct {
-	gdi_handle 	  Texture;
-	u32 	   	  MipOffset;
-	u32 	   	  MipCount;
-	v2i 	   	  Offset;
-	v2i 	   	  Dim;
-	const buffer* UpdateData;
+    gdi_handle 	  Texture;
+    u32 	   	  MipOffset;
+    u32 	   	  MipCount;
+    v2i 	   	  Offset;
+    v2i 	   	  Dim;
+    const buffer* UpdateData;
 } gdi_texture_update;
 Array_Define(gdi_texture_update);
 
 typedef struct {
-	gdi_handle Texture;
-	gdi_format Format;
-	u32 	   MipOffset;
-	u32 	   MipCount;
-	string 	   DebugName;
+    gdi_handle Texture;
+    gdi_format Format;
+    u32 	   MipOffset;
+    u32 	   MipCount;
+    string 	   DebugName;
 } gdi_texture_view_create_info;
 
 typedef struct {
-	size_t 			 Size;
-	gdi_buffer_usage Usage;
-	buffer			 InitialData;
-	string 			 DebugName;
+    size_t 			 Size;
+    gdi_buffer_usage Usage;
+    buffer			 InitialData;
+    string 			 DebugName;
 } gdi_buffer_create_info;
 
 typedef struct {
-	gdi_filter 		 Filter;
-	gdi_address_mode AddressModeU;
-	gdi_address_mode AddressModeV;
-	string 			 DebugName;
+    gdi_filter 		 Filter;
+    gdi_address_mode AddressModeU;
+    gdi_address_mode AddressModeV;
+    string 			 DebugName;
 } gdi_sampler_create_info;
 
 typedef struct {
-	gdi_bind_group_type Type;
-	u32 				Count;
-	gdi_handle* 		StaticSamplers;
+    gdi_bind_group_type Type;
+    u32 				Count;
+    gdi_handle* 		StaticSamplers;
 } gdi_bind_group_binding;
 
 Array_Define(gdi_bind_group_binding);
 typedef struct {
-	gdi_bind_group_binding_array Bindings;
-	string 			  			 DebugName;
+    gdi_bind_group_binding_array Bindings;
+    string 			  			 DebugName;
 } gdi_bind_group_layout_create_info;
 
 typedef struct {
-	gdi_handle Buffer;
-	size_t 	   Offset;
-	size_t 	   Size;
+    gdi_handle Buffer;
+    size_t 	   Offset;
+    size_t 	   Size;
 } gdi_bind_group_buffer;
 Array_Define(gdi_bind_group_buffer);
 
 
 typedef struct {
-	gdi_handle DstBindGroup;
-	u32 	   DstBinding;
-	u32 	   DstIndex;
-
-	gdi_bind_group_buffer_array Buffers;
-	gdi_handle_array 			TextureViews;
-	gdi_handle_array 			Samplers;
+    gdi_handle DstBindGroup;
+    u32 	   DstBinding;
+    u32 	   DstIndex;
+    
+    gdi_bind_group_buffer_array Buffers;
+    gdi_handle_array 			TextureViews;
+    gdi_handle_array 			Samplers;
 } gdi_bind_group_write;
 Array_Define(gdi_bind_group_write);
 
 typedef struct {
-	gdi_bind_group_write_array Writes;
+    gdi_bind_group_write_array Writes;
 } gdi_bind_group_write_info;
 
 typedef struct {
-	gdi_handle DstBindGroup;
-	u32 	   DstBinding;
-	u32 	   DstIndex;
-	gdi_handle SrcBindGroup;
-	u32 	   SrcBinding;
-	u32 	   SrcIndex;
-	u32 	   Count;
+    gdi_handle DstBindGroup;
+    u32 	   DstBinding;
+    u32 	   DstIndex;
+    gdi_handle SrcBindGroup;
+    u32 	   SrcBinding;
+    u32 	   SrcIndex;
+    u32 	   Count;
 } gdi_bind_group_copy;
 Array_Define(gdi_bind_group_copy);
 
 typedef struct {
-	gdi_bind_group_copy_array Copies;
+    gdi_bind_group_copy_array Copies;
 } gdi_bind_group_copy_info;
 
 typedef struct {
-	gdi_handle 				   Layout;
-	gdi_bind_group_write_array Writes;
-	gdi_bind_group_copy_array  Copies;
-	string 			 		   DebugName;
+    gdi_handle 				   Layout;
+    gdi_bind_group_write_array Writes;
+    gdi_bind_group_copy_array  Copies;
+    string 			 		   DebugName;
 } gdi_bind_group_create_info;
 
 typedef struct {
-	string     Semantic;
-	gdi_format Format;
+    string     Semantic;
+    gdi_format Format;
 } gdi_vtx_attribute;
 Array_Define(gdi_vtx_attribute);
 
 typedef struct {
-	size_t Stride;
-	gdi_vtx_attribute_array Attributes;
+    size_t Stride;
+    gdi_vtx_attribute_array Attributes;
 } gdi_vtx_binding;
 Array_Define(gdi_vtx_binding);
 
 typedef struct {
-	b32 			 TestEnabled;
-	b32 			 WriteEnabled;
-	gdi_compare_func CompareFunc;
-	gdi_format DepthFormat;
+    b32 			 TestEnabled;
+    b32 			 WriteEnabled;
+    gdi_compare_func CompareFunc;
+    gdi_format DepthFormat;
 } gdi_depth_state;
 
 typedef struct {
-	gdi_blend SrcFactor;
-	gdi_blend DstFactor;
+    gdi_blend SrcFactor;
+    gdi_blend DstFactor;
 } gdi_blend_state;
 Array_Define(gdi_blend_state);
 
 typedef struct {
-	buffer VS;
-	buffer PS;
-	buffer CS;
-	gdi_handle_array BindGroupLayouts;
-	gdi_bind_group_binding_array WritableBindings;
-	u32 		   	 PushConstantCount;
-	gdi_vtx_binding_array VtxBindings;
-	gdi_format RenderTargetFormats[GDI_MAX_RENDER_TARGET_COUNT];
-	gdi_blend_state_array BlendStates;
-	gdi_depth_state DepthState;
-	gdi_primitive Primitive;
-	b32 		  IsWireframe;
-	gdi_cull_mode CullMode;
-	string 		  DebugName;
+    buffer VS;
+    buffer PS;
+    buffer CS;
+    gdi_handle_array BindGroupLayouts;
+    gdi_bind_group_binding_array WritableBindings;
+    u32 		   	 PushConstantCount;
+    gdi_vtx_binding_array VtxBindings;
+    gdi_format RenderTargetFormats[GDI_MAX_RENDER_TARGET_COUNT];
+    gdi_blend_state_array BlendStates;
+    gdi_depth_state DepthState;
+    gdi_primitive Primitive;
+    b32 		  IsWireframe;
+    gdi_cull_mode CullMode;
+    string 		  DebugName;
 } gdi_shader_create_info;
 
 #if defined(OS_OSX)
@@ -379,178 +375,178 @@ typedef void CAMetalLayer;
 
 typedef struct {
 #if defined(OS_WIN32)
-	HWND 	  Window;
-	HINSTANCE Instance;
+    HWND 	  Window;
+    HINSTANCE Instance;
 #elif defined(OS_OSX)
-	CAMetalLayer* Layer;
+    CAMetalLayer* Layer;
 #elif defined(OS_LINUX)
-	Display* Display;
-	Window Window;
+    Display* Display;
+    Window Window;
 #endif
-	gdi_format Format;
-	string DebugName;
+    gdi_format Format;
+    string DebugName;
 } gdi_swapchain_create_info;
 
 typedef struct {
-	gdi_format Format;
-	v2i 	   Dim;
+    gdi_format Format;
+    v2i 	   Dim;
 } gdi_swapchain_info;
 
 typedef union {
-	f32 F32[4];
-	u32 U32[4];
-	s32 S32[4];
+    f32 F32[4];
+    u32 U32[4];
+    s32 S32[4];
 } gdi_clear;
 
 typedef struct {
-	b32 ShouldClear;
-	union {
-		f32 F32[4];
-		u32 U32[4];
-		s32 S32[4];
-	};
+    b32 ShouldClear;
+    union {
+        f32 F32[4];
+        u32 U32[4];
+        s32 S32[4];
+    };
 } gdi_clear_color;
 
 typedef struct {
-	b32 ShouldClear;
-	f32 Depth;
+    b32 ShouldClear;
+    f32 Depth;
 } gdi_clear_depth;
 
 typedef struct {
-	gdi_handle RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
-	gdi_handle DepthBufferView;
-	gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
-	gdi_clear_depth ClearDepth;
+    gdi_handle RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
+    gdi_handle DepthBufferView;
+    gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
+    gdi_clear_depth ClearDepth;
 } gdi_render_pass_begin_info;
 
 #define GDI_MAX_PUSH_CONSTANT_COUNT 32
 #define GDI_MAX_PUSH_CONSTANT_SIZE (GDI_MAX_PUSH_CONSTANT_COUNT * sizeof(u32))
 
 typedef struct {
-	gdi_handle Shader;
-	gdi_handle BindGroups[GDI_MAX_BIND_GROUP_COUNT-1]; //Save one slot for the writable bind group
-	u32 	   PushConstantCount;
-	u32 	   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
-	v3i 	   ThreadGroupCount;
+    gdi_handle Shader;
+    gdi_handle BindGroups[GDI_MAX_BIND_GROUP_COUNT-1]; //Save one slot for the writable bind group
+    u32 	   PushConstantCount;
+    u32 	   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
+    v3i 	   ThreadGroupCount;
 } gdi_dispatch;
 Array_Define(gdi_dispatch);
 
 typedef struct {
-	gdi_handle 	   Shader;
-	gdi_handle 	   BindGroups[GDI_MAX_BIND_GROUP_COUNT];
-	u32 		   DynamicOffsets[GDI_MAX_BIND_GROUP_COUNT];
-	gdi_handle 	   VtxBuffers[GDI_MAX_VTX_BUFFER_COUNT];
-	gdi_handle 	   IdxBuffer;
-	gdi_idx_format IdxFormat;
-	s32 		   ScissorMinX;
-	s32 		   ScissorMinY;
-	s32 		   ScissorMaxX;
-	s32 		   ScissorMaxY;
-	gdi_draw_type  DrawType;
-	u32 		   PrimitiveCount;
-	u32 		   PrimitiveOffset;
-	u32 		   VtxOffset;
-	u32 		   PushConstantCount;
-	u32 		   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
+    gdi_handle 	   Shader;
+    gdi_handle 	   BindGroups[GDI_MAX_BIND_GROUP_COUNT];
+    u32 		   DynamicOffsets[GDI_MAX_BIND_GROUP_COUNT];
+    gdi_handle 	   VtxBuffers[GDI_MAX_VTX_BUFFER_COUNT];
+    gdi_handle 	   IdxBuffer;
+    gdi_idx_format IdxFormat;
+    s32 		   ScissorMinX;
+    s32 		   ScissorMinY;
+    s32 		   ScissorMaxX;
+    s32 		   ScissorMaxY;
+    gdi_draw_type  DrawType;
+    u32 		   PrimitiveCount;
+    u32 		   PrimitiveOffset;
+    u32 		   VtxOffset;
+    u32 		   PushConstantCount;
+    u32 		   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
 } gdi_draw_state;
 
 enum {
-	GDI_RENDER_PASS_SHADER_BIT = (1 << 0),
-	GDI_RENDER_PASS_BIND_GROUP_BIT = (1 << 1),
-	GDI_RENDER_PASS_VTX_BUFFER_BIT = (1 << 5),
-	GDI_RENDER_PASS_IDX_BUFFER_BIT = (1 << 9),
-	GDI_RENDER_PASS_IDX_FORMAT_BIT = (1 << 10),
-	GDI_RENDER_PASS_SCISSOR_MIN_X_BIT = (1 << 11),
-	GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT = (1 << 12),
-	GDI_RENDER_PASS_SCISSOR_MAX_X_BIT = (1 << 13),
-	GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT = (1 << 14),
-	GDI_RENDER_PASS_DRAW_TYPE_BIT = (1 << 15),
-	GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT = (1 << 16),
-	GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT = (1 << 17),
-	GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 18),
-	GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 19)
+    GDI_RENDER_PASS_SHADER_BIT = (1 << 0),
+    GDI_RENDER_PASS_BIND_GROUP_BIT = (1 << 1),
+    GDI_RENDER_PASS_VTX_BUFFER_BIT = (1 << 5),
+    GDI_RENDER_PASS_IDX_BUFFER_BIT = (1 << 9),
+    GDI_RENDER_PASS_IDX_FORMAT_BIT = (1 << 10),
+    GDI_RENDER_PASS_SCISSOR_MIN_X_BIT = (1 << 11),
+    GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT = (1 << 12),
+    GDI_RENDER_PASS_SCISSOR_MAX_X_BIT = (1 << 13),
+    GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT = (1 << 14),
+    GDI_RENDER_PASS_DRAW_TYPE_BIT = (1 << 15),
+    GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT = (1 << 16),
+    GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT = (1 << 17),
+    GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 18),
+    GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 19)
 };
 #define GDI_RENDER_PASS_SCISSOR (GDI_RENDER_PASS_SCISSOR_MIN_X_BIT|GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT|GDI_RENDER_PASS_SCISSOR_MAX_X_BIT|GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT)
 
 typedef struct {
-	gdi_draw_state PrevState;
-	gdi_draw_state CurrentState;
-	memory_reserve Memory;
-	size_t 		   Offset;
+    gdi_draw_state PrevState;
+    gdi_draw_state CurrentState;
+    memory_reserve Memory;
+    size_t 		   Offset;
 } gdi_render_pass;
 
 typedef enum {
-	GDI_PASS_TYPE_RENDER,
-	GDI_PASS_TYPE_COMPUTE
+    GDI_PASS_TYPE_RENDER,
+    GDI_PASS_TYPE_COMPUTE
 } gdi_pass_type;
 
 typedef struct {
-	gdi_handle_array   TextureWrites;
-	gdi_handle_array   BufferWrites;
-	gdi_dispatch_array Dispatches;
+    gdi_handle_array   TextureWrites;
+    gdi_handle_array   BufferWrites;
+    gdi_dispatch_array Dispatches;
 } gdi_compute_pass;
 
 typedef struct gdi_pass gdi_pass;
 struct gdi_pass {
-	gdi_pass_type Type;
-	union {
-		gdi_render_pass* RenderPass;
-		gdi_compute_pass ComputePass;
-	};
-	gdi_pass* Next;
+    gdi_pass_type Type;
+    union {
+        gdi_render_pass* RenderPass;
+        gdi_compute_pass ComputePass;
+    };
+    gdi_pass* Next;
 };
 
 #define GDI_TEXTURE_READBACK_DEFINE(name) void name(gdi_handle Texture, v2i Dim, gdi_format Format, const void* Texels, void* UserData)
 typedef GDI_TEXTURE_READBACK_DEFINE(gdi_texture_readback_func);
 typedef struct {
-	gdi_handle 				   Texture;
-	void* 					   UserData;
-	gdi_texture_readback_func* ReadbackFunc;
+    gdi_handle 				   Texture;
+    void* 					   UserData;
+    gdi_texture_readback_func* ReadbackFunc;
 } gdi_texture_readback;
 
 #define GDI_BUFFER_READBACK_DEFINE(name) void name(gdi_handle Buffer, size_t Size, const void* Data, void* UserData)
 typedef GDI_BUFFER_READBACK_DEFINE(gdi_buffer_readback_func);
 typedef struct {
-	gdi_handle 				  Buffer;
-	void* 					  UserData;
-	gdi_buffer_readback_func* ReadbackFunc;
+    gdi_handle 				  Buffer;
+    void* 					  UserData;
+    gdi_buffer_readback_func* ReadbackFunc;
 } gdi_buffer_readback;
 
 Array_Define(gdi_texture_readback);
 Array_Define(gdi_buffer_readback);
 typedef struct {
-	gdi_texture_readback_array TextureReadbacks;
-	gdi_buffer_readback_array  BufferReadbacks;
-	gdi_handle_array 		   Swapchains;
+    gdi_texture_readback_array TextureReadbacks;
+    gdi_buffer_readback_array  BufferReadbacks;
+    gdi_handle_array 		   Swapchains;
 } gdi_render_params;
 
 #define GDI_LOG_DEFINE(name) void name(gdi_log_type Type, string Message, void* UserData)
 typedef GDI_LOG_DEFINE(gdi_log_func);
 
 typedef struct {
-	gdi_log_func* LogFunc;
-	void* 		  UserData;
+    gdi_log_func* LogFunc;
+    void* 		  UserData;
 } gdi_log_callbacks;
 
 typedef struct {
-	base* 			  Base;
-	gdi_log_callbacks LogCallbacks;
-	u32 			  FramesInFlight;
+    base* 			  Base;
+    gdi_log_callbacks LogCallbacks;
+    u32 			  FramesInFlight;
 } gdi_init_info;
 
 typedef struct gdi gdi;
 typedef struct {
-	gdi* GDI;
-	gdi_device* Device;
-	arena* FrameArena;
-
-	size_t ConstantBufferAlignment;
-
-	os_tls*    IMThreadLocalStorage;
-	atomic_ptr TopIM;
-
-	gdi_pass* FirstPass;
-	gdi_pass* LastPass;
+    gdi* GDI;
+    gdi_device* Device;
+    arena* FrameArena;
+    
+    size_t ConstantBufferAlignment;
+    
+    os_tls*    IMThreadLocalStorage;
+    atomic_ptr TopIM;
+    
+    gdi_pass* FirstPass;
+    gdi_pass* LastPass;
 } gdi_device_context;
 
 #define GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(name) b32 name(gdi* GDI, gdi_device* Device)
@@ -638,54 +634,54 @@ typedef GDI_BACKEND_RENDER_DEFINE(gdi_backend_render_func);
 typedef GDI_BACKEND_SHUTDOWN_DEFINE(gdi_backend_shutdown_func);
 
 typedef struct {
-	gdi_backend_set_device_context_func* SetDeviceContextFunc;
-
-	gdi_backend_create_texture_func* CreateTextureFunc;
-	gdi_backend_delete_texture_func* DeleteTextureFunc;
-	gdi_backend_update_textures_func* UpdateTexturesFunc;
-	gdi_backend_get_texture_info_func* GetTextureInfoFunc;
-
-	gdi_backend_create_texture_view_func* CreateTextureViewFunc;
-	gdi_backend_delete_texture_view_func* DeleteTextureViewFunc;
-	gdi_backend_get_texture_view_texture_func* GetTextureViewTextureFunc;
-
-	gdi_backend_create_buffer_func* CreateBufferFunc;
-	gdi_backend_delete_buffer_func* DeleteBufferFunc;
-	gdi_backend_map_buffer_func* MapBufferFunc;
-	gdi_backend_unmap_buffer_func* UnmapBufferFunc;
-
-	gdi_backend_create_sampler_func* CreateSamplerFunc;
-	gdi_backend_delete_sampler_func* DeleteSamplerFunc;
-	
-	gdi_backend_create_bind_group_layout_func* CreateBindGroupLayoutFunc;
-	gdi_backend_delete_bind_group_layout_func* DeleteBindGroupLayoutFunc;
-
-	gdi_backend_create_bind_group_func*  CreateBindGroupFunc;
-	gdi_backend_delete_bind_group_func*  DeleteBindGroupFunc;
-	gdi_backend_update_bind_groups_func* UpdateBindGroupsFunc;
-
-	gdi_backend_create_shader_func* CreateShaderFunc;
-	gdi_backend_delete_shader_func* DeleteShaderFunc;
-
-	gdi_backend_create_swapchain_func*   CreateSwapchainFunc;
-	gdi_backend_delete_swapchain_func*   DeleteSwapchainFunc;
-	gdi_backend_get_swapchain_view_func* GetSwapchainViewFunc;
-	gdi_backend_resize_swapchain_func*   ResizeSwapchainFunc;
-	gdi_backend_get_swapchain_info_func* GetSwapchainInfoFunc;
-
-	gdi_backend_begin_render_pass_func* BeginRenderPassFunc;
-	gdi_backend_end_render_pass_func* EndRenderPassFunc;
-
-	gdi_backend_render_func* RenderFunc;
-	gdi_backend_shutdown_func* ShutdownFunc;
+    gdi_backend_set_device_context_func* SetDeviceContextFunc;
+    
+    gdi_backend_create_texture_func* CreateTextureFunc;
+    gdi_backend_delete_texture_func* DeleteTextureFunc;
+    gdi_backend_update_textures_func* UpdateTexturesFunc;
+    gdi_backend_get_texture_info_func* GetTextureInfoFunc;
+    
+    gdi_backend_create_texture_view_func* CreateTextureViewFunc;
+    gdi_backend_delete_texture_view_func* DeleteTextureViewFunc;
+    gdi_backend_get_texture_view_texture_func* GetTextureViewTextureFunc;
+    
+    gdi_backend_create_buffer_func* CreateBufferFunc;
+    gdi_backend_delete_buffer_func* DeleteBufferFunc;
+    gdi_backend_map_buffer_func* MapBufferFunc;
+    gdi_backend_unmap_buffer_func* UnmapBufferFunc;
+    
+    gdi_backend_create_sampler_func* CreateSamplerFunc;
+    gdi_backend_delete_sampler_func* DeleteSamplerFunc;
+    
+    gdi_backend_create_bind_group_layout_func* CreateBindGroupLayoutFunc;
+    gdi_backend_delete_bind_group_layout_func* DeleteBindGroupLayoutFunc;
+    
+    gdi_backend_create_bind_group_func*  CreateBindGroupFunc;
+    gdi_backend_delete_bind_group_func*  DeleteBindGroupFunc;
+    gdi_backend_update_bind_groups_func* UpdateBindGroupsFunc;
+    
+    gdi_backend_create_shader_func* CreateShaderFunc;
+    gdi_backend_delete_shader_func* DeleteShaderFunc;
+    
+    gdi_backend_create_swapchain_func*   CreateSwapchainFunc;
+    gdi_backend_delete_swapchain_func*   DeleteSwapchainFunc;
+    gdi_backend_get_swapchain_view_func* GetSwapchainViewFunc;
+    gdi_backend_resize_swapchain_func*   ResizeSwapchainFunc;
+    gdi_backend_get_swapchain_info_func* GetSwapchainInfoFunc;
+    
+    gdi_backend_begin_render_pass_func* BeginRenderPassFunc;
+    gdi_backend_end_render_pass_func* EndRenderPassFunc;
+    
+    gdi_backend_render_func* RenderFunc;
+    gdi_backend_shutdown_func* ShutdownFunc;
 } gdi_backend_vtable;
 
 struct gdi {
-	gdi_backend_vtable*   Backend;
-	arena* 				  Arena;
-	u32 				  FramesInFlight;
-	gdi_device_array 	  Devices;
-	gdi_device_context*   DeviceContext;
+    gdi_backend_vtable*   Backend;
+    arena* 				  Arena;
+    u32 				  FramesInFlight;
+    gdi_device_array 	  Devices;
+    gdi_device_context*   DeviceContext;
 };
 
 #define GDI_Backend_Set_Device_Context(device) GDI_Get()->Backend->SetDeviceContextFunc(GDI_Get(), device)
@@ -740,29 +736,29 @@ export_function GDI_INIT_DEFINE(GDI_Init);
 
 /*Quick access helper lookups*/
 function inline gdi_id GDI_Null_ID() {
-	gdi_id Result = { 0 };
-	return Result;
+    gdi_id Result = { 0 };
+    return Result;
 }
 
 function inline gdi_handle GDI_Null_Handle() {
-	gdi_handle Result;
-	Memory_Clear(&Result, sizeof(gdi_handle));
-	return Result;
+    gdi_handle Result;
+    Memory_Clear(&Result, sizeof(gdi_handle));
+    return Result;
 }
 
 function inline b32 GDI_ID_Is_Null(gdi_id ID) {
-	return ID.ID == 0;
+    return ID.ID == 0;
 }
 
 function inline b32 GDI_Is_Null(gdi_handle Handle) {
-	return GDI_ID_Is_Null(Handle.ID);
+    return GDI_ID_Is_Null(Handle.ID);
 }
 
 function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
-	b32 Result = A.ID.ID == B.ID.ID;
-	//If they are equal, make sure the types are the same
-	Assert(Result ? A.Type == B.Type : true);
-	return Result;
+    b32 Result = A.ID.ID == B.ID.ID;
+    //If they are equal, make sure the types are the same
+    Assert(Result ? A.Type == B.Type : true);
+    return Result;
 }
 
 export_function gdi_format 			GDI_Get_SRGB_Format(gdi_format Format);
@@ -823,9 +819,5 @@ export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, 
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset);
 
 #include "im_gdi.h"
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif
