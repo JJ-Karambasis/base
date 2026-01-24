@@ -8,6 +8,7 @@ set build_clang=0
 set build_asan=0
 set build_cpp=0
 set build_gdi=1
+set build_geometry=1
 set build_tests=0
 
 set base_path=%~dp0
@@ -50,6 +51,10 @@ if /i "%~1"=="-cpp" (
 
 if /i "%~1"=="-no_gdi" (
 	set build_gdi=0
+)
+
+if /i "%~1"=="-no_geometry" (
+	set build_geometry=0
 )
 
 if /i "%~1"=="-tests" (
@@ -200,9 +205,24 @@ popd
 
 :skip_gdi
 
+REM build geometry
+if %build_geometry% == 0 (
+	goto skip_geometry
+)
+
+pushd "%bin_path%"
+	%compiler% %compile_flags% %compile_warnings% %compile_only% %app_defines% %app_includes% -I"%code_path%" "%code_path%\geometry\geometry.%c_ext%"
+popd
+
+:skip_geometry
+
 set obj_files=win32_base.obj base.obj rpmalloc.obj
 if %build_gdi% == 1 (
 	set obj_files=%obj_files% gdi.obj vk_mem_alloc.obj
+)
+
+if %build_geometry% == 1 (
+	set obj_files=%obj_files% geometry.obj
 )
 
 pushd "%bin_path%"
@@ -232,7 +252,7 @@ copy %dxc_path%\lib\dxcompiler.lib %bin_path%\dxcompiler.lib
 copy %dxc_path%\bin\dxcompiler.dll %bin_path%\dxcompiler.dll
 
 pushd "%bin_path%"
-	%compiler_cpp% %compile_flags% %compile_warnings% %app_defines% %app_includes% -I%code_path% -I%dxc_base_path%\include "%code_path%\tests\tests.cpp" %compile_link% %compile_out%tests.exe
+	%compiler_cpp% %compile_flags% %compile_warnings% %app_defines% %app_includes% -I%code_path% -I%dxc_base_path%\include "%code_path%\tests\unit_tests\unit_tests.cpp" %compile_link% %compile_out%unit_tests.exe
 popd
 
 :skip_tests

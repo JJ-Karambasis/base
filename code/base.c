@@ -1039,6 +1039,12 @@ export_function m4 M4_Transform_Scale_Quat(v3 t, v3 s, quat Q) {
 	return M4_Transform_Scale(Orientation.x, Orientation.y, Orientation.z, t, s);
 }
 
+export_function m4 M4_Translate(v3 t) {
+    m4 Result = M4_Identity();
+    Result.t = t;
+    return Result;
+}
+
 export_function m4 M4_From_M3(const m3* M) {
 	return M4_Transform(M->x, M->y, M->z, V3_Zero());
 }

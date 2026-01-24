@@ -1,0 +1,50 @@
+version(2);
+project_name = "base";
+
+patterns = {
+	"*.c",
+	"*.cpp",
+	"*.h",
+    "*.inl",
+	"*.bat",
+	"*.sh",
+	"*.4coder",
+	"*.txt",
+	"*.meta",
+	"*.hlsl",
+};
+
+blacklist_patterns = {
+ 	".*",
+};
+
+load_paths = {
+  	{ .path = ".", .recursive = true, },
+};
+
+blacklist_paths = {
+	"./code/third_party/SDL",
+	"./code/third_party/DirectXShaderCompiler",
+};
+
+commands = {
+	.build = {
+		.win = "build.bat -debug -tests",
+		.out = "*compilation*",
+		.footer_panel = true,
+		.save_dirty_files = true,
+		.cursor_at_end = true,
+	},
+	.run_unit_tests = {
+		.win = "pushd bin & unit_tests.exe & popd",
+		.out = "*compilation*",
+		.footer_panel = true,
+		.save_dirty_files = true,
+		.cursor_at_end = true,
+	},
+};
+
+fkey_command = {
+	.F1 = "build",
+	.F5 = "run_unit_tests",
+};

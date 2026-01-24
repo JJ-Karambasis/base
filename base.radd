@@ -1,6 +1,11 @@
-// raddbg 0.9.22 project file
+// raddbg 0.9.25 project file
 
+recent_file: path: "code/geometry/gjk_epa.c"
+recent_file: path: "code/base.c"
+recent_file: path: "code/tests/unit_tests/geometry_tests.cpp"
 recent_file: path: "code/gdi/backend/vk/vk_gdi.c"
+recent_file: path: "code/tests/unit_tests/utest.h"
+recent_file: path: "code/tests/unit_tests/unit_tests.cpp"
 recent_file: path: "code/gdi/gdi.c"
 recent_file: path: "code/tests/gdi_tests.cpp"
 recent_file: path: "code/gdi/gdi.h"
@@ -21,7 +26,7 @@ recent_file: path: "code/tests/job_tests.cpp"
 recent_file: path: "code/tests/utest.h"
 target:
 {
-  executable: "bin/tests.exe"
+  executable: "bin/unit_tests.exe"
   working_directory: bin
   enabled: 1
 }
@@ -35,8 +40,28 @@ breakpoint:
   source_location: "code/tests/gdi_tests.cpp:484:17"
   hit_count: 0
 }
+debug_info:
+{
+  path: "c:/Users/akara/Projects/base/bin/unit_tests.pdb"
+  timestamp: 66204684542670
+}
+debug_info:
+{
+  path: "C:/Users/akara/Projects/base/code/third_party/DirectXShaderCompiler/bin/Release/bin/dxcompiler.pdb"
+  timestamp: 66200877571280
+}
+debug_info:
+{
+  path: "C:/VulkanSDK/1.4.309.0/Bin/VkLayer_khronos_validation.pdb"
+  timestamp: 66176449816450
+}
 breakpoint:
 {
-  source_location: "code/gdi/backend/vk/vk_gdi.c:2821:25"
+  source_location: "code/tests/unit_tests/geometry_tests.cpp:196:10"
+  hit_count: 1
+}
+breakpoint:
+{
+  source_location: "code/geometry/gjk_epa.c:784:22"
   hit_count: 1
 }

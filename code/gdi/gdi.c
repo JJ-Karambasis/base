@@ -24,17 +24,17 @@ export_function b32 GDI_Set_Device_Context(gdi_device* Device) {
 export_function b32 GDI_Set_Default_Device_Context() {
 	//Prioritize the first discrete device type. Otherwise just
 	//grab the first available device
-
+    
 	gdi_device_array Devices = GDI_Get_Devices();
 	gdi_device* TargetDevice = &Devices.Ptr[0];
-
+    
 	for (size_t i = 0; i < Devices.Count; i++) {
 		if (Devices.Ptr[i].Type == GDI_DEVICE_TYPE_DISCRETE) {
 			TargetDevice = &Devices.Ptr[i];
 			break;
 		}
 	}
-
+    
 	return GDI_Set_Device_Context(TargetDevice);
 }
 
@@ -66,16 +66,16 @@ export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* Cre
 	gdi_handle Result = GDI_Backend_Create_Texture(CreateInfo);
 	if (!GDI_Is_Null(Result) && CreateInfo->InitialData) {
 		arena* Scratch = Scratch_Get();
-
-		v2i TextureDim = CreateInfo->Dim;
+        
 		gdi_texture_update TextureUpdate = {
 			.Texture = Result,
 			.MipCount = CreateInfo->MipCount,
 			.Dim = CreateInfo->Dim,
 			.UpdateData = CreateInfo->InitialData
 		};
-
-		GDI_Update_Textures( { &TextureUpdate, 1 });
+        
+        gdi_texture_update_array TextureUpdates = { &TextureUpdate, 1 };
+		GDI_Update_Textures(TextureUpdates);
 		Scratch_Release();
 	}
 	return Result;
@@ -107,7 +107,7 @@ export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Textu
 	gdi_texture_view_create_info ViewInfo = {
 		.Texture = Texture
 	};
-
+    
 	gdi_handle Result = GDI_Create_Texture_View(&ViewInfo);
 	return Result;
 }
@@ -283,11 +283,11 @@ export_function void GDI_Render(const gdi_render_params* RenderParams) {
 	}
 	
 	GDI_Backend_Render(RenderParams);
-
+    
 	Arena_Clear(Context->FrameArena);
 	Context->FirstPass = NULL;
 	Context->LastPass = NULL;
-
+    
 	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&Context->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		ImGDI->IdxBufferUsed = 0;
 		ImGDI->VtxBufferUsed = 0;
@@ -357,13 +357,13 @@ export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s
 	RenderPass->CurrentState.ScissorMinY = Max(MinY, 0);
 	RenderPass->CurrentState.ScissorMaxX = Max(MaxX, 0);
 	RenderPass->CurrentState.ScissorMaxY = Max(MaxY, 0);
-
+    
 	if (RenderPass->CurrentState.ScissorMinX > RenderPass->CurrentState.ScissorMaxX) {
 		s32 Temp = RenderPass->CurrentState.ScissorMinX;
 		RenderPass->CurrentState.ScissorMinX = RenderPass->CurrentState.ScissorMaxX;
 		RenderPass->CurrentState.ScissorMaxX = Temp;
 	}
-
+    
 	if (RenderPass->CurrentState.ScissorMinY > RenderPass->CurrentState.ScissorMaxY) {
 		s32 Temp = RenderPass->CurrentState.ScissorMinY;
 		RenderPass->CurrentState.ScissorMinY = RenderPass->CurrentState.ScissorMaxY;
@@ -374,22 +374,22 @@ export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s
 function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
 	gdi_draw_state* PrevState    = &RenderPass->PrevState;
-
+    
 	if (RenderPass->Offset + (sizeof(gdi_draw_state)+sizeof(u32)) > RenderPass->Memory.CommitSize) {
 		Commit_New_Size(&RenderPass->Memory, RenderPass->Offset + sizeof(gdi_draw_state));
 	}
-
+    
 	u32* Bitfield = (u32*)(RenderPass->Memory.BaseAddress + RenderPass->Offset);
 	*Bitfield = 0;
 	u8* Stream = (u8*)(Bitfield + 1);
-
+    
 	if (!GDI_Is_Equal(PrevState->Shader, CurrentState->Shader)) {
 		Assert(!GDI_Is_Null(CurrentState->Shader));
 		*Bitfield |= GDI_RENDER_PASS_SHADER_BIT;
 		Memory_Copy(Stream, &CurrentState->Shader, sizeof(gdi_handle));
 		Stream += sizeof(gdi_handle);
 	}
-
+    
 	for (u32 i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
 		if (!GDI_Is_Null(CurrentState->BindGroups[i])) {
 			if (!GDI_Is_Equal(PrevState->BindGroups[i], CurrentState->BindGroups[i])) {
@@ -399,7 +399,7 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 			}
 		}
 	}
-
+    
 	for (u32 i = 0; i < GDI_MAX_VTX_BUFFER_COUNT; i++) {
 		if (!GDI_Is_Null(CurrentState->VtxBuffers[i])) {
 			if (!GDI_Is_Equal(PrevState->VtxBuffers[i], CurrentState->VtxBuffers[i])) {
@@ -409,67 +409,67 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 			}
 		}
 	}
-
+    
 	if (!GDI_Is_Equal(PrevState->IdxBuffer, CurrentState->IdxBuffer)) {
 		*Bitfield |= GDI_RENDER_PASS_IDX_BUFFER_BIT;
 		Memory_Copy(Stream, &CurrentState->IdxBuffer, sizeof(gdi_handle));
 		Stream += sizeof(gdi_handle);
 	}
-
+    
 	if (PrevState->IdxFormat != CurrentState->IdxFormat) {
 		*Bitfield |= GDI_RENDER_PASS_IDX_FORMAT_BIT;
 		Memory_Copy(Stream, &CurrentState->IdxFormat, sizeof(gdi_idx_format));
 		Stream += sizeof(gdi_idx_format);
 	}
-
+    
 	if (PrevState->ScissorMinX != CurrentState->ScissorMinX) {
 		*Bitfield |= GDI_RENDER_PASS_SCISSOR_MIN_X_BIT;
 		Memory_Copy(Stream, &CurrentState->ScissorMinX, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->ScissorMinY != CurrentState->ScissorMinY) {
 		*Bitfield |= GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT;
 		Memory_Copy(Stream, &CurrentState->ScissorMinY, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->ScissorMaxX != CurrentState->ScissorMaxX) {
 		*Bitfield |= GDI_RENDER_PASS_SCISSOR_MAX_X_BIT;
 		Memory_Copy(Stream, &CurrentState->ScissorMaxX, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->ScissorMaxY != CurrentState->ScissorMaxY) {
 		*Bitfield |= GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT;
 		Memory_Copy(Stream, &CurrentState->ScissorMaxY, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if(PrevState->DrawType != CurrentState->DrawType) {
 		*Bitfield |= GDI_RENDER_PASS_DRAW_TYPE_BIT;
 		Memory_Copy(Stream, &CurrentState->DrawType, sizeof(gdi_draw_type));
 		Stream += sizeof(gdi_draw_type);
 	}
-
+    
 	if (PrevState->PrimitiveCount != CurrentState->PrimitiveCount) {
 		*Bitfield |= GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT;
 		Memory_Copy(Stream, &CurrentState->PrimitiveCount, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->PrimitiveOffset != CurrentState->PrimitiveOffset) {
 		*Bitfield |= GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT;
 		Memory_Copy(Stream, &CurrentState->PrimitiveOffset, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->VtxOffset != CurrentState->VtxOffset) {
 		*Bitfield |= GDI_RENDER_PASS_VTX_OFFSET_BIT;
 		Memory_Copy(Stream, &CurrentState->VtxOffset, sizeof(u32));
 		Stream += sizeof(u32);
 	}
-
+    
 	if (PrevState->PushConstantCount != CurrentState->PushConstantCount) {
 		*Bitfield |= GDI_RENDER_PASS_PUSH_CONSTANT_COUNT;
 		Memory_Copy(Stream, &CurrentState->PushConstantCount, sizeof(u32));
@@ -477,40 +477,40 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 	}
 	Memory_Copy(Stream, CurrentState->PushConstants, CurrentState->PushConstantCount * sizeof(u32));
 	Stream += CurrentState->PushConstantCount * sizeof(u32);
-
+    
 	*PrevState = *CurrentState;
 	RenderPass->Offset += (Stream - (u8*)Bitfield);
 }
 
 export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset) {
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
-
+    
 	CurrentState->DrawType  = GDI_DRAW_TYPE_IDX;
 	CurrentState->PrimitiveCount  = IdxCount;
 	CurrentState->PrimitiveOffset = IdxOffset;
 	CurrentState->VtxOffset = VtxOffset;
-
+    
 	Render_Draw_Common(RenderPass);
 }
 
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset) {
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
-
+    
 	CurrentState->DrawType  = GDI_DRAW_TYPE_VTX;
 	CurrentState->PrimitiveCount  = VtxCount;
 	CurrentState->PrimitiveOffset = VtxOffset;
-
+    
 	Render_Draw_Common(RenderPass);
 }
 
 function void GDI_Pool_Init_Raw(gdi_pool* Pool, u16* IndicesPtr, gdi_id* IDsPtr, u16 Capacity) {
 	Async_Stack_Index16_Init_Raw(&Pool->FreeIndices, IndicesPtr, Capacity);
 	Pool->IDs = (gdi_pool_id *)IDsPtr;
-
+    
 	u16 i;
 	for (i = 0; i < Capacity; i++) {
 		Async_Stack_Index16_Push(&Pool->FreeIndices, i);
-
+        
 		Pool->IDs[i].Index = i;
 		*(u16*)(&Pool->IDs[i].Generation) = 1;
 	}
@@ -524,7 +524,7 @@ function inline b32 GDI_Pool_Is_Allocated(gdi_pool* Pool, gdi_id ID) {
 function gdi_id GDI_Pool_Allocate(gdi_pool* Pool) {
 	u16 Index = Async_Stack_Index16_Pop(&Pool->FreeIndices);
 	if (Index == ASYNC_STACK_INDEX16_INVALID) { return GDI_Null_ID(); };
-
+    
 	Assert(Index < Pool->FreeIndices.Capacity);
 	gdi_id Result = Pool->IDs[Index].ID;
 	Assert(Index == Result.Index);

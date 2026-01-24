@@ -1,14 +1,16 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-#include <dxc/dxcapi.h>
 #include <base.h>
+#include <dxc/dxcapi.h>
 
 #include <third_party/stb/stb_image_write.h>
 #include <gdi/gdi.h>
+#include <geometry/geometry.h>
 #include "utest.h"
 
 #include "job_tests.cpp"
 #include "gdi_tests.cpp"
+#include "geometry_tests.cpp"
 
 UTEST_STATE();
 int main(int ArgCount, const char** Args) {

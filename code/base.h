@@ -419,6 +419,7 @@ export_function b32 V3_Is_Nan(v3 V);
 export_function b32 V3_Is_Close(v3 A, v3 B, f32 ToleranceSq);
 export_function b32 V3_Is_Zero(v3 V, f32 Epsilon);
 export_function v3 V3_Get_Perp(v3 Direction);
+export_function f32 V3_Angle_Between(v3 V1, v3 V2);
 export_function v3i V3i(s32 x, s32 y, s32 z);
 
 global const v3 G_XAxis    = { 1.0f, 0.0f, 0.0f };
@@ -562,6 +563,7 @@ export_function m4 M4_Identity();
 export_function m4 M4_Transform(v3 x, v3 y, v3 z, v3 t);
 export_function m4 M4_Transform_Scale(v3 x, v3 y, v3 z, v3 t, v3 s);
 export_function m4 M4_Transform_Scale_Quat(v3 t, v3 s, quat Q);
+export_function m4 M4_Translate(v3 t);
 export_function m4 M4_From_M3(const m3* M);
 export_function m4 M4_Inv_Transform(v3 x, v3 y, v3 z, v3 t);
 export_function m4 M4_Look_At(v3 Position, v3 Target);
