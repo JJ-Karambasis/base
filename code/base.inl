@@ -55,6 +55,10 @@ function inline bool operator!=(v2i A, v2i B) {
 	return A.x != B.x || A.y != B.y;
 }
 
+function inline v3 operator-(v3 V) {
+	return V3_Negate(V);
+}
+
 function inline v3 operator+(v3 A, v3 B) {
 	v3 Result = V3_Add_V3(A, B);
 	return Result;

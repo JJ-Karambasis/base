@@ -21,10 +21,16 @@ typedef struct {
 	v4 C;
 } im_vtx_v3_c;
 
+typedef struct {
+    v3 P;
+    v3 N;
+    v2 UV;
+} im_vtx_v3_n3_uv2;
+
 typedef struct im_gdi im_gdi;
 struct im_gdi {
 	arena* Arena;
-
+    
 	//Vtx and idx buffers
 	size_t 	   IdxBufferUsed;
 	size_t 	   VtxBufferUsed;
@@ -34,9 +40,9 @@ struct im_gdi {
 	gdi_handle VtxBuffer;
 	u8* 	   VtxBufferPtr;
 	u8* 	   IdxBufferPtr;
-
+    
 	b32 IsReset;
-
+    
 	//Draw state
 	im_gdi* Next;
 };
@@ -52,5 +58,6 @@ export_function void IM_Push_Line3D(v3 P0, v3 P1);
 export_function void IM_Push_Triangle3D(v3 P0, v3 P1, v3 P2);
 export_function void IM_Push_Triangle2D_Color(v2 P0, v2 P1, v2 P2, v4 Color);
 export_function void IM_Push_Triangle3D_Color(v3 P0, v3 P1, v3 P2, v4 Color);
+export_function void IM_Push_Rect3D_With_UV_And_Norm(v3 P0, v3 P1);
 
 #endif

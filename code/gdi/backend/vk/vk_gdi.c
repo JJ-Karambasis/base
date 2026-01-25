@@ -3962,7 +3962,9 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		if (Swapchain) {
 			if (Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
 				Swapchains[SwapchainCount++] = RenderParams->Swapchains.Ptr[i];
-			}
+			} else {
+                VK_Recreate_Swapchain(Context, Swapchain);
+            }
 		}
 	}
     

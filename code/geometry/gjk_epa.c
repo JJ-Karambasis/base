@@ -980,10 +980,6 @@ struct epa_triangle {
 	b8 	 	 Removed;
 	b8 	 	 InQueue;
 	b8 		 IsClosestPointInterior;
-    
-#ifdef __cplusplus
-	epa_triangle() {}
-#endif
 };
 
 typedef union epa_triangle_pool_entry epa_triangle_pool_entry;
@@ -991,10 +987,6 @@ typedef union epa_triangle_pool_entry epa_triangle_pool_entry;
 union epa_triangle_pool_entry { 
 	epa_triangle  			 Triangle;
 	epa_triangle_pool_entry* NextFree;
-    
-#ifdef __cplusplus
-	epa_triangle_pool_entry() {}
-#endif
 };
 
 typedef struct {

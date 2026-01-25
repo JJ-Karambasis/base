@@ -3508,6 +3508,8 @@ export_function pool_id Pool_Allocate(pool* Pool) {
 	pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
 	PoolID->Index = Index;
     
+    Pool->Count++;
+    
 	return *PoolID;
 }
 
@@ -3518,6 +3520,7 @@ export_function void Pool_Free(pool* Pool, pool_id ID) {
 			PoolID->Generation++;
 			PoolID->NextIndex = Pool->FirstFreeIndex;
 			Pool->FirstFreeIndex = ID.Index;
+            Pool->Count--;
 			Memory_Clear(PoolID + 1, Pool->ItemSize);
 		}
 	}
