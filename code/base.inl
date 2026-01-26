@@ -69,6 +69,16 @@ function inline v3& operator+=(v3& A, v3 B) {
 	return A;
 }
 
+function inline v3 operator-(v3 A, v3 B) {
+    v3 Result = V3_Sub_V3(A, B);
+    return Result;
+}
+
+function inline v3& operator-=(v3& A, v3 B) {
+    A = V3_Sub_V3(A, B);
+    return A;
+}
+
 function inline v3 operator*(v3 A, f32 B) {
 	v3 Result = V3_Mul_S(A, B);
 	return Result;
@@ -77,6 +87,11 @@ function inline v3 operator*(v3 A, f32 B) {
 function inline v3& operator*=(v3& A, f32 B) {
 	A = V3_Mul_S(A, B);
 	return A;
+}
+
+function inline v3 operator/(v3 A, f32 B) {
+    v3 Result = V3_Div_S(A, B);
+    return Result;
 }
 
 function inline quat operator*(quat A, quat B) {
@@ -599,6 +614,41 @@ inline value& hashmap_t<key, value, hasher, comparer>::operator[](const key& Key
 	value* Value = Hashmap_Get(this, Key);
 	Assert(Value);
 	return *Value;
+}
+
+template <typename type, size_t capacity=1024>
+struct spsc_queue {
+    type       Entries[capacity];
+    atomic_u32 NextEntryToRead;
+    atomic_u32 NextEntryToWrite;
+};
+
+template <typename type, size_t capacity>
+function inline void SPSC_Enqueue(spsc_queue<type, capacity>* Queue, const type& Entry) {
+    u32 NextEntryToWrite = Atomic_Load_U32(&Queue->NextEntryToWrite);
+    u32 NewNextEntryToWrite = (NextEntryToWrite + 1) % capacity;
+    Assert(NewNextEntryToWrite != Atomic_Load_U32(&Queue->NextEntryToRead));
+    Queue->Entries[NextEntryToWrite] = Entry;
+    Atomic_Store_U32(&Queue->NextEntryToWrite, NewNextEntryToWrite);
+}
+
+template <typename type, size_t capacity>
+function inline b32 SPSC_Dequeue(spsc_queue<type, capacity>* Queue, type* OutEntry) {
+    u32 NextEntryToRead = Atomic_Load_U32(&Queue->NextEntryToRead);
+    b32 Result = NextEntryToRead != Atomic_Load_U32(&Queue->NextEntryToWrite);
+    if(Result) {
+        u32 NewNextEntryToRead = (NextEntryToRead+1) % capacity;
+        Memory_Copy(OutEntry, Queue->Entries + NextEntryToRead, sizeof(type));
+        Atomic_Store_U32(&Queue->NextEntryToRead, NewNextEntryToRead);
+    }
+    
+    return Result;
+}
+
+template <typename type, size_t capacity>
+function inline void SPSC_Flush(spsc_queue<type, capacity>* Queue) {
+    type Entry;
+    while(SPSC_Dequeue(Queue, &Entry)) {}
 }
 
 #endif
