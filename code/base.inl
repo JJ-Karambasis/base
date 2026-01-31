@@ -84,6 +84,11 @@ function inline v3 operator*(v3 A, f32 B) {
 	return Result;
 }
 
+function inline v3 operator*(v3 A, v3 B) {
+	v3 Result = V3_Mul_V3(A, B);
+	return Result;
+}
+
 function inline v3& operator*=(v3& A, f32 B) {
 	A = V3_Mul_S(A, B);
 	return A;
@@ -106,6 +111,11 @@ function inline m4 operator*(const m4_affine& A, const m4& B) {
 
 function inline v4 operator*(v4 A, const m4& B) {
     v4 Result = V4_Mul_M4(A, &B);
+    return Result;
+}
+
+function inline m4 operator*(const m4& A, const m4& B) {
+    m4 Result = M4_Mul_M4(&A, &B);
     return Result;
 }
 
@@ -135,7 +145,7 @@ struct span {
 
 template <typename type>
 struct array {
-	allocator* Allocator = NULL;
+    allocator* Allocator = NULL;
 	type* Ptr 			 = NULL;
 	size_t Count 		 = 0;
 	size_t Capacity 	 = 0;
@@ -195,6 +205,12 @@ function inline void Array_Add(array<type>* Array, const type& Entry) {
 	}
     
 	Array->Ptr[Array->Count++] = Entry;
+}
+
+template <typename type>
+function inline type* Array_Get(array<type>* Array, size_t Index) {
+    if(Index >= Array->Count) return NULL;
+    return Array->Ptr + Index;
 }
 
 template <typename type>

@@ -21,6 +21,12 @@ typedef struct {
 } gjk_aabb;
 
 typedef struct {
+    v3 p0;
+    v3 p1;
+    v3 p2;
+} gjk_triangle;
+
+typedef struct {
     gjk_support Support;
     f32 Radius;
 } gjk_add_radius;
@@ -425,6 +431,28 @@ function GJK_SUPPORT_FUNC(GJK_AABB_Support) {
 	return Result;
 }
 
+function GJK_SUPPORT_FUNC(GJK_Triangle_Support) {
+    gjk_triangle* Triangle = (gjk_triangle*)UserData;
+    
+    f32 d0 = V3_Dot(Triangle->p0, Direction);
+    f32 d1 = V3_Dot(Triangle->p1, Direction);
+    f32 d2 = V3_Dot(Triangle->p2, Direction);
+    
+    if(d0 > d1) {
+        if(d0 > d2) {
+            return Triangle->p0;
+        } else {
+            return Triangle->p2;
+        }
+    } else {
+        if(d1 > d2) {
+            return Triangle->p1;
+        } else {
+            return Triangle->p2;
+        }
+    }
+}
+
 function GJK_SUPPORT_FUNC(GJK_Add_Radius_Support) {
     gjk_add_radius* AddRadius = (gjk_add_radius*)UserData;
     f32 Length = V3_Mag(Direction);
@@ -491,6 +519,16 @@ export_function gjk_support GJK_AABB(arena* Arena, v3 Min, v3 Max) {
     
 	gjk_support Support = GJK_Make_Support(GJK_AABB_Support, AABB);
 	return Support;
+}
+
+export_function gjk_support GJK_Triangle(arena* Arena, v3 p0, v3 p1, v3 p2) {
+    gjk_triangle* Triangle = Arena_Push_Struct(Arena, gjk_triangle);
+    Triangle->p0 = p0;
+    Triangle->p1 = p1;
+    Triangle->p2 = p2;
+    
+    gjk_support Support = GJK_Make_Support(GJK_Triangle_Support, Triangle);
+    return Support;
 }
 
 export_function gjk_support GJK_Add_Radius(arena* Arena, gjk_support InnerSupport, f32 Radius) {

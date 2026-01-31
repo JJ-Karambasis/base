@@ -47,7 +47,6 @@ typedef struct {
 	hashmap 		  StructMap;
 	hashmap 		  UnionMap;
 	hashmap 		  EnumMap;
-	size_t 			  GeneratedIndex;
 } source_parser;
 
 typedef struct meta_struct_type meta_struct_type;

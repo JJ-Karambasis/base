@@ -23,6 +23,7 @@ export_function gjk_support GJK_Radius(arena* Arena, f32 Radius);
 export_function gjk_support GJK_Sphere(arena* Arena, v3 P, f32 Radius);
 export_function gjk_support GJK_Extent(arena* Arena, v3 HalfExtent);
 export_function gjk_support GJK_AABB(arena* Arena, v3 Min, v3 Max);
+export_function gjk_support GJK_Triangle(arena* Arena, v3 p0, v3 p1, v3 p2);
 export_function gjk_support GJK_Add_Radius(arena* Arena, gjk_support InnerSupport, f32 Radius);
 export_function gjk_support GJK_Transform(arena* Arena, gjk_support InnerSupport, const m4* Matrix);
 

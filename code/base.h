@@ -285,7 +285,6 @@ b = _temp_; \
 
 #include "atomic/atomic.h"
 
-
 export_function b32 Equal_Zero_Approx_F32(f32 Value, f32 Epsilon);
 export_function b32 Equal_Zero_Eps_F32(f32 Value);
 export_function b32 Equal_Zero_Eps_Sq_F32(f32 SqValue);
@@ -322,6 +321,7 @@ export_function char To_Upper(char Char);
 export_function b32 Is_Finite(f32 V);
 export_function b32 Is_Nan(f32 V);\
 export_function b32 Is_Close(f32 A, f32 B, f32 ToleranceSq);
+
 
 typedef struct {
     union {
