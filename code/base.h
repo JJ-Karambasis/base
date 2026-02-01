@@ -574,6 +574,7 @@ export_function m4 M4_Inverse_Perspective(f32 FOV, f32 AspectRatio, f32 ZNear, f
 export_function m4 M4_Orthographic(f32 Left, f32 Right, f32 Bottom, f32 Top, f32 Near, f32 Far);
 export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f);
 export_function v4 V4_Mul_M4(v4 A, const m4* B);
+export_function m4 M4_Inverse(const m4* M);
 
 typedef struct {
     union {

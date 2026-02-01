@@ -1180,7 +1180,7 @@ export_function m4 M4_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
 		2/(r-l), 		0, 			0,  		  0, 
 		0, 				2/(t-b), 	0,  		  0, 
 		0, 				0, 			1/(n-f), 	  0,
-		-(r+l)/(r-l), -(t+b)/(t-b), n/(n-f), 1
+		(l+r)/(l-r), (t+b)/(b-t), n/(n-f), 1
 	};
 	return Result;
 }
@@ -1205,6 +1205,36 @@ export_function v4 V4_Mul_M4(v4 A, const m4* B) {
 	Result.w = V4_Dot(A, BTransposed.Rows[3]);
 	return Result;
 }
+
+
+export_function m4 M4_Inverse(const m4* M) {
+	f32 xSq = V3_Sq_Mag(M->x);
+	f32 ySq = V3_Sq_Mag(M->y);
+	f32 zSq = V3_Sq_Mag(M->z);
+    
+	f32 sx = Equal_Zero_Eps_Sq_F32(xSq) ? 0.0f : 1.0f/xSq;
+	f32 sy = Equal_Zero_Eps_Sq_F32(ySq) ? 0.0f : 1.0f/ySq;
+	f32 sz = Equal_Zero_Eps_Sq_F32(zSq) ? 0.0f : 1.0f/zSq;
+    
+	v3 NewX = V3_Mul_S(M->x, sx);
+	v3 NewY = V3_Mul_S(M->y, sy);
+	v3 NewZ = V3_Mul_S(M->z, sz);
+    
+    v3 NewT = V3(-V3_Dot(M->t, NewX),
+                 -V3_Dot(M->t, NewY),
+                 -V3_Dot(M->t, NewZ));
+    
+	m4 Result = {
+		.Data = {
+			NewX.x, NewY.x, NewZ.x, 0,
+			NewX.y, NewY.y, NewZ.y, 0,
+			NewX.z, NewY.z, NewZ.z, 0,
+            NewT.x, NewT.y, NewT.z, 1
+		}
+	};
+	return Result;
+}
+
 
 export_function m4_affine M4_Affine_F32(const f32* Matrix) {
 	m4_affine Result;
