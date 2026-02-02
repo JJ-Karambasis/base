@@ -4,7 +4,8 @@
 #undef function
 #define function static
 
-Array_Implement(gdi_handle, GDI_Handle);
+Array_Implement(gdi_texture_view, GDI_Texture_View);
+Array_Implement(gdi_buffer, GDI_Buffer);
 Array_Implement(gdi_dispatch, GDI_Dispatch);
 Array_Implement(gdi_bind_group_binding, GDI_Bind_Group_Binding);
 
@@ -44,15 +45,6 @@ export_function gdi_device_context* GDI_Get_Device_Context() {
 	return GDI->DeviceContext;
 }
 
-#ifdef DEBUG_BUILD
-function inline b32 GDI_Is_Type_(gdi_handle Handle, gdi_object_type Type) {
-	return !GDI_Is_Null(Handle) && Handle.Type == Type;
-}
-#define GDI_Is_Type(handle, type) GDI_Is_Type_(handle, GDI_OBJECT_TYPE_##type)
-#else
-#define GDI_Is_Type(handle, type)
-#endif
-
 function inline arena* GDI_Frame_Arena() {
 	gdi* GDI = GDI_Get();
 	Assert(GDI->DeviceContext);
@@ -60,10 +52,10 @@ function inline arena* GDI_Frame_Arena() {
 }
 
 /* Resource creation. Mostly validation on the front end*/
-export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo) {
+export_function gdi_texture GDI_Create_Texture(const gdi_texture_create_info* CreateInfo) {
 	Assert(CreateInfo->Format != GDI_FORMAT_NONE && CreateInfo->Usage != GDI_TEXTURE_USAGE_NONE && 
 		   CreateInfo->Dim.x != 0 && CreateInfo->Dim.y != 0 && CreateInfo->MipCount != 0);
-	gdi_handle Result = GDI_Backend_Create_Texture(CreateInfo);
+	gdi_texture Result = GDI_Backend_Create_Texture(CreateInfo);
 	if (!GDI_Is_Null(Result) && CreateInfo->InitialData) {
 		arena* Scratch = Scratch_Get();
         
@@ -81,8 +73,7 @@ export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* Cre
 	return Result;
 }
 
-export_function void GDI_Delete_Texture(gdi_handle Texture) {
-	Assert(GDI_Is_Type(Texture, TEXTURE));
+export_function void GDI_Delete_Texture(gdi_texture Texture) {
 	if (!GDI_Is_Null(Texture)) {
 		GDI_Backend_Delete_Texture(Texture);
 	}
@@ -92,42 +83,38 @@ export_function void GDI_Update_Textures(gdi_texture_update_array Updates) {
 	GDI_Backend_Update_Textures(Updates);
 }
 
-export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture) {
-	Assert(GDI_Is_Type(Texture, TEXTURE));
+export_function gdi_texture_info GDI_Get_Texture_Info(gdi_texture Texture) {
 	return GDI_Backend_Get_Texture_Info(Texture);
 }
 
-export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo) {
-	Assert(GDI_Is_Type(CreateInfo->Texture, TEXTURE));
-	gdi_handle Result = GDI_Backend_Create_Texture_View(CreateInfo);
+export_function gdi_texture_view GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo) {
+	gdi_texture_view Result = GDI_Backend_Create_Texture_View(CreateInfo);
 	return Result;
 }
 
-export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Texture) {
+export_function gdi_texture_view GDI_Create_Texture_View_From_Texture(gdi_texture Texture) {
 	gdi_texture_view_create_info ViewInfo = {
 		.Texture = Texture
 	};
     
-	gdi_handle Result = GDI_Create_Texture_View(&ViewInfo);
+	gdi_texture_view Result = GDI_Create_Texture_View(&ViewInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Texture_View(gdi_handle TextureView) {
-	Assert(GDI_Is_Type(TextureView, TEXTURE_VIEW));
+export_function void GDI_Delete_Texture_View(gdi_texture_view TextureView) {
 	if (!GDI_Is_Null(TextureView)) {
 		GDI_Backend_Delete_Texture_View(TextureView);
 	}
 }
 
-export_function gdi_handle GDI_Get_Texture_View_Texture(gdi_handle TextureView) {
-	Assert(GDI_Is_Type(TextureView, TEXTURE_VIEW));
-	if(GDI_Is_Null(TextureView)) return GDI_Null_Handle();
+export_function gdi_texture GDI_Get_Texture_View_Texture(gdi_texture_view TextureView) {
+	if(GDI_Is_Null(TextureView)) return GDI_Null_Handle(gdi_texture);
 	return GDI_Backend_Get_Texture_View_Texture(TextureView);
 }
 
-export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo) {
+export_function gdi_buffer GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo) {
 	Assert(CreateInfo->Size != 0 && CreateInfo->Usage != GDI_BUFFER_USAGE_NONE);
-	gdi_handle Result = GDI_Backend_Create_Buffer(CreateInfo);
+	gdi_buffer Result = GDI_Backend_Create_Buffer(CreateInfo);
 	if (!GDI_Is_Null(Result) && !Buffer_Is_Empty(CreateInfo->InitialData)) {
 		void* Memory = GDI_Backend_Map_Buffer(Result, 0, CreateInfo->InitialData.Size);
 		if (Memory) {
@@ -138,58 +125,52 @@ export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* Creat
 	return Result;
 }
 
-export_function void GDI_Delete_Buffer(gdi_handle Buffer) {
-	Assert(GDI_Is_Type(Buffer, BUFFER));
+export_function void GDI_Delete_Buffer(gdi_buffer Buffer) {
 	if (!GDI_Is_Null(Buffer)) {
 		GDI_Backend_Delete_Buffer(Buffer);
 	}
 }
 
-export_function void* GDI_Map_Buffer(gdi_handle Buffer, size_t Offset, size_t Size) {
-	Assert(GDI_Is_Type(Buffer, BUFFER));
+export_function void* GDI_Map_Buffer(gdi_buffer Buffer, size_t Offset, size_t Size) {
 	if (GDI_Is_Null(Buffer)) return NULL;
 	void* Result = GDI_Backend_Map_Buffer(Buffer, Offset, Size);
 	return Result;
 }
 
-export_function void GDI_Unmap_Buffer(gdi_handle Buffer) {
-	Assert(GDI_Is_Type(Buffer, BUFFER));
+export_function void GDI_Unmap_Buffer(gdi_buffer Buffer) {
 	if (!GDI_Is_Null(Buffer)) {
 		GDI_Backend_Unmap_Buffer(Buffer);
 	}
 }
 
-export_function gdi_handle GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo) {
-	gdi_handle Result = GDI_Backend_Create_Sampler(CreateInfo);
+export_function gdi_sampler GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo) {
+	gdi_sampler Result = GDI_Backend_Create_Sampler(CreateInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Sampler(gdi_handle Sampler) {
-	Assert(GDI_Is_Type(Sampler, SAMPLER));
+export_function void GDI_Delete_Sampler(gdi_sampler Sampler) {
 	if (!GDI_Is_Null(Sampler)) {
 		GDI_Backend_Delete_Sampler(Sampler);
 	}
 }
 
-export_function gdi_handle GDI_Create_Bind_Group_Layout(const gdi_bind_group_layout_create_info* CreateInfo) {
-	gdi_handle Result = GDI_Backend_Create_Bind_Group_Layout(CreateInfo);
+export_function gdi_layout GDI_Create_Bind_Group_Layout(const gdi_bind_group_layout_create_info* CreateInfo) {
+	gdi_layout Result = GDI_Backend_Create_Bind_Group_Layout(CreateInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Bind_Group_Layout(gdi_handle BindGroupLayout) {
-	Assert(GDI_Is_Type(BindGroupLayout, BIND_GROUP_LAYOUT));
+export_function void GDI_Delete_Bind_Group_Layout(gdi_layout BindGroupLayout) {
 	if (!GDI_Is_Null(BindGroupLayout)) {
 		GDI_Backend_Delete_Bind_Group_Layout(BindGroupLayout);
 	}
 }
 
-export_function gdi_handle GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo) {
-	gdi_handle Result = GDI_Backend_Create_Bind_Group(CreateInfo);
+export_function gdi_bind_group GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo) {
+	gdi_bind_group Result = GDI_Backend_Create_Bind_Group(CreateInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup) {
-	Assert(GDI_Is_Type(BindGroup, BIND_GROUP));
+export_function void GDI_Delete_Bind_Group(gdi_bind_group BindGroup) {
 	if (!GDI_Is_Null(BindGroup)) {
 		GDI_Backend_Delete_Bind_Group(BindGroup);
 	}
@@ -199,47 +180,42 @@ export_function void GDI_Update_Bind_Groups(gdi_bind_group_write_array Writes, g
 	GDI_Backend_Update_Bind_Groups(Writes, Copies);
 }
 
-export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo) {
+export_function gdi_shader GDI_Create_Shader(const gdi_shader_create_info* CreateInfo) {
 	Assert(CreateInfo->PushConstantCount <= GDI_MAX_PUSH_CONSTANT_COUNT);
-	gdi_handle Result = GDI_Backend_Create_Shader(CreateInfo);
+	gdi_shader Result = GDI_Backend_Create_Shader(CreateInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Shader(gdi_handle Shader) {
-	Assert(GDI_Is_Type(Shader, SHADER));
+export_function void GDI_Delete_Shader(gdi_shader Shader) {
 	if (!GDI_Is_Null(Shader)) {
 		GDI_Backend_Delete_Shader(Shader);
 	}
 }
 
-export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo) {
-	gdi_handle Result = GDI_Backend_Create_Swapchain(CreateInfo);
+export_function gdi_swapchain GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo) {
+	gdi_swapchain Result = GDI_Backend_Create_Swapchain(CreateInfo);
 	return Result;
 }
 
-export_function void GDI_Delete_Swapchain(gdi_handle Swapchain) {
-	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+export_function void GDI_Delete_Swapchain(gdi_swapchain Swapchain) {
 	if (!GDI_Is_Null(Swapchain)) {
 		GDI_Backend_Delete_Swapchain(Swapchain);
 	}
 }
 
-export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain) {
-	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
-	gdi_handle Result = GDI_Null_Handle();
+export_function gdi_texture_view GDI_Get_Swapchain_View(gdi_swapchain Swapchain) {
+	gdi_texture_view Result = GDI_Null_Handle(gdi_texture_view);
 	if (!GDI_Is_Null(Swapchain)) {
 		Result = GDI_Backend_Get_Swapchain_View(Swapchain);
 	}
 	return Result;
 }
 
-export_function void GDI_Resize_Swapchain(gdi_handle Swapchain) {
-	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+export_function void GDI_Resize_Swapchain(gdi_swapchain Swapchain) {
 	GDI_Backend_Resize_Swapchain(Swapchain);
 }
 
-export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain) {
-	Assert(GDI_Is_Type(Swapchain, SWAPCHAIN));
+export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_swapchain Swapchain) {
 	gdi_swapchain_info Result;
 	Memory_Clear(&Result, sizeof(gdi_swapchain_info));
 	if (!GDI_Is_Null(Swapchain)) {
@@ -257,23 +233,17 @@ export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass) {
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 }
 
-export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi_handle_array BufferWrites, gdi_dispatch_array Dispatches) {
+export_function void GDI_Submit_Compute_Pass(gdi_texture_view_array TextureWrites, gdi_buffer_array BufferWrites, gdi_dispatch_array Dispatches) {
 	gdi_device_context* Context = GDI_Get_Device_Context();
 	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
 	Pass->Type = GDI_PASS_TYPE_COMPUTE;
-	Pass->ComputePass.TextureWrites = GDI_Handle_Array_Copy((allocator*)Context->FrameArena, TextureWrites.Ptr, TextureWrites.Count);
-	Pass->ComputePass.BufferWrites  = GDI_Handle_Array_Copy((allocator*)Context->FrameArena, BufferWrites.Ptr, BufferWrites.Count);
+	Pass->ComputePass.TextureWrites = GDI_Texture_View_Array_Copy((allocator*)Context->FrameArena, TextureWrites.Ptr, TextureWrites.Count);
+	Pass->ComputePass.BufferWrites  = GDI_Buffer_Array_Copy((allocator*)Context->FrameArena, BufferWrites.Ptr, BufferWrites.Count);
 	Pass->ComputePass.Dispatches    = GDI_Dispatch_Array_Copy((allocator*)Context->FrameArena, Dispatches.Ptr, Dispatches.Count);
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 }
 
 export_function void GDI_Render(const gdi_render_params* RenderParams) {
-#ifdef DEBUG_BUILD
-	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
-		Assert(GDI_Is_Type(RenderParams->Swapchains.Ptr[i], SWAPCHAIN));
-	}
-#endif
-	
 	gdi_device_context* Context = GDI_Get_Device_Context();
 	for (im_gdi* ImGDI = (im_gdi*)Atomic_Load_Ptr(&Context->TopIM); ImGDI; ImGDI = ImGDI->Next) {
 		if (!ImGDI->IsReset) {
@@ -307,24 +277,23 @@ export_function void GDI_End_Render_Pass(gdi_render_pass* RenderPass) {
 	GDI_Backend_End_Render_Pass(RenderPass);
 }
 
-export_function gdi_handle Render_Get_Shader(gdi_render_pass* RenderPass) {
+export_function gdi_shader Render_Get_Shader(gdi_render_pass* RenderPass) {
 	return RenderPass->CurrentState.Shader;
 }
 
-export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_handle Shader) {
-	Assert(GDI_Is_Type(Shader, SHADER));
+export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_shader Shader) {
 	RenderPass->CurrentState.Shader = Shader;
 }
 
-export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_handle* BindGroups, size_t Count) {	
+export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_bind_group* BindGroups, size_t Count) {	
 	for (size_t i = Offset; i < Count; i++) {
-		Assert(GDI_Is_Type(BindGroups[i], BIND_GROUP) && (i < GDI_MAX_BIND_GROUP_COUNT));
+		Assert(i < GDI_MAX_BIND_GROUP_COUNT);
 		RenderPass->CurrentState.BindGroups[i] = BindGroups[i];
 	}
 }
 
-export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_handle BindGroup) {
-	Assert(GDI_Is_Type(BindGroup, BIND_GROUP) && (Index < GDI_MAX_BIND_GROUP_COUNT));
+export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_bind_group BindGroup) {
+	Assert(Index < GDI_MAX_BIND_GROUP_COUNT);
 	RenderPass->CurrentState.BindGroups[Index] = BindGroup;
 }
 
@@ -334,20 +303,19 @@ export_function void Render_Set_Push_Constants(gdi_render_pass* RenderPass, void
 	Memory_Copy(RenderPass->CurrentState.PushConstants, Data, Size);
 }
 
-export_function void Render_Set_Vtx_Buffer(gdi_render_pass* RenderPass, u32 Index, gdi_handle VtxBuffer) {
-	Assert(GDI_Is_Type(VtxBuffer, BUFFER) && (Index < GDI_MAX_VTX_BUFFER_COUNT));
+export_function void Render_Set_Vtx_Buffer(gdi_render_pass* RenderPass, u32 Index, gdi_buffer VtxBuffer) {
+	Assert(Index < GDI_MAX_VTX_BUFFER_COUNT);
 	RenderPass->CurrentState.VtxBuffers[Index] = VtxBuffer;
 }
 
-export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Count, gdi_handle* VtxBuffers) {
+export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Count, gdi_buffer* VtxBuffers) {
 	Assert(Count < GDI_MAX_VTX_BUFFER_COUNT);
 	for (u32 i = 0; i < Count; i++) {
 		Render_Set_Vtx_Buffer(RenderPass, i, VtxBuffers[i]);
 	}
 }
 
-export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_handle IdxBuffer, gdi_idx_format IdxFormat) {
-	Assert(GDI_Is_Type(IdxBuffer, BUFFER));
+export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_buffer IdxBuffer, gdi_idx_format IdxFormat) {
 	RenderPass->CurrentState.IdxBuffer = IdxBuffer;
 	RenderPass->CurrentState.IdxFormat = IdxFormat;
 }
@@ -386,16 +354,16 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 	if (!GDI_Is_Equal(PrevState->Shader, CurrentState->Shader)) {
 		Assert(!GDI_Is_Null(CurrentState->Shader));
 		*Bitfield |= GDI_RENDER_PASS_SHADER_BIT;
-		Memory_Copy(Stream, &CurrentState->Shader, sizeof(gdi_handle));
-		Stream += sizeof(gdi_handle);
+		Memory_Copy(Stream, &CurrentState->Shader, sizeof(gdi_shader));
+		Stream += sizeof(gdi_shader);
 	}
     
 	for (u32 i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
 		if (!GDI_Is_Null(CurrentState->BindGroups[i])) {
 			if (!GDI_Is_Equal(PrevState->BindGroups[i], CurrentState->BindGroups[i])) {
 				*Bitfield |= (GDI_RENDER_PASS_BIND_GROUP_BIT << i);
-				Memory_Copy(Stream, &CurrentState->BindGroups[i], sizeof(gdi_handle));
-				Stream += sizeof(gdi_handle);
+				Memory_Copy(Stream, &CurrentState->BindGroups[i], sizeof(gdi_bind_group));
+				Stream += sizeof(gdi_bind_group);
 			}
 		}
 	}
@@ -404,16 +372,16 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 		if (!GDI_Is_Null(CurrentState->VtxBuffers[i])) {
 			if (!GDI_Is_Equal(PrevState->VtxBuffers[i], CurrentState->VtxBuffers[i])) {
 				*Bitfield |= (GDI_RENDER_PASS_VTX_BUFFER_BIT << i);
-				Memory_Copy(Stream, &CurrentState->VtxBuffers[i], sizeof(gdi_handle));
-				Stream += sizeof(gdi_handle);
+				Memory_Copy(Stream, &CurrentState->VtxBuffers[i], sizeof(gdi_buffer));
+				Stream += sizeof(gdi_buffer);
 			}
 		}
 	}
     
 	if (!GDI_Is_Equal(PrevState->IdxBuffer, CurrentState->IdxBuffer)) {
 		*Bitfield |= GDI_RENDER_PASS_IDX_BUFFER_BIT;
-		Memory_Copy(Stream, &CurrentState->IdxBuffer, sizeof(gdi_handle));
-		Stream += sizeof(gdi_handle);
+		Memory_Copy(Stream, &CurrentState->IdxBuffer, sizeof(gdi_buffer));
+		Stream += sizeof(gdi_buffer);
 	}
     
 	if (PrevState->IdxFormat != CurrentState->IdxFormat) {

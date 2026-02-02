@@ -36,8 +36,8 @@ struct im_gdi {
 	size_t 	   VtxBufferUsed;
 	size_t 	   LastIdxBufferUsed;
 	size_t 	   LastVtxBufferUsed;
-	gdi_handle IdxBuffer;
-	gdi_handle VtxBuffer;
+	gdi_buffer IdxBuffer;
+	gdi_buffer VtxBuffer;
 	u8* 	   VtxBufferPtr;
 	u8* 	   IdxBufferPtr;
     

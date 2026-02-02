@@ -158,27 +158,29 @@ typedef enum {
 #endif
 
 /* Structs */
-typedef struct {
-#ifdef DEBUG_BUILD
-    gdi_object_type Type;
-#endif
-    gdi_id ID;
-} gdi_handle;
-Array_Define(gdi_handle);
+#define GDI_Resource_Define(name) \
+typedef struct { \
+gdi_id ID; \
+} name; \
+function inline name _GDI_Null_##name() { \
+name Result; \
+Memory_Clear(&Result, sizeof(name)); \
+return Result; \
+} \
+function inline name _GDI_Make_##name(u32 ID) { \
+name Result = { .ID = { ID } }; \
+return Result; \
+} \
+Array_Define(name)
 
-#ifdef DEBUG_BUILD
-function inline gdi_handle GDI_Make_Handle_(gdi_object_type Type, u32 ID) {
-    gdi_handle Result = { Type, { ID }};
-    return Result;
-}
-#define GDI_Make_Handle(type, id) GDI_Make_Handle_(GDI_OBJECT_TYPE_##type, id)
-#else
-function inline gdi_handle GDI_Make_Handle_(u32 ID) {
-    gdi_handle Result = {{ID}};
-    return Result;
-}
-#define GDI_Make_Handle(type, id) GDI_Make_Handle_(id)
-#endif
+GDI_Resource_Define(gdi_texture);
+GDI_Resource_Define(gdi_texture_view);
+GDI_Resource_Define(gdi_buffer);
+GDI_Resource_Define(gdi_sampler);
+GDI_Resource_Define(gdi_layout);
+GDI_Resource_Define(gdi_bind_group);
+GDI_Resource_Define(gdi_shader);
+GDI_Resource_Define(gdi_swapchain);
 
 typedef union {
     gdi_id ID;
@@ -217,7 +219,7 @@ typedef struct {
 } gdi_texture_info;
 
 typedef struct {
-    gdi_handle 	  Texture;
+    gdi_texture Texture;
     u32 	   	  MipOffset;
     u32 	   	  MipCount;
     v2i 	   	  Offset;
@@ -227,7 +229,7 @@ typedef struct {
 Array_Define(gdi_texture_update);
 
 typedef struct {
-    gdi_handle Texture;
+    gdi_texture Texture;
     gdi_format Format;
     u32 	   MipOffset;
     u32 	   MipCount;
@@ -251,7 +253,7 @@ typedef struct {
 typedef struct {
     gdi_bind_group_type Type;
     u32 				Count;
-    gdi_handle* 		StaticSamplers;
+    gdi_sampler* 		StaticSamplers;
 } gdi_bind_group_binding;
 
 Array_Define(gdi_bind_group_binding);
@@ -261,7 +263,7 @@ typedef struct {
 } gdi_bind_group_layout_create_info;
 
 typedef struct {
-    gdi_handle Buffer;
+    gdi_buffer Buffer;
     size_t 	   Offset;
     size_t 	   Size;
 } gdi_bind_group_buffer;
@@ -269,13 +271,13 @@ Array_Define(gdi_bind_group_buffer);
 
 
 typedef struct {
-    gdi_handle DstBindGroup;
+    gdi_bind_group DstBindGroup;
     u32 	   DstBinding;
     u32 	   DstIndex;
     
     gdi_bind_group_buffer_array Buffers;
-    gdi_handle_array 			TextureViews;
-    gdi_handle_array 			Samplers;
+    gdi_texture_view_array TextureViews;
+    gdi_sampler_array Samplers;
 } gdi_bind_group_write;
 Array_Define(gdi_bind_group_write);
 
@@ -284,10 +286,10 @@ typedef struct {
 } gdi_bind_group_write_info;
 
 typedef struct {
-    gdi_handle DstBindGroup;
+    gdi_bind_group DstBindGroup;
     u32 	   DstBinding;
     u32 	   DstIndex;
-    gdi_handle SrcBindGroup;
+    gdi_bind_group SrcBindGroup;
     u32 	   SrcBinding;
     u32 	   SrcIndex;
     u32 	   Count;
@@ -299,7 +301,7 @@ typedef struct {
 } gdi_bind_group_copy_info;
 
 typedef struct {
-    gdi_handle 				   Layout;
+    gdi_layout Layout;
     gdi_bind_group_write_array Writes;
     gdi_bind_group_copy_array  Copies;
     string 			 		   DebugName;
@@ -334,7 +336,7 @@ typedef struct {
     buffer VS;
     buffer PS;
     buffer CS;
-    gdi_handle_array BindGroupLayouts;
+    gdi_layout_array BindGroupLayouts;
     gdi_bind_group_binding_array WritableBindings;
     u32 		   	 PushConstantCount;
     gdi_vtx_binding_array VtxBindings;
@@ -406,8 +408,8 @@ typedef struct {
 } gdi_clear_depth;
 
 typedef struct {
-    gdi_handle RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
-    gdi_handle DepthBufferView;
+    gdi_texture_view RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
+    gdi_texture_view DepthBufferView;
     gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
     gdi_clear_depth ClearDepth;
 } gdi_render_pass_begin_info;
@@ -416,8 +418,8 @@ typedef struct {
 #define GDI_MAX_PUSH_CONSTANT_SIZE (GDI_MAX_PUSH_CONSTANT_COUNT * sizeof(u32))
 
 typedef struct {
-    gdi_handle Shader;
-    gdi_handle BindGroups[GDI_MAX_BIND_GROUP_COUNT-1]; //Save one slot for the writable bind group
+    gdi_shader Shader;
+    gdi_bind_group BindGroups[GDI_MAX_BIND_GROUP_COUNT-1]; //Save one slot for the writable bind group
     u32 	   PushConstantCount;
     u32 	   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
     v3i 	   ThreadGroupCount;
@@ -425,11 +427,11 @@ typedef struct {
 Array_Define(gdi_dispatch);
 
 typedef struct {
-    gdi_handle 	   Shader;
-    gdi_handle 	   BindGroups[GDI_MAX_BIND_GROUP_COUNT];
+    gdi_shader Shader;
+    gdi_bind_group BindGroups[GDI_MAX_BIND_GROUP_COUNT];
     u32 		   DynamicOffsets[GDI_MAX_BIND_GROUP_COUNT];
-    gdi_handle 	   VtxBuffers[GDI_MAX_VTX_BUFFER_COUNT];
-    gdi_handle 	   IdxBuffer;
+    gdi_buffer VtxBuffers[GDI_MAX_VTX_BUFFER_COUNT];
+    gdi_buffer IdxBuffer;
     gdi_idx_format IdxFormat;
     s32 		   ScissorMinX;
     s32 		   ScissorMinY;
@@ -474,8 +476,8 @@ typedef enum {
 } gdi_pass_type;
 
 typedef struct {
-    gdi_handle_array   TextureWrites;
-    gdi_handle_array   BufferWrites;
+    gdi_texture_view_array TextureWrites;
+    gdi_buffer_array BufferWrites;
     gdi_dispatch_array Dispatches;
 } gdi_compute_pass;
 
@@ -489,18 +491,18 @@ struct gdi_pass {
     gdi_pass* Next;
 };
 
-#define GDI_TEXTURE_READBACK_DEFINE(name) void name(gdi_handle Texture, v2i Dim, gdi_format Format, const void* Texels, void* UserData)
+#define GDI_TEXTURE_READBACK_DEFINE(name) void name(gdi_texture Texture, v2i Dim, gdi_format Format, const void* Texels, void* UserData)
 typedef GDI_TEXTURE_READBACK_DEFINE(gdi_texture_readback_func);
 typedef struct {
-    gdi_handle 				   Texture;
+    gdi_texture Texture;
     void* 					   UserData;
     gdi_texture_readback_func* ReadbackFunc;
 } gdi_texture_readback;
 
-#define GDI_BUFFER_READBACK_DEFINE(name) void name(gdi_handle Buffer, size_t Size, const void* Data, void* UserData)
+#define GDI_BUFFER_READBACK_DEFINE(name) void name(gdi_buffer Buffer, size_t Size, const void* Data, void* UserData)
 typedef GDI_BUFFER_READBACK_DEFINE(gdi_buffer_readback_func);
 typedef struct {
-    gdi_handle 				  Buffer;
+    gdi_buffer Buffer;
     void* 					  UserData;
     gdi_buffer_readback_func* ReadbackFunc;
 } gdi_buffer_readback;
@@ -510,7 +512,7 @@ Array_Define(gdi_buffer_readback);
 typedef struct {
     gdi_texture_readback_array TextureReadbacks;
     gdi_buffer_readback_array  BufferReadbacks;
-    gdi_handle_array 		   Swapchains;
+    gdi_swapchain_array 		   Swapchains;
 } gdi_render_params;
 
 #define GDI_LOG_DEFINE(name) void name(gdi_log_type Type, string Message, void* UserData)
@@ -544,38 +546,38 @@ typedef struct {
 
 #define GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(name) b32 name(gdi* GDI, gdi_device* Device)
 
-#define GDI_BACKEND_CREATE_TEXTURE_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_create_info* TextureInfo)
-#define GDI_BACKEND_DELETE_TEXTURE_DEFINE(name) void name(gdi* GDI, gdi_handle Texture)
+#define GDI_BACKEND_CREATE_TEXTURE_DEFINE(name) gdi_texture name(gdi* GDI, const gdi_texture_create_info* TextureInfo)
+#define GDI_BACKEND_DELETE_TEXTURE_DEFINE(name) void name(gdi* GDI, gdi_texture TextureHandle)
 #define GDI_BACKEND_UPDATE_TEXTURES_DEFINE(name) void name(gdi* GDI, gdi_texture_update_array Updates)
-#define GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(name) gdi_texture_info name(gdi* GDI, gdi_handle Texture)
+#define GDI_BACKEND_GET_TEXTURE_INFO_DEFINE(name) gdi_texture_info name(gdi* GDI, gdi_texture Texture)
 
-#define GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_texture_view_create_info* TextureViewInfo)
-#define GDI_BACKEND_DELETE_TEXTURE_VIEW_DEFINE(name) void name(gdi* GDI, gdi_handle TextureView)
-#define GDI_BACKEND_GET_TEXTURE_VIEW_TEXTURE_DEFINE(name) gdi_handle name(gdi* GDI, gdi_handle TextureView)
+#define GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(name) gdi_texture_view name(gdi* GDI, const gdi_texture_view_create_info* TextureViewInfo)
+#define GDI_BACKEND_DELETE_TEXTURE_VIEW_DEFINE(name) void name(gdi* GDI, gdi_texture_view TextureViewHandle)
+#define GDI_BACKEND_GET_TEXTURE_VIEW_TEXTURE_DEFINE(name) gdi_texture name(gdi* GDI, gdi_texture_view TextureViewHandle)
 
-#define GDI_BACKEND_CREATE_BUFFER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_buffer_create_info* BufferInfo)
-#define GDI_BACKEND_DELETE_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_handle Buffer)
-#define GDI_BACKEND_MAP_BUFFER_DEFINE(name) void* name(gdi* GDI, gdi_handle Buffer, size_t Offset, size_t Size)
-#define GDI_BACKEND_UNMAP_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_handle Buffer)
+#define GDI_BACKEND_CREATE_BUFFER_DEFINE(name) gdi_buffer name(gdi* GDI, const gdi_buffer_create_info* BufferInfo)
+#define GDI_BACKEND_DELETE_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_buffer BufferHandle)
+#define GDI_BACKEND_MAP_BUFFER_DEFINE(name) void* name(gdi* GDI, gdi_buffer BufferHandle, size_t Offset, size_t Size)
+#define GDI_BACKEND_UNMAP_BUFFER_DEFINE(name) void name(gdi* GDI, gdi_buffer BufferHandle)
 
-#define GDI_BACKEND_CREATE_SAMPLER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_sampler_create_info* SamplerInfo)
-#define GDI_BACKEND_DELETE_SAMPLER_DEFINE(name) void name(gdi* GDI, gdi_handle Sampler)
+#define GDI_BACKEND_CREATE_SAMPLER_DEFINE(name) gdi_sampler name(gdi* GDI, const gdi_sampler_create_info* SamplerInfo)
+#define GDI_BACKEND_DELETE_SAMPLER_DEFINE(name) void name(gdi* GDI, gdi_sampler SamplerHandle)
 
-#define GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_bind_group_layout_create_info* BindGroupLayoutInfo)
-#define GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroupLayout)
+#define GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(name) gdi_layout name(gdi* GDI, const gdi_bind_group_layout_create_info* BindGroupLayoutInfo)
+#define GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(name) void name(gdi* GDI, gdi_layout BindGroupLayoutHandle)
 
-#define GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_bind_group_create_info* BindGroupInfo)
-#define GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_handle BindGroup)
+#define GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(name) gdi_bind_group name(gdi* GDI, const gdi_bind_group_create_info* BindGroupInfo)
+#define GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(name) void name(gdi* GDI, gdi_bind_group BindGroupHandle)
 #define GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(name) void name(gdi* GDI, gdi_bind_group_write_array Writes, gdi_bind_group_copy_array Copies)
 
-#define GDI_BACKEND_CREATE_SHADER_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_shader_create_info* ShaderInfo)
-#define GDI_BACKEND_DELETE_SHADER_DEFINE(name) void name(gdi* GDI, gdi_handle Shader)
+#define GDI_BACKEND_CREATE_SHADER_DEFINE(name) gdi_shader name(gdi* GDI, const gdi_shader_create_info* ShaderInfo)
+#define GDI_BACKEND_DELETE_SHADER_DEFINE(name) void name(gdi* GDI, gdi_shader ShaderHandle)
 
-#define GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(name) gdi_handle name(gdi* GDI, const gdi_swapchain_create_info* SwapchainInfo)
-#define GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_handle Swapchain)
-#define GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(name) gdi_handle name(gdi* GDI, gdi_handle SwapchainHandle)
-#define GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_handle Swapchain)
-#define GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(name) gdi_swapchain_info name(gdi* GDI, gdi_handle SwapchainHandle)
+#define GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(name) gdi_swapchain name(gdi* GDI, const gdi_swapchain_create_info* SwapchainInfo)
+#define GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_swapchain SwapchainHandle)
+#define GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(name) gdi_texture_view name(gdi* GDI, gdi_swapchain SwapchainHandle)
+#define GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_swapchain SwapchainHandle)
+#define GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(name) gdi_swapchain_info name(gdi* GDI, gdi_swapchain SwapchainHandle)
 
 #define GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(name) gdi_render_pass* name(gdi* GDI, const gdi_render_pass_begin_info* BeginInfo)
 #define GDI_BACKEND_END_RENDER_PASS_DEFINE(name) void name(gdi* GDI, gdi_render_pass* RenderPass)
@@ -733,26 +735,14 @@ function inline gdi_id GDI_Null_ID() {
     return Result;
 }
 
-function inline gdi_handle GDI_Null_Handle() {
-    gdi_handle Result;
-    Memory_Clear(&Result, sizeof(gdi_handle));
-    return Result;
-}
-
 function inline b32 GDI_ID_Is_Null(gdi_id ID) {
     return ID.ID == 0;
 }
 
-function inline b32 GDI_Is_Null(gdi_handle Handle) {
-    return GDI_ID_Is_Null(Handle.ID);
-}
-
-function inline b32 GDI_Is_Equal(gdi_handle A, gdi_handle B) {
-    b32 Result = A.ID.ID == B.ID.ID;
-    //If they are equal, make sure the types are the same
-    Assert(Result ? A.Type == B.Type : true);
-    return Result;
-}
+#define GDI_Is_Null(handle) GDI_ID_Is_Null(handle.ID)
+#define GDI_Is_Equal(a, b) ((a).ID.ID == (b).ID.ID)
+#define GDI_Null_Handle(type) _GDI_Null_##type()
+#define GDI_Make_Handle(type, id) _GDI_Make_##type(id)
 
 export_function gdi_format 			GDI_Get_SRGB_Format(gdi_format Format);
 export_function size_t 	   			GDI_Get_Format_Size(gdi_format);
@@ -762,51 +752,51 @@ export_function b32 	   			GDI_Set_Device_Context(gdi_device* Device);
 export_function b32        			GDI_Set_Default_Device_Context();
 export_function gdi_device_context* GDI_Get_Device_Context();
 
-export_function gdi_handle GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
-export_function void GDI_Delete_Texture(gdi_handle Texture);
+export_function gdi_texture GDI_Create_Texture(const gdi_texture_create_info* CreateInfo);
+export_function void GDI_Delete_Texture(gdi_texture Texture);
 export_function void GDI_Update_Textures(gdi_texture_update_array Updates);
-export_function gdi_texture_info GDI_Get_Texture_Info(gdi_handle Texture);
-export_function gdi_handle GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo);
-export_function gdi_handle GDI_Create_Texture_View_From_Texture(gdi_handle Texture);
-export_function void GDI_Delete_Texture_View(gdi_handle TextureView);
-export_function gdi_handle GDI_Get_Texture_View_Texture(gdi_handle TextureView);
-export_function gdi_handle GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo);
-export_function void GDI_Delete_Buffer(gdi_handle Buffer);
-export_function void* GDI_Map_Buffer(gdi_handle Buffer, size_t Offset, size_t Size);
-export_function void GDI_Unmap_Buffer(gdi_handle Buffer);
-export_function gdi_handle GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo);
-export_function void GDI_Delete_Sampler(gdi_handle Sampler);
-export_function gdi_handle GDI_Create_Bind_Group_Layout(const gdi_bind_group_layout_create_info* CreateInfo);
-export_function void GDI_Delete_Bind_Group_Layout(gdi_handle BindGroupLayout);
-export_function gdi_handle GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo);
-export_function void GDI_Delete_Bind_Group(gdi_handle BindGroup);
+export_function gdi_texture_info GDI_Get_Texture_Info(gdi_texture Texture);
+export_function gdi_texture_view GDI_Create_Texture_View(const gdi_texture_view_create_info* CreateInfo);
+export_function gdi_texture_view GDI_Create_Texture_View_From_Texture(gdi_texture Texture);
+export_function void GDI_Delete_Texture_View(gdi_texture_view TextureView);
+export_function gdi_texture GDI_Get_Texture_View_Texture(gdi_texture_view TextureView);
+export_function gdi_buffer GDI_Create_Buffer(const gdi_buffer_create_info* CreateInfo);
+export_function void GDI_Delete_Buffer(gdi_buffer Buffer);
+export_function void* GDI_Map_Buffer(gdi_buffer Buffer, size_t Offset, size_t Size);
+export_function void GDI_Unmap_Buffer(gdi_buffer Buffer);
+export_function gdi_sampler GDI_Create_Sampler(const gdi_sampler_create_info* CreateInfo);
+export_function void GDI_Delete_Sampler(gdi_sampler Sampler);
+export_function gdi_layout GDI_Create_Bind_Group_Layout(const gdi_bind_group_layout_create_info* CreateInfo);
+export_function void GDI_Delete_Bind_Group_Layout(gdi_layout BindGroupLayout);
+export_function gdi_bind_group GDI_Create_Bind_Group(const gdi_bind_group_create_info* CreateInfo);
+export_function void GDI_Delete_Bind_Group(gdi_bind_group BindGroup);
 export_function void GDI_Update_Bind_Groups(gdi_bind_group_write_array Writes, gdi_bind_group_copy_array Copies);
-export_function gdi_handle GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
-export_function void GDI_Delete_Shader(gdi_handle Shader);
-export_function gdi_handle GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);
-export_function void GDI_Delete_Swapchain(gdi_handle Swapchain);
-export_function gdi_handle GDI_Get_Swapchain_View(gdi_handle Swapchain);
-export_function void GDI_Resize_Swapchain(gdi_handle Swapchain);
-export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_handle Swapchain);
+export_function gdi_shader GDI_Create_Shader(const gdi_shader_create_info* CreateInfo);
+export_function void GDI_Delete_Shader(gdi_shader Shader);
+export_function gdi_swapchain GDI_Create_Swapchain(const gdi_swapchain_create_info* CreateInfo);
+export_function void GDI_Delete_Swapchain(gdi_swapchain Swapchain);
+export_function gdi_texture_view GDI_Get_Swapchain_View(gdi_swapchain Swapchain);
+export_function void GDI_Resize_Swapchain(gdi_swapchain Swapchain);
+export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_swapchain Swapchain);
 
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);
-export_function void GDI_Submit_Compute_Pass(gdi_handle_array TextureWrites, gdi_handle_array BufferWrites, gdi_dispatch_array Dispatches);
+export_function void GDI_Submit_Compute_Pass(gdi_texture_view_array TextureWrites, gdi_buffer_array BufferWrites, gdi_dispatch_array Dispatches);
 export_function void GDI_Render(const gdi_render_params* RenderParams);
 
 /* Render Pass */
 export_function gdi_render_pass* GDI_Begin_Render_Pass(const gdi_render_pass_begin_info* BeginInfo);
 export_function void GDI_End_Render_Pass(gdi_render_pass* RenderPass);
 
-export_function gdi_handle Render_Get_Shader(gdi_render_pass* RenderPass);
+export_function gdi_shader Render_Get_Shader(gdi_render_pass* RenderPass);
 
-export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_handle Shader);
-export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_handle* BindGroups, size_t Count);
-export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_handle BindGroup);
+export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_shader Shader);
+export_function void Render_Set_Bind_Groups(gdi_render_pass* RenderPass, size_t Offset, gdi_bind_group* BindGroups, size_t Count);
+export_function void Render_Set_Bind_Group(gdi_render_pass* RenderPass, size_t Index, gdi_bind_group BindGroup);
 export_function void Render_Set_Push_Constants(gdi_render_pass* RenderPass, void* Data, size_t Size);
-export_function void Render_Set_Vtx_Buffer(gdi_render_pass* RenderPass, u32 Index, gdi_handle VtxBuffer);
-export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Count, gdi_handle* VtxBuffers);
-export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_handle IdxBuffer, gdi_idx_format IdxFormat);
+export_function void Render_Set_Vtx_Buffer(gdi_render_pass* RenderPass, u32 Index, gdi_buffer VtxBuffer);
+export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Count, gdi_buffer* VtxBuffers);
+export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_buffer IdxBuffer, gdi_idx_format IdxFormat);
 export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s32 MinY, s32 MaxX, s32 MaxY);
 export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset);
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset);

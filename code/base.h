@@ -150,17 +150,35 @@ extern "C" {
 #ifdef DEBUG_BUILD 
 #include <assert.h>
 #define Assert(c) assert(c)
-#define Static_Assert(c) static_assert((c), "(" #c ") failed")
+#define Static_Assert_With_Message(c, message) static_assert((c), message)
 #else
 #define Assert(c)
     
 #ifdef __cplusplus
-#define Static_Assert(c) static_assert((c), "(" #c ") failed")
+#define Static_Assert_With_Message(c) static_assert((c), message)
 #else
-#define Static_Assert(c) _Static_assert((c), "(" #c ") failed")
+#define Static_Assert_With_Message(c) _Static_assert((c), message)
 #endif
     
 #endif
+    
+#define Static_Assert(c) Static_Assert_With_Message((c), "(" #c ") failed")
+    
+#ifdef __cplusplus
+#define Check_Type(a, b) std::is_same<decltype(a), decltype(b)>::value
+#else
+#define Check_Type(a, b) _Generic( \
+(b),                                  \
+__typeof__(a): 1,                                \
+default: 0                              \
+)
+#endif
+    
+#define Assert_Types(a, b) \
+Static_Assert_With_Message(                  \
+Check_Type(a, b), \
+"Macro inputs must be the same type!" \
+)
     
 #define Invalid_Default_Case default: { Assert(false); } break
 #define Invalid_Else else Assert(false)
@@ -663,6 +681,7 @@ export_function memory_reserve Subdivide_Memory_Reserve(memory_reserve* Reserve,
 export_function inline b32 Reserve_Is_Valid(memory_reserve* Reserve);
 export_function void* Commit_New_Size(memory_reserve* Reserve, size_t NewSize);
 export_function void Decommit_New_Size(memory_reserve* Reserve, size_t NewSize);
+export_function void Recommit_New_Size(memory_reserve* Reserve, size_t NewSize);
 export_function b32 Commit_All(memory_reserve* Reserve);
 
 typedef enum {
@@ -1026,15 +1045,17 @@ export_function b32 String_Is_Null_Term(string String);
 export_function b32 String_Equals(string StringA, string StringB);
 export_function size_t String_Find_First_Char(string String, char Character);
 export_function size_t String_Find_Last_Char(string String, char Character);
-export_function string String_Combine(allocator* Allocator, string* Strings, size_t Count);
+export_function string String_Combine(allocator* Allocator, const string* Strings, size_t Count);
 export_function string String_Concat(allocator* Allocator, string StringA, string StringB);
 export_function size_t String_Get_Last_Directory_Slash_Index(string Directory);
 export_function string String_Get_Directory_Path(string Path);
+export_function string String_Directory_Combine(allocator* Allocator, const string* Strings, size_t Count);
 export_function string String_Directory_Concat(allocator* Allocator, string StringA, string StringB);
 export_function b32 String_Starts_With_Char(string String, char Character);
 export_function b32 String_Ends_With_Char(string String, char Character);
 export_function string String_Get_Filename_Ext(string Filename);
 export_function string String_Get_Filename_Without_Ext(string Filename);
+export_function b32 String_Has_Filename_Ext(string Filename);
 export_function string String_Upper_Case(allocator* Allocator, string String);
 export_function string String_Lower_Case(allocator* Allocator, string String);
 export_function string String_Pascal_Case(allocator* Allocator, string String);

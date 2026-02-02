@@ -1676,11 +1676,20 @@ export_function void Decommit_New_Size(memory_reserve* Reserve, size_t NewSize) 
 	}
 }
 
+export_function void Recommit_New_Size(memory_reserve* Reserve, size_t NewSize) {
+    if(NewSize > Reserve->CommitSize) {
+        Commit_New_Size(Reserve, NewSize);
+    } else {
+        Decommit_New_Size(Reserve, NewSize);
+    }
+}
+
 export_function b32 Commit_All(memory_reserve* Reserve) {
 	b32 Result = false;
 	if (Reserve && Reserve->BaseAddress) {
 		Result = Commit_New_Size(Reserve, Reserve->ReserveSize) != NULL;
-	}
+        
+    }
 	return Result;
 }
 
@@ -2427,7 +2436,7 @@ export_function size_t String_Find_Last_Char(string String, char Character) {
 	return STRING_INVALID_INDEX;
 }
 
-export_function string String_Combine(allocator* Allocator, string* Strings, size_t Count) {
+export_function string String_Combine(allocator* Allocator, const string* Strings, size_t Count) {
 	size_t TotalSize = 0;
 	for (size_t i = 0; i < Count; i++) {
 		TotalSize += Strings[i].Size;
@@ -2443,7 +2452,6 @@ export_function string String_Combine(allocator* Allocator, string* Strings, siz
 	Ptr[TotalSize] = 0;
 	return Make_String(Ptr, TotalSize);
 }
-
 
 export_function string String_Concat(allocator* Allocator, string StringA, string StringB) {
 	string Strings[] = { StringA, StringB };
@@ -2473,24 +2481,37 @@ export_function string String_Get_Directory_Path(string Path) {
 	return String_Substr(Path, 0, PathIndex + 1);
 }
 
-export_function string String_Directory_Concat(allocator* Allocator, string StringA, string StringB) {
-	size_t StringCount = 0;
-	string Strings[3] = { 0 };
-	if (!StringA.Size) { return StringB; }
-	if (!StringB.Size) { return StringA; }
-	
-	if (StringA.Ptr[StringA.Size - 1] != '\\' && StringA.Ptr[StringA.Size - 1] != '/') {
-		Strings[0] = StringA;
-		Strings[1] = OS_DELIMTER_STRING;
-		Strings[2] = StringB;
-		StringCount = 3;
-	} else {
-		Strings[0] = StringA;
-		Strings[1] = StringB;
-		StringCount = 2;
-	}
+export_function string String_Directory_Combine(allocator* Allocator, const string* Strings, size_t Count) {
+    arena* Scratch = Scratch_Get();
+    dynamic_string_array StringList = Dynamic_String_Array_Init((allocator*)Scratch);
     
-	string String = String_Combine(Allocator, Strings, StringCount);
+    for(size_t i = 0; i < Count; i++) {
+        string String = Strings[i];
+        if(!String_Is_Empty(String)) {
+            b32 EndsWithTrailingSlash = String_Ends_With_Char(String, '/');
+            
+#ifdef OS_WIN32
+            EndsWithTrailingSlash |= String_Ends_With_Char(String, '\\');
+#endif
+            
+            Dynamic_String_Array_Add(&StringList, String);
+            if(!EndsWithTrailingSlash) {
+                b32 IsLastString = i+1 == Count;
+                if(!IsLastString || !String_Has_Filename_Ext(String)) {
+                    Dynamic_String_Array_Add(&StringList, OS_DELIMTER_STRING);
+                }
+            }
+        }
+    }
+    
+    string String = String_Combine(Allocator, StringList.Ptr, StringList.Count);
+    Scratch_Release();
+    return String;
+}
+
+export_function string String_Directory_Concat(allocator* Allocator, string StringA, string StringB) {
+	string Strings[] = { StringA, StringB };
+	string String = String_Directory_Combine(Allocator, Strings, Array_Count(Strings));
 	return String;
 }
 
@@ -2509,6 +2530,11 @@ export_function string String_Get_Filename_Ext(string Filename) {
 	if (DotIndex == STRING_INVALID_INDEX) return Filename;
 	string Result = String_Substr(Filename, DotIndex + 1, Filename.Size);
 	return Result;
+}
+
+export_function b32 String_Has_Filename_Ext(string Filename) {
+    size_t DotIndex = String_Find_Last_Char(Filename, '.');
+    return DotIndex != STRING_INVALID_INDEX;
 }
 
 export_function string String_Get_Filename_Without_Ext(string Filename) {

@@ -42,7 +42,7 @@ typedef struct {
 
 typedef struct vk_bind_group_dynamic_descriptor vk_bind_group_dynamic_descriptor;
 struct vk_bind_group_dynamic_descriptor {
-	gdi_handle   Buffer;
+	gdi_buffer Buffer;
 	u32 		 Index;
 	VkDeviceSize Offset;
 	VkDeviceSize Size;
@@ -51,7 +51,7 @@ struct vk_bind_group_dynamic_descriptor {
 
 typedef struct vk_bind_group_write_cmd vk_bind_group_write_cmd;
 struct vk_bind_group_write_cmd {
-	gdi_handle 						  BindGroup;
+	gdi_bind_group BindGroup;
 	u32 							  Binding;
 	size_t 							  LastUpdatedFrame;
 	vk_bind_group_dynamic_descriptor* FirstDynamicDescriptor;
@@ -61,10 +61,10 @@ struct vk_bind_group_write_cmd {
 
 typedef struct vk_bind_group_copy_cmd vk_bind_group_copy_cmd;
 struct vk_bind_group_copy_cmd {
-	gdi_handle DstBindGroup;
+	gdi_bind_group DstBindGroup;
 	u32        DstBinding;
 	u32 	   DstIndex;
-	gdi_handle SrcBindGroup;
+	gdi_bind_group SrcBindGroup;
 	u32 	   SrcBinding;
 	u32 	   SrcIndex;
 	size_t 	   LastUpdatedFrame;
@@ -86,13 +86,13 @@ typedef struct {
 	v2i 	   	  	  		   Dim;
 	u32 	   	  	  		   MipCount;
 	gdi_texture_usage 		   Usage;
-	gdi_handle 				   Swapchain;
+	gdi_swapchain Swapchain;
 	vk_gdi_queue_flags         QueueFlags;
 } vk_texture;
 
 typedef struct {
 	VkImageView ImageView;
-	gdi_handle  Texture;
+	gdi_texture Texture;
 	gdi_format  Format;
 	v2i 		Dim;
 } vk_texture_view;
@@ -118,27 +118,27 @@ typedef struct {
 	VkDescriptorSetLayout 		 Layout;
 	void* 						 AllocationData;
 	gdi_bind_group_binding_array Bindings;
-} vk_bind_group_layout;
+} vk_layout;
 
 typedef struct {
 	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
 	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
-
+    
 	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
 	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
 } vk_bind_group_binding;
 
 typedef struct {
 	void* AllocationData;
-
+    
 	//Length of the array is equal to the amount of frames in the device context
 	VkDescriptorSet* 	   Sets; 
 	vk_bind_group_binding* Bindings;
-	gdi_handle       	   Layout;
-
+	gdi_layout Layout;
+    
 	b32 ShouldUpdate;
 	u64 LastUpdatedFrame;
-
+    
 } vk_bind_group;
 
 typedef struct {
@@ -147,7 +147,7 @@ typedef struct {
 	VkPipeline Pipeline;
 	gdi_bind_group_binding_array WritableBindings;
 	VkDescriptorSetLayout WritableLayout;
-
+    
 #ifdef DEBUG_BUILD
 	gdi_pass_type DEBUGType;
 #endif
@@ -155,13 +155,13 @@ typedef struct {
 
 typedef struct vk_semaphore vk_semaphore;
 typedef struct {
-	gdi_handle 		   Handle;
+	gdi_swapchain Handle;
 	VkSurfaceKHR   	   Surface;
 	VkSwapchainKHR 	   Swapchain;
 	u32 		   	   ImageCount;
 	VkImage* 	   	   Images;
-	gdi_handle*    	   Textures;
-	gdi_handle*    	   TextureViews;
+	gdi_texture*    	   Textures;
+	gdi_texture_view*    	   TextureViews;
 	vk_semaphore* 	   Locks;
 	VkSurfaceFormatKHR SurfaceFormat;
 	gdi_format 		   Format;
@@ -195,8 +195,8 @@ typedef struct vk_render_pass vk_render_pass;
 
 struct vk_render_pass {
 	gdi_render_pass Base;
-	gdi_handle      RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
-	gdi_handle 		DepthBufferView;
+	gdi_texture_view RenderTargetViews[GDI_MAX_RENDER_TARGET_COUNT];
+	gdi_texture_view DepthBufferView;
 	v2i 			Dim;
 	gdi_clear_color ClearColors[GDI_MAX_RENDER_TARGET_COUNT];
 	gdi_clear_depth ClearDepth;
@@ -206,20 +206,20 @@ struct vk_render_pass {
 
 typedef struct vk_texture_barrier_cmd vk_texture_barrier_cmd;
 struct vk_texture_barrier_cmd {
-	gdi_handle 				Texture;
+	gdi_texture Texture;
 	vk_gdi_queue_flags 		QueueFlag;
 	vk_texture_barrier_cmd* Next;
 };
 
 typedef struct {
-	gdi_handle Texture;
+	gdi_texture Texture;
 	vk_cpu_buffer_push CPU;
 	gdi_texture_readback_func* Func;
 	void* UserData;
 } vk_texture_readback;
 
 typedef struct {
-	gdi_handle Buffer;
+	gdi_buffer Buffer;
 	vk_cpu_buffer_push CPU;
 	gdi_buffer_readback_func* Func;
 	void* UserData;
@@ -249,7 +249,7 @@ typedef struct  {
 	vk_texture_view_delete_queue 	  Texture_ViewDeleteQueue Tags(name: Texture_View);
 	vk_buffer_delete_queue 			  BufferDeleteQueue Tags(name: Buffer);
 	vk_sampler_delete_queue 		  SamplerDeleteQueue Tags(name: Sampler);
-	vk_bind_group_layout_delete_queue Bind_Group_LayoutDeleteQueue Tags(name: Bind_Group_Layout);
+	vk_layout_delete_queue              LayoutDeleteQueue Tags(name: Layout);
 	vk_bind_group_delete_queue 		  Bind_GroupDeleteQueue Tags(name: Bind_Group);
 	vk_shader_delete_queue 			  ShaderDeleteQueue Tags(name: Shader);
 	vk_swapchain_delete_queue 		  SwapchainDeleteQueue Tags(name: Swapchain);
@@ -263,21 +263,21 @@ struct vk_frame_thread_context {
 	VkCommandPool   CmdPool;
 	VkCommandBuffer CmdBuffer;
 	vk_cpu_buffer   UploadBuffer;
-
+    
 	vk_render_pass* FreeRenderPasses;
 	vk_render_pass* RenderPassesToDelete;
-
+    
 	vk_texture_barrier_cmd* FirstTextureBarrierCmd;
 	vk_texture_barrier_cmd* LastTextureBarrierCmd;
-
+    
 	vk_bind_group_write_cmd* FirstBindGroupWriteCmd;
 	vk_bind_group_write_cmd* LastBindGroupWriteCmd;
-
+    
 	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
 	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
 	
 	vk_delete_queue DeleteQueue;
-
+    
 	vk_frame_thread_context* Next;
 };
 
@@ -292,7 +292,7 @@ struct vk_frame_context {
 	VkCommandBuffer CmdBuffer;
 	vk_cpu_buffer 	ReadbackBuffer;
 	u32 			Index;
-
+    
 	vk_texture_readback_array TextureReadbacks;
 	vk_buffer_readback_array BufferReadbacks;
 };
@@ -314,33 +314,33 @@ typedef struct {
 
 struct vk_device_context {
 	gdi_device_context Base;
-
+    
 	arena* Arena;
 	arena* FrameArena;
-
+    
 	vk_gpu* 	GPU;
-
+    
 	VkDevice Device;
-
+    
 	VkQueue  GraphicsQueue;
 	VkQueue  PresentQueue;
 	VkQueue  TransferQueue;
-
+    
 	//Support device features
 	b32 HasNullDescriptor;
-
+    
 	//Readback thread
 	atomic_b32 	  ReadbackIsInitialized;
 	os_thread* 	  ReadbackThread;
 	os_semaphore* ReadbackSignalSemaphore;
 	os_semaphore* ReadbackFinishedSemaphore;
-
+    
 	//Resources
 	VmaAllocator 	 GPUAllocator;
 	vk_resource_pool ResourcePool;
 	os_mutex* 		 DescriptorLock;
 	VkDescriptorPool DescriptorPool;
-
+    
 	//Frames
 	u64 			  	   ReadbackFrameCount;
 	atomic_u64 		  	   FrameCount; //Keep this atomic for the readback thread to read
@@ -355,7 +355,7 @@ struct vk_gdi {
 	os_library*  			 Library;
 	VkInstance   			 Instance;
 	VkDebugUtilsMessengerEXT DebugUtils;
-
+    
 	//Devices
 	size_t   		 GPUCount;
 	vk_gpu*  		 GPUs;

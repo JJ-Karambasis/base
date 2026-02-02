@@ -145,17 +145,23 @@ struct span {
 
 template <typename type>
 struct array {
-    allocator* Allocator = NULL;
-	type* Ptr 			 = NULL;
-	size_t Count 		 = 0;
+    enum class array_type {
+        VIRTUAL,
+        ALLOCATOR
+    };
+    array_type Type = array_type::VIRTUAL;
+    union {
+        memory_reserve MemoryReserve;
+        allocator* Allocator;
+    };
+	type* Ptr            = NULL;
+	size_t Count         = 0;
 	size_t Capacity 	 = 0;
     
 	array() = default;
-	inline array(allocator* _Allocator) : Allocator(_Allocator) { }
+    inline array(allocator* Allocator);
+    inline array(allocator* Allocator, size_t Count);
 	
-	array(allocator* Allocator, size_t Count);
-	array(allocator* _Allocator, type* _Ptr, size_t _Count);
-    
 	inline type& operator[](size_t Index) {
 		Assert(Index < Count);
 		return Ptr[Index];
@@ -172,20 +178,35 @@ inline span<type>::span(const array<type>& Array) : Ptr(Array.Ptr), Count(Array.
 
 template <typename type>
 function inline void Array_Init(array<type>* Array, allocator* Allocator = Default_Allocator_Get()) {
-	*Array = array<type>(Allocator);
+	*Array = array<type>();
+    Array->Type = array<type>::array_type::ALLOCATOR;
+    Array->Allocator = Allocator;
+}
+
+template <typename type>
+function inline void Virtual_Array_Init(array<type>* Array, size_t ReserveSize=GB(1)) {
+	*Array = array<type>();
+    Array->Type = array<type>::array_type::VIRTUAL;
+    Array->MemoryReserve = Make_Memory_Reserve(ReserveSize);
+    Array->Ptr = (type*)Array->MemoryReserve.BaseAddress;
 }
 
 template<typename type>
 function inline void Array_Reserve(array<type>* Array, size_t NewCapacity) {
-	type* NewPtr = Allocator_Allocate_Array(Array->Allocator, NewCapacity, type);
+    if(Array->Type == array<type>::array_type::VIRTUAL) {
+        Recommit_New_Size(&Array->MemoryReserve, NewCapacity*sizeof(type));
+        NewCapacity = Array->MemoryReserve.CommitSize/sizeof(type);
+    } else {
+        type* NewPtr = Allocator_Allocate_Array(Array->Allocator, NewCapacity, type);
+        if(Array->Ptr) {
+            size_t CopyCapacity = Min(NewCapacity, Array->Capacity);
+            Memory_Copy(NewPtr, Array->Ptr, CopyCapacity*sizeof(type));
+            Allocator_Free_Memory(Array->Allocator, Array->Ptr);
+        }
+        
+        Array->Ptr = NewPtr;
+    }
     
-	if(Array->Ptr) {
-		size_t CopyCapacity = Min(NewCapacity, Array->Capacity);
-		Memory_Copy(NewPtr, Array->Ptr, CopyCapacity*sizeof(type));
-		Allocator_Free_Memory(Array->Allocator, Array->Ptr);
-	}
-    
-	Array->Ptr = NewPtr;
 	Array->Capacity = NewCapacity;
 }
 
@@ -239,15 +260,15 @@ function inline b32 Array_Is_Empty(array<type>* Array) {
     return !Array->Count || !Array->Ptr;
 }
 
-template<typename type>
-inline array<type>::array(allocator* _Allocator, type* _Ptr, size_t _Count) : Allocator(_Allocator) {
-	Array_Resize(this, _Count);
-	Memory_Copy(Ptr, _Ptr, Count * sizeof(type));
+template <typename type>
+inline array<type>::array(allocator* Allocator) {
+    Array_Init(this, Allocator);
 }
 
-template<typename type>
-inline array<type>::array(allocator* _Allocator, size_t _Count) : Allocator(_Allocator) {
-	Array_Resize(this, _Count);
+template <typename type>
+inline array<type>::array(allocator* Allocator, size_t Count) {
+    Array_Init(this, Allocator);
+    Array_Resize(this, Count);
 }
 
 template <typename type>
@@ -286,6 +307,16 @@ function inline void Pool_Free(pool_t<type>* Pool, pool_handle<type> Handle) {
 template<typename type>
 function inline type* Pool_Get(pool_t<type>* Pool, pool_handle<type> Handle) {
 	return (type*)Pool_Get((pool*)Pool, Handle.ID);
+}
+
+function inline string String_Combine(allocator* Allocator, span<string> Strings) {
+    string Result = String_Combine(Allocator, Strings.Ptr, Strings.Count);
+    return Result;
+}
+
+function inline string String_Directory_Combine(allocator* Allocator, span<string> Strings) {
+    string Result = String_Directory_Combine(Allocator, Strings.Ptr, Strings.Count);
+    return Result;
 }
 
 template <typename type>

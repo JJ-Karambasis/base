@@ -695,7 +695,7 @@ function void VK_Delete_Sampler_Resources(vk_device_context* Context, vk_sampler
 	}
 }
 
-function void VK_Delete_Bind_Group_Layout_Resources(vk_device_context* Context, vk_bind_group_layout* BindGroupLayout) {
+function void VK_Delete_Layout_Resources(vk_device_context* Context, vk_layout* BindGroupLayout) {
 	if (BindGroupLayout->AllocationData) {
 		Allocator_Free_Memory(Default_Allocator_Get(), BindGroupLayout->AllocationData);
 	}
@@ -1130,12 +1130,12 @@ function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context, 
         
 		if (!GDI_Is_Null(ImGDIToDelete->VtxBuffer)) {
 			VK_Delete_Buffer((gdi*)GDI, ImGDIToDelete->VtxBuffer);
-			ImGDIToDelete->VtxBuffer = GDI_Null_Handle();
+			ImGDIToDelete->VtxBuffer = GDI_Null_Handle(gdi_buffer);
 		}
         
 		if (!GDI_Is_Null(ImGDIToDelete->IdxBuffer)) {
 			VK_Delete_Buffer((gdi*)GDI, ImGDIToDelete->IdxBuffer);
-			ImGDIToDelete->IdxBuffer = GDI_Null_Handle();
+			ImGDIToDelete->IdxBuffer = GDI_Null_Handle(gdi_buffer);
 		}
         
 		if (ImGDIToDelete->Arena) {
@@ -1532,12 +1532,12 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	VkResult Status = vmaCreateImage(Context->GPUAllocator, &ImageCreateInfo, &AllocateInfo, &Image, &Allocation, NULL);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vmaCreateImage failed");
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_texture);
 	}
     
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_IMAGE, "texture", Image, TextureInfo->DebugName);
     
-	gdi_handle Result = VK_Texture_Pool_Allocate(&Context->ResourcePool);	
+	gdi_texture Result = VK_Texture_Pool_Allocate(&Context->ResourcePool);	
 	vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Result);
     
 	Texture->Image = Image;
@@ -1561,7 +1561,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 }
 
 function GDI_BACKEND_DELETE_TEXTURE_DEFINE(VK_Delete_Texture) {
-	VK_Texture_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Texture);
+	VK_Texture_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, TextureHandle);
 }
 
 function GDI_BACKEND_UPDATE_TEXTURES_DEFINE(VK_Update_Textures) {
@@ -1676,12 +1676,12 @@ function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View) {
     
 	VkImageView ImageView = VK_Create_Image_View(Context, &ViewInfo);
 	if(!ImageView) {
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_texture_view);
 	}
     
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_IMAGE_VIEW, "texture view", ImageView, TextureViewInfo->DebugName);
     
-	gdi_handle Result = VK_Texture_View_Pool_Allocate(&Context->ResourcePool);
+	gdi_texture_view Result = VK_Texture_View_Pool_Allocate(&Context->ResourcePool);
 	vk_texture_view* View = VK_Texture_View_Pool_Get(&Context->ResourcePool, Result);
     
 	View->ImageView = ImageView;
@@ -1693,19 +1693,19 @@ function GDI_BACKEND_CREATE_TEXTURE_VIEW_DEFINE(VK_Create_Texture_View) {
 }
 
 function GDI_BACKEND_DELETE_TEXTURE_VIEW_DEFINE(VK_Delete_Texture_View) {
-	VK_Texture_View_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, TextureView);
+	VK_Texture_View_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, TextureViewHandle);
 }
 
 function GDI_BACKEND_GET_TEXTURE_VIEW_TEXTURE_DEFINE(VK_Get_Texture_View_Texture) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_texture_view* VkTextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, TextureView);
-	if(!VkTextureView) return GDI_Null_Handle();
+	vk_texture_view* VkTextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, TextureViewHandle);
+	if(!VkTextureView) return GDI_Null_Handle(gdi_texture);
 	return VkTextureView->Texture;
 }
 
 function GDI_BACKEND_MAP_BUFFER_DEFINE(VK_Map_Buffer) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Buffer);
+	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BufferHandle);
     
 	if (Size == 0) {
 		Size = VkBuffer->Size - Offset;
@@ -1732,7 +1732,7 @@ function GDI_BACKEND_MAP_BUFFER_DEFINE(VK_Map_Buffer) {
 
 function GDI_BACKEND_UNMAP_BUFFER_DEFINE(VK_Unmap_Buffer) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Buffer);
+	vk_buffer* VkBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BufferHandle);
 	if (VkBuffer) {
 		Assert(VkBuffer->LockedFrame);
         
@@ -1811,7 +1811,7 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	VkResult Status = vmaCreateBuffer(Context->GPUAllocator, &BufferCreateInfo, &AllocateInfo, &Handle, &Allocation, NULL);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vmaCreateBuffer failed");
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_buffer);
 	}
     
 	u8* MappedPtr = NULL;
@@ -1821,13 +1821,13 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vmaMapMemory failed!");
 			vmaDestroyBuffer(Context->GPUAllocator, Handle, Allocation);
-			return GDI_Null_Handle();
+			return GDI_Null_Handle(gdi_buffer);
 		}
 	}
     
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_BUFFER, "buffer", Handle, BufferInfo->DebugName);
     
-	gdi_handle Result = VK_Buffer_Pool_Allocate(&Context->ResourcePool);
+	gdi_buffer Result = VK_Buffer_Pool_Allocate(&Context->ResourcePool);
 	vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Result);
 	Buffer->Buffer = Handle;
 	Buffer->Allocation = Allocation;
@@ -1840,7 +1840,7 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 }
 
 function GDI_BACKEND_DELETE_BUFFER_DEFINE(VK_Delete_Buffer) {
-	VK_Buffer_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Buffer);
+	VK_Buffer_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BufferHandle);
 }
 
 function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
@@ -1862,19 +1862,19 @@ function GDI_BACKEND_CREATE_SAMPLER_DEFINE(VK_Create_Sampler) {
 	VkResult Status = vkCreateSampler(Context->Device, &CreateInfo, VK_Get_Allocator(), &Handle);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateSampler failed!");
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_sampler);
 	}
     
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_SAMPLER, "sampler", Handle, SamplerInfo->DebugName);
     
-	gdi_handle Result = VK_Sampler_Pool_Allocate(&Context->ResourcePool);
+	gdi_sampler Result = VK_Sampler_Pool_Allocate(&Context->ResourcePool);
 	vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Result);
 	Sampler->Sampler = Handle;
 	return Result;
 }
 
 function GDI_BACKEND_DELETE_SAMPLER_DEFINE(VK_Delete_Sampler) {
-	VK_Sampler_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Sampler);
+	VK_Sampler_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, SamplerHandle);
 }
 
 function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout) {
@@ -1940,22 +1940,22 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 	
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateDescriptorSetLayout failed!");
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_layout);
 	}
     
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "bind group layout", SetLayout, BindGroupLayoutInfo->DebugName);
     
-	gdi_handle Result = VK_Bind_Group_Layout_Pool_Allocate(&Context->ResourcePool);
-	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, Result);
+	gdi_layout Result = VK_Layout_Pool_Allocate(&Context->ResourcePool);
+	vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, Result);
 	Layout->Layout = SetLayout;
     
-	size_t AllocationSize = ImmutableSamplerCount*sizeof(gdi_handle) + BindGroupLayoutInfo->Bindings.Count*sizeof(gdi_bind_group_binding);
+	size_t AllocationSize = ImmutableSamplerCount*sizeof(gdi_sampler) + BindGroupLayoutInfo->Bindings.Count*sizeof(gdi_bind_group_binding);
 	Layout->AllocationData = Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
     
 	Layout->Bindings.Ptr = (gdi_bind_group_binding*)Layout->AllocationData;
 	Layout->Bindings.Count = BindGroupLayoutInfo->Bindings.Count;
     
-	gdi_handle* StaticSamplersAt = (gdi_handle*)(Layout->Bindings.Ptr + Layout->Bindings.Count);
+	gdi_sampler* StaticSamplersAt = (gdi_sampler*)(Layout->Bindings.Ptr + Layout->Bindings.Count);
 	for (size_t i = 0; i < BindGroupLayoutInfo->Bindings.Count; i++) {
 		gdi_bind_group_binding* Binding = BindGroupLayoutInfo->Bindings.Ptr + i;
 		Layout->Bindings.Ptr[i] = *Binding;
@@ -1970,14 +1970,14 @@ function GDI_BACKEND_CREATE_BIND_GROUP_LAYOUT_DEFINE(VK_Create_Bind_Group_Layout
 }
 
 function GDI_BACKEND_DELETE_BIND_GROUP_LAYOUT_DEFINE(VK_Delete_Bind_Group_Layout) {
-	VK_Bind_Group_Layout_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroupLayout);
+	VK_Layout_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroupLayoutHandle);
 }
 
 function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups);
 function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
     
-	vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroupInfo->Layout);
+	vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, BindGroupInfo->Layout);
 	Assert(Layout);
     
 	arena* Scratch = Scratch_Get();
@@ -2002,7 +2002,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkAllocateDescriptorSets failed!");
 		Scratch_Release();
-		return GDI_Null_Handle();
+		return GDI_Null_Handle(gdi_bind_group);
 	}
     
 #ifdef DEBUG_BUILD
@@ -2016,7 +2016,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 	}
 #endif
     
-	gdi_handle Result = VK_Bind_Group_Pool_Allocate(&Context->ResourcePool);
+	gdi_bind_group Result = VK_Bind_Group_Pool_Allocate(&Context->ResourcePool);
 	vk_bind_group* BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Result);
     
 	BindGroup->Layout = BindGroupInfo->Layout;
@@ -2047,7 +2047,7 @@ function GDI_BACKEND_CREATE_BIND_GROUP_DEFINE(VK_Create_Bind_Group) {
 }
 
 function GDI_BACKEND_DELETE_BIND_GROUP_DEFINE(VK_Delete_Bind_Group) {
-	VK_Bind_Group_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroup);
+	VK_Bind_Group_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, BindGroupHandle);
 }
 
 function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
@@ -2068,7 +2068,7 @@ function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 	for (size_t i = 0; i < Writes.Count; i++) {
 		gdi_bind_group_write* Write = Writes.Ptr + i;
 		vk_bind_group* DstBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Write->DstBindGroup);
-		vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
+		vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
         
 		if (DstBindGroup && Layout) {
 			Assert(Write->DstBinding < Layout->Bindings.Count);
@@ -2172,8 +2172,8 @@ function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 		vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Copy->SrcBindGroup);
         
 		if (DstBindGroup && SrcBindGroup) {
-			vk_bind_group_layout* DstLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
-			vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+			vk_layout* DstLayout = VK_Layout_Pool_Get(&Context->ResourcePool, DstBindGroup->Layout);
+			vk_layout* SrcLayout = VK_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
             
 			if (DstLayout && SrcLayout) {
 				Assert(Copy->DstBinding < DstLayout->Bindings.Count);
@@ -2261,7 +2261,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
         
 		if (Status != VK_SUCCESS) {
 			GDI_Log_Error("vkCreateDescriptorSetLayout failed!");
-			return GDI_Null_Handle();
+			return GDI_Null_Handle(gdi_shader);
 		}
         
 		WritableLayout = SetLayout;
@@ -2289,7 +2289,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 	};
     
 	for (size_t i = 0; i < ShaderInfo->BindGroupLayouts.Count; i++) {
-		vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, ShaderInfo->BindGroupLayouts.Ptr[i]);
+		vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, ShaderInfo->BindGroupLayouts.Ptr[i]);
 		Assert(Layout);
 		SetLayouts[i+LayoutOffset] = Layout->Layout;
 	}
@@ -2302,7 +2302,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 		.pPushConstantRanges = ShaderInfo->PushConstantCount ? &PushRange : VK_NULL_HANDLE,
 	};
     
-	gdi_handle Result = GDI_Null_Handle();
+	gdi_shader Result = GDI_Null_Handle(gdi_shader);
     
 	VkPipelineLayout PipelineLayout;
 	if (vkCreatePipelineLayout(Context->Device, &LayoutCreateInfo, VK_Get_Allocator(), &PipelineLayout) == VK_SUCCESS) {
@@ -2581,12 +2581,12 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 }
 
 function GDI_BACKEND_DELETE_SHADER_DEFINE(VK_Delete_Shader) {
-	VK_Shader_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Shader);
+	VK_Shader_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, ShaderHandle);
 }
 
 function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	gdi_handle Result = VK_Swapchain_Pool_Allocate(&Context->ResourcePool);
+	gdi_swapchain Result = VK_Swapchain_Pool_Allocate(&Context->ResourcePool);
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Result);
 	Swapchain->Handle = Result;
     
@@ -2616,10 +2616,10 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
 	{
 		Swapchain->ImageCount = SurfaceCaps.minImageCount;
 		Swapchain->ImageIndex = -1;
-		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_handle) + sizeof(gdi_handle)) + Context->Frames.Count*sizeof(vk_semaphore);
+		size_t AllocationSize = Swapchain->ImageCount*(sizeof(VkImage) + sizeof(gdi_texture) + sizeof(gdi_texture_view)) + Context->Frames.Count*sizeof(vk_semaphore);
 		Swapchain->Images = (VkImage*)Allocator_Allocate_Memory(Default_Allocator_Get(), AllocationSize);
-		Swapchain->Textures = (gdi_handle*)(Swapchain->Images + Swapchain->ImageCount);
-		Swapchain->TextureViews = (gdi_handle*)(Swapchain->Textures + Swapchain->ImageCount);
+		Swapchain->Textures = (gdi_texture*)(Swapchain->Images + Swapchain->ImageCount);
+		Swapchain->TextureViews = (gdi_texture_view*)(Swapchain->Textures + Swapchain->ImageCount);
 		Swapchain->Locks = (vk_semaphore*)(Swapchain->TextureViews + Swapchain->ImageCount);
         
 		arena* Scratch = Scratch_Get();
@@ -2664,17 +2664,17 @@ function GDI_BACKEND_CREATE_SWAPCHAIN_DEFINE(VK_Create_Swapchain) {
     error:
 	VK_Delete_Swapchain_Resources(Context, Swapchain);
 	VK_Swapchain_Pool_Free(&Context->ResourcePool, Result);
-	return GDI_Null_Handle();
+	return GDI_Null_Handle(gdi_swapchain);
 }
 
 function GDI_BACKEND_DELETE_SWAPCHAIN_DEFINE(VK_Delete_Swapchain) {
-	VK_Swapchain_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, Swapchain);
+	VK_Swapchain_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, SwapchainHandle);
 }
 
 function GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(VK_Resize_Swapchain);
 function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	gdi_handle Result = GDI_Null_Handle();
+	gdi_texture_view Result = GDI_Null_Handle(gdi_texture_view);
 	vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, SwapchainHandle);
 	if (Swapchain && Swapchain->Dim.x != 0 && Swapchain->Dim.y != 0) {
 		if (Swapchain->ImageIndex == -1) {
@@ -2705,7 +2705,7 @@ function GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(VK_Get_Swapchain_View) {
 
 function GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(VK_Resize_Swapchain) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-	vk_swapchain* VkSwapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchain);
+	vk_swapchain* VkSwapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, SwapchainHandle);
 	if (VkSwapchain) {
 		VK_Recreate_Swapchain(Context, VkSwapchain);
 	}
@@ -2863,7 +2863,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 		u32 DirtyFlag = BStream_Reader_U32(&Reader);
         
 		if (DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) {
-			gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+			gdi_shader Handle = BStream_Reader_Struct(&Reader, gdi_shader);
 			CurrentShader = VK_Shader_Pool_Get(&Context->ResourcePool, Handle);
 			Assert(CurrentShader->DEBUGType == GDI_PASS_TYPE_RENDER);
 			vkCmdBindPipeline(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Pipeline);
@@ -2874,7 +2874,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 		for (size_t i = 0; i < GDI_MAX_BIND_GROUP_COUNT; i++) {
 			vk_bind_group* BindGroup = NULL;
 			if (DirtyFlag & (GDI_RENDER_PASS_BIND_GROUP_BIT << i)) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				gdi_bind_group Handle = BStream_Reader_Struct(&Reader, gdi_bind_group);
 				BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Handle);
 			} else {
 				//If the shader changed make sure to update the bind group to the last one bound
@@ -2891,7 +2891,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
         
 		for (size_t i = 0; i < GDI_MAX_VTX_BUFFER_COUNT; i++) {
 			if (DirtyFlag & (GDI_RENDER_PASS_VTX_BUFFER_BIT << i)) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				gdi_buffer Handle = BStream_Reader_Struct(&Reader, gdi_buffer);
 				vk_buffer* VtxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
 				
 				Assert(VtxBuffer->Usage & GDI_BUFFER_USAGE_VTX);
@@ -2907,7 +2907,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
         
 		if ((DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) || (DirtyFlag & GDI_RENDER_PASS_IDX_FORMAT_BIT)) {
 			if (DirtyFlag & GDI_RENDER_PASS_IDX_BUFFER_BIT) {
-				gdi_handle Handle = BStream_Reader_Struct(&Reader, gdi_handle);
+				gdi_buffer Handle = BStream_Reader_Struct(&Reader, gdi_buffer);
 				CurrentIdxBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
 			}
             
@@ -3061,7 +3061,7 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 		
 		if (BindGroup->ShouldUpdate) {
 			u64 FrameDiff = NewFrameIndex - BindGroup->LastUpdatedFrame;
-			vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
+			vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
             
 			if (FrameDiff >= Context->Frames.Count || !Layout) {
 				BindGroup->ShouldUpdate = false;
@@ -3122,7 +3122,7 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
                              CopyCmd; CopyCmd = CopyCmd->Next) {
                             
 							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
-							vk_bind_group_layout* SrcLayout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
+							vk_layout* SrcLayout = VK_Layout_Pool_Get(&Context->ResourcePool, SrcBindGroup->Layout);
                             
 							FrameDiff = NewFrameIndex - CopyCmd->LastUpdatedFrame;
 							if (FrameDiff < Context->Frames.Count && SrcBindGroup && SrcLayout) {
@@ -3151,7 +3151,7 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 		
 		if (BindGroup->ShouldUpdate) {
 			Assert((NewFrameIndex - BindGroup->LastUpdatedFrame) < Context->Frames.Count);
-			vk_bind_group_layout* Layout = VK_Bind_Group_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
+			vk_layout* Layout = VK_Layout_Pool_Get(&Context->ResourcePool, BindGroup->Layout);
 			if (Layout) {
 				VkDescriptorSet SrcSet = BindGroup->Sets[OldFrame->Index];
 				VkDescriptorSet DstSet = BindGroup->Sets[NewFrame->Index];
@@ -3339,7 +3339,7 @@ function vk_frame_context* VK_Begin_Next_Frame(vk_device_context* Context, u64* 
 	return Result;
 }
 
-function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_array* Swapchains, const gdi_buffer_readback_array* BufferReadbacks, const gdi_texture_readback_array* TextureReadbacks) {
+function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_array* Swapchains, const gdi_buffer_readback_array* BufferReadbacks, const gdi_texture_readback_array* TextureReadbacks) {
     
 	u64 FrameIndex;
 	vk_frame_context* FrameContext = VK_Begin_Next_Frame(Context, &FrameIndex);
@@ -3472,7 +3472,6 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
                     
 					//Image memory barriers
 					for (size_t i = 0; i < ComputePass->TextureWrites.Count; i++) {
-						Assert(GDI_Is_Type(ComputePass->TextureWrites.Ptr[i], TEXTURE_VIEW));
 						vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, ComputePass->TextureWrites.Ptr[i]);
 						vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, TextureView->Texture);
 						Assert(Texture);
@@ -3548,7 +3547,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
                                         
 										for (size_t i = 0; i < Binding->Count; i++) {
 											Assert(TextureIndex < ComputePass->TextureWrites.Count);
-											gdi_handle Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
+											gdi_texture_view Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
 											vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
 											vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, TextureView->Texture);
                                             
@@ -3564,8 +3563,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_handle_arr
                                         
 										for (size_t i = 0; i < Binding->Count; i++) {
 											Assert(BufferIndex < ComputePass->BufferWrites.Count);
-											gdi_handle Handle = ComputePass->BufferWrites.Ptr[BufferIndex++];
-											Assert(GDI_Is_Type(Handle, BUFFER));
+											gdi_buffer Handle = ComputePass->BufferWrites.Ptr[BufferIndex++];
 											vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
 											Assert(Buffer);
                                             
@@ -3956,7 +3954,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 	arena* Scratch = Scratch_Get();
     
 	u32 SwapchainCount = 0;
-	gdi_handle* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, gdi_handle);
+	gdi_swapchain* Swapchains = Arena_Push_Array(Scratch, RenderParams->Swapchains.Count, gdi_swapchain);
 	for (size_t i = 0; i < RenderParams->Swapchains.Count; i++) {
 		vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, RenderParams->Swapchains.Ptr[i]);
 		if (Swapchain) {
@@ -3968,7 +3966,7 @@ function GDI_BACKEND_RENDER_DEFINE(VK_Render) {
 		}
 	}
     
-	gdi_handle_array Array = { .Ptr = Swapchains, .Count = SwapchainCount };
+	gdi_swapchain_array Array = { .Ptr = Swapchains, .Count = SwapchainCount };
 	VK_Render_Internal(Context, &Array, &RenderParams->BufferReadbacks, &RenderParams->TextureReadbacks);
 	Scratch_Release();
 }

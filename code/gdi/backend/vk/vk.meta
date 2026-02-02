@@ -4,7 +4,7 @@ META_MACRO(VK_FUNC, name) {
 
 META_MACRO(VK_INSTANCE_FUNCS, name, funcs) {
 	META_GLOBALS(${name}) ${funcs}
-
+    
 	META_FUNCTION(${name:pascal}_Funcs_Load, VkInstance Instance) -> void {
 		META_FOR(${name}) {
 			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetInstanceProcAddr(Instance, "${META_ENTRY_NAME}");
@@ -15,7 +15,7 @@ META_MACRO(VK_INSTANCE_FUNCS, name, funcs) {
 
 META_MACRO(VK_DEVICE_FUNCS, name, funcs) {
 	META_GLOBALS(${name}) ${funcs}
-
+    
 	META_FUNCTION(${name:pascal}_Funcs_Load, VkDevice Device) -> void {
 		META_FOR(${name}) {
 			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetDeviceProcAddr(Device, "${META_ENTRY_NAME}");
@@ -169,57 +169,52 @@ META_MACRO(VK_Resource, name) {
 		META_VARIABLE(gdi_pool, Pool); 
 		META_VARIABLE(vk_${name}, Entries[65334]);
 	}
-
+    
 	META_STRUCT(vk_${name}_delete_queue_entry) {
 		META_VARIABLE(vk_${name}, Entry);
 		META_VARIABLE(vk_${name}_delete_queue_entry*, Next);
 	}
-
+    
 	META_STRUCT(vk_${name}_delete_queue) {
 		META_VARIABLE(vk_${name}_delete_queue_entry*, First);
 		META_VARIABLE(vk_${name}_delete_queue_entry*, Last);
 	}
-
+    
 	META_VARIABLE(vk_${name}_pool, ${name:pascal}Pool) Tags(name: ${name});
-
+    
 	META_FUNCTION(VK_${name:pascal}_Pool_Init, vk_${name}_pool* Pool, arena* Arena) -> void {
 		u16* IndicesPtr = Arena_Push_Array(Arena, Array_Count(Pool->Entries), u16);
 		gdi_id* IDsPtr = Arena_Push_Array(Arena, Array_Count(Pool->Entries), gdi_id);
 		GDI_Pool_Init_Raw(&Pool->Pool, IndicesPtr, IDsPtr, Array_Count(Pool->Entries));
 	}
-
+    
 	META_FUNCTION(VK_${name:pascal}_Pool_Free_All, vk_device_context* Context, vk_${name}_pool* Pool) -> void {
 		for (size_t i = 0; i < Array_Count(Pool->Entries); i++) {
 			VK_Delete_${name:pascal}_Resources(Context, &Pool->Entries[i]);
 		}
 	}
-
-	META_FUNCTION(VK_${name:pascal}_Pool_Allocate, vk_resource_pool* Pool) -> gdi_handle {
+    
+	META_FUNCTION(VK_${name:pascal}_Pool_Allocate, vk_resource_pool* Pool) -> gdi_${name} {
 		gdi_id ID = GDI_Pool_Allocate(&Pool->${name:pascal}Pool.Pool);
-		if(GDI_ID_Is_Null(ID)) return GDI_Null_Handle(); 
-
-		gdi_handle Result;
-#ifdef DEBUG_BUILD
-		Result.Type = GDI_OBJECT_TYPE_${name:upper};
-#endif
+		if(GDI_ID_Is_Null(ID)) return GDI_Null_Handle(gdi_${name}); 
+        
+        gdi_${name} Result;
 		Result.ID = ID;
 		Memory_Clear(&Pool->${name:pascal}Pool.Entries[ID.Index], sizeof(vk_${name}));
 		return Result;
 	}
-
-	META_FUNCTION(VK_${name:pascal}_Pool_Free, vk_resource_pool* Pool, gdi_handle Handle) -> void {
+    
+	META_FUNCTION(VK_${name:pascal}_Pool_Free, vk_resource_pool* Pool, gdi_${name} Handle) -> void {
 		if(!GDI_Is_Null(Handle)) {
-			Assert(GDI_Is_Type(Handle, ${name:upper}));
 			GDI_Pool_Free(&Pool->${name:pascal}Pool.Pool, Handle.ID);
 		}
 	}
-
-	META_FUNCTION(VK_${name:pascal}_Pool_Get, vk_resource_pool* Pool, gdi_handle Handle) -> vk_${name}* {
+    
+	META_FUNCTION(VK_${name:pascal}_Pool_Get, vk_resource_pool* Pool, gdi_${name} Handle) -> vk_${name}* {
 		if(!GDI_Pool_Is_Allocated(&Pool->${name:pascal}Pool.Pool, Handle.ID)) return NULL;
-		Assert(GDI_Is_Type(Handle, ${name:upper}));
 		return Pool->${name:pascal}Pool.Entries + Handle.ID.Index;
 	}
-
+    
 	META_FUNCTION(VK_${name:pascal}_Add_Data_To_Delete_Queue, vk_device_context* Context, vk_${name}* Object)->void {
 		vk_frame_context* Frame = VK_Lock_Frame(Context);
 		vk_frame_thread_context* ThreadContext = VK_Get_Frame_Thread_Context(Context, Frame);
@@ -228,8 +223,8 @@ META_MACRO(VK_Resource, name) {
 		SLL_Push_Back(ThreadContext->DeleteQueue.${name:pascal}DeleteQueue.First, ThreadContext->DeleteQueue.${name:pascal}DeleteQueue.Last, Entry);
 		VK_Unlock_Frame(Context);
 	}
-
-	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_device_context* Context, gdi_handle Handle) -> void {
+    
+	META_FUNCTION(VK_${name:pascal}_Add_To_Delete_Queue, vk_device_context* Context, gdi_${name} Handle) -> void {
 		vk_${name}* Object = VK_${name:pascal}_Pool_Get(&Context->ResourcePool, Handle);
 		if(Object) {
 			VK_${name:pascal}_Add_Data_To_Delete_Queue(Context, Object);
@@ -244,7 +239,7 @@ META_STRUCT(vk_resource_pool) {
 	VK_Resource(texture_view);
 	VK_Resource(buffer);
 	VK_Resource(sampler);
-	VK_Resource(bind_group_layout);
+	VK_Resource(layout);
 	VK_Resource(bind_group);
 	VK_Resource(shader);
 	VK_Resource(swapchain);
@@ -269,7 +264,7 @@ META_FUNCTION(VK_Get_GDI_Format, VkFormat Format) -> gdi_format {
 		}
 		Invalid_Default_Case;
 	}
-
+    
 	return GDI_FORMAT_NONE;
 }
 
@@ -279,7 +274,7 @@ META_FUNCTION(VK_Get_Physical_Device_Type, VkPhysicalDeviceType Type) -> gdi_dev
 			case ${META_GET_TAG_VALUE(vk):upper}: return ${META_ENTRY_NAME};
 		}
 	}
-
+    
 	return GDI_DEVICE_TYPE_UNKNOWN;
 }
 
@@ -312,7 +307,7 @@ META_MACRO(VK_Enum_Mapper, name, type, mapped_type) {
 				}
 			}
 		};
-
+        
 		Assert((size_t)Entry < Array_Count(Entries));
 		return Entries[Entry];
 	}

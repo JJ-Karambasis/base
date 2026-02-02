@@ -169,25 +169,25 @@ export_function void IM_Push_Rect3D_With_UV_And_Norm(v3 P0, v3 P1) {
         { .P = V3(P1.x, P1.y, P0.z), .N = G_XAxis, .UV = V2(1.0f, 0.0f) },
         { .P = V3(P1.x, P1.y, P1.z), .N = G_XAxis, .UV = V2(0.0f, 0.0f) },
         
-        { .P = V3(P1.x, P0.y, P0.z), .N = -G_ZAxis, .UV = V2(0.0f, 1.0f) },
-        { .P = V3(P0.x, P0.y, P0.z), .N = -G_ZAxis, .UV = V2(1.0f, 1.0f) },
-        { .P = V3(P0.x, P1.y, P0.z), .N = -G_ZAxis, .UV = V2(1.0f, 0.0f) },
-        { .P = V3(P1.x, P1.y, P0.z), .N = -G_ZAxis, .UV = V2(0.0f, 0.0f) },
+        { .P = V3(P1.x, P0.y, P0.z), .N = V3_Negate(G_ZAxis), .UV = V2(0.0f, 1.0f) },
+        { .P = V3(P0.x, P0.y, P0.z), .N = V3_Negate(G_ZAxis), .UV = V2(1.0f, 1.0f) },
+        { .P = V3(P0.x, P1.y, P0.z), .N = V3_Negate(G_ZAxis), .UV = V2(1.0f, 0.0f) },
+        { .P = V3(P1.x, P1.y, P0.z), .N = V3_Negate(G_ZAxis), .UV = V2(0.0f, 0.0f) },
         
-        { .P = V3(P0.x, P0.y, P0.z), .N = -G_XAxis, .UV = V2(0.0f, 1.0f) },
-        { .P = V3(P0.x, P0.y, P1.z), .N = -G_XAxis, .UV = V2(1.0f, 1.0f) },
-        { .P = V3(P0.x, P1.y, P1.z), .N = -G_XAxis, .UV = V2(1.0f, 0.0f) },
-        { .P = V3(P0.x, P1.y, P0.z), .N = -G_XAxis, .UV = V2(0.0f, 0.0f) },
+        { .P = V3(P0.x, P0.y, P0.z), .N = V3_Negate(G_XAxis), .UV = V2(0.0f, 1.0f) },
+        { .P = V3(P0.x, P0.y, P1.z), .N = V3_Negate(G_XAxis), .UV = V2(1.0f, 1.0f) },
+        { .P = V3(P0.x, P1.y, P1.z), .N = V3_Negate(G_XAxis), .UV = V2(1.0f, 0.0f) },
+        { .P = V3(P0.x, P1.y, P0.z), .N = V3_Negate(G_XAxis), .UV = V2(0.0f, 0.0f) },
         
         { .P = V3(P0.x, P1.y, P1.z), .N = G_YAxis, .UV = V2(0.0f, 1.0f) },
         { .P = V3(P1.x, P1.y, P1.z), .N = G_YAxis, .UV = V2(1.0f, 1.0f) },
         { .P = V3(P1.x, P1.y, P0.z), .N = G_YAxis, .UV = V2(1.0f, 0.0f) }, 
         { .P = V3(P0.x, P1.y, P0.z), .N = G_YAxis, .UV = V2(0.0f, 0.0f) },
         
-        { .P = V3(P0.x, P0.y, P0.z), .N = -G_YAxis, .UV = V2(0.0f, 1.0f) },
-        { .P = V3(P1.x, P0.y, P0.z), .N = -G_YAxis, .UV = V2(1.0f, 1.0f) },
-        { .P = V3(P1.x, P0.y, P1.z), .N = -G_YAxis, .UV = V2(1.0f, 0.0f) },
-        { .P = V3(P0.x, P0.y, P1.z), .N = -G_YAxis, .UV = V2(0.0f, 0.0f) }
+        { .P = V3(P0.x, P0.y, P0.z), .N = V3_Negate(G_YAxis), .UV = V2(0.0f, 1.0f) },
+        { .P = V3(P1.x, P0.y, P0.z), .N = V3_Negate(G_YAxis), .UV = V2(1.0f, 1.0f) },
+        { .P = V3(P1.x, P0.y, P1.z), .N = V3_Negate(G_YAxis), .UV = V2(1.0f, 0.0f) },
+        { .P = V3(P0.x, P0.y, P1.z), .N = V3_Negate(G_YAxis), .UV = V2(0.0f, 0.0f) }
         
     };
     
