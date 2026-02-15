@@ -723,6 +723,7 @@ struct gdi {
 
 #define GDI_Get_Devices() GDI_Get()->Devices
 #define GDI_Constant_Buffer_Alignment() GDI_Get()->DeviceContext->ConstantBufferAlignment
+#define GDI_Get_Swapchain_Dim(swapchain) GDI_Get_Swapchain_Info(swapchain).Dim
 
 /* Others */
 

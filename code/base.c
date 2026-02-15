@@ -67,6 +67,13 @@ global allocator_vtable Heap_VTable = {
 	.FreeMemoryFunc = Heap_Free_Memory
 };
 
+function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Cap_Allocator_Allocate_Memory);
+function ALLOCATOR_FREE_MEMORY_DEFINE(Cap_Allocator_Free_Memory);
+global allocator_vtable CapAllocator_VTable = {
+    .AllocateMemoryFunc = Cap_Allocator_Allocate_Memory,
+    .FreeMemoryFunc = Cap_Allocator_Free_Memory
+};
+
 export_function base* Base_Init() {
 	if(!Base_Get()) {
 		local base Base;
@@ -74,7 +81,8 @@ export_function base* Base_Init() {
 		Base.DefaultAllocator.DebugName = String_Lit("Default");
 		Base.ArenaVTable = &Arena_VTable;
 		Base.HeapVTable = &Heap_VTable;
-		Base.JobSystemThreadCallback = Job_System_Thread_Callback;
+		Base.CapAllocatorVTable = &CapAllocator_VTable;
+        Base.JobSystemThreadCallback = Job_System_Thread_Callback;
 		Base.HashU64Callback = Hash_U64;
 		Base.CompareU64Callback = Compare_U64;
         
@@ -1522,6 +1530,11 @@ export_function v2 Rect2_Size(rect2 Rect) {
 	return V2_Sub_V2(Rect.p1, Rect.p0);
 }
 
+export_function rect2 Rect2_From_Min_Dim(v2 p0, v2 Dim) {
+    rect2 Result = Rect2(p0, V2_Add_V2(p0, Dim));
+    return Result;
+}
+
 // Convert rgb floats ([0-1],[0-1],[0-1]) to hsv floats ([0-1],[0-1],[0-1]), from Foley & van Dam p592
 // Optimized http://lolengine.net/blog/2013/01/13/fast-rgb-to-hsv
 export_function v3 RGB_To_HSV(v3 rgb) {
@@ -2043,92 +2056,151 @@ function ALLOCATOR_FREE_MEMORY_DEFINE(Heap_Free_Memory) {
 	Heap_Free(Heap, Memory);
 }
 
+export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator) {
+    cap_allocator* Result = Allocator_Allocate_Struct(InnerAllocator, cap_allocator);
+    Result->Base.VTable = Base_Get()->CapAllocatorVTable;
+    Result->InnerAllocator = InnerAllocator;
+    return Result;
+}
+
+export_function void* Cap_Allocator_Allocate_No_Clear(cap_allocator* Allocator, size_t Size) {
+    if(!Size) return NULL;
+    if(Size <= Allocator->Capacity) return Allocator->Ptr;
+    
+    if(Allocator->Ptr) {
+        Allocator_Free_Memory(Allocator->InnerAllocator, Allocator->Ptr);
+    }
+    
+    Allocator->Ptr = (u8*)Allocator_Allocate_Memory_No_Clear(Allocator->InnerAllocator, Size);
+    Allocator->Capacity = Size;
+    
+    return Allocator->Ptr;
+}
+
+export_function void Cap_Allocator_Delete(cap_allocator* Allocator) {
+    allocator* InnerAllocator = Allocator->InnerAllocator;
+    
+    if(Allocator->Ptr) {
+        Allocator_Free_Memory(InnerAllocator, Allocator->Ptr);
+    }
+    
+    Allocator_Free_Memory(InnerAllocator, Allocator);
+}
+
+function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Cap_Allocator_Allocate_Memory) {
+    cap_allocator* CapAllocator = (cap_allocator*)Allocator;
+    void* Result = Cap_Allocator_Allocate_No_Clear(CapAllocator, Size);
+    if(Result && ClearFlag == CLEAR_FLAG_YES) {
+        Memory_Clear(Result, Size);
+    }
+    return Result;
+}
+
+function ALLOCATOR_FREE_MEMORY_DEFINE(Cap_Allocator_Free_Memory) {
+    //Noop 
+}
+
+
+function inline int Array_Sort_Callback(const void* A, const void* B) {
+    thread_context* ThreadContext = Thread_Context_Get();
+    s32 Result = ThreadContext->SortCallbackFunc(A, B, ThreadContext->SortUserData);
+    return Result;
+}
+
+export_function void Array_Sort(void* Ptr, size_t Count, size_t ItemSize, sort_callback_func* SortCallbackFunc, void* SortUserData) {
+    thread_context* ThreadContext = Thread_Context_Get();
+    ThreadContext->SortUserData = SortUserData;
+    ThreadContext->SortCallbackFunc = SortCallbackFunc;
+    
+    qsort(Ptr, Count, ItemSize, Array_Sort_Callback);
+}
+
 export_function thread_context* Thread_Context_Get() {
-	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
-	if (!ThreadContext) {
-		ThreadContext = Allocator_Allocate_Struct(Default_Allocator_Get(), thread_context);
+    thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
+    if (!ThreadContext) {
+        ThreadContext = Allocator_Allocate_Struct(Default_Allocator_Get(), thread_context);
         
-		//Add to global list
-		OS_Mutex_Lock(G_Base->ThreadContextLock);
-		DLL_Push_Back(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
-		G_Base->ThreadCount++;
-		OS_Mutex_Unlock(G_Base->ThreadContextLock);
-		
-		OS_TLS_Set(G_Base->ThreadContextTLS, ThreadContext);
-		ThreadContext->Random32 = Random32_XOrShift_Init();
-	}
-	return ThreadContext;
+        //Add to global list
+        OS_Mutex_Lock(G_Base->ThreadContextLock);
+        DLL_Push_Back(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
+        G_Base->ThreadCount++;
+        OS_Mutex_Unlock(G_Base->ThreadContextLock);
+        
+        OS_TLS_Set(G_Base->ThreadContextTLS, ThreadContext);
+        ThreadContext->Random32 = Random32_XOrShift_Init();
+    }
+    return ThreadContext;
 }
 
 export_function void Thread_Context_Remove() {
-	thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
-	if (ThreadContext) {
+    thread_context* ThreadContext = (thread_context*)OS_TLS_Get(G_Base->ThreadContextTLS);
+    if (ThreadContext) {
         
-		//Remove from global list
-		OS_Mutex_Lock(G_Base->ThreadContextLock);
-		DLL_Remove(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
-		G_Base->ThreadCount--;
-		OS_Mutex_Unlock(G_Base->ThreadContextLock);
+        //Remove from global list
+        OS_Mutex_Lock(G_Base->ThreadContextLock);
+        DLL_Remove(G_Base->FirstThread, G_Base->LastThread, ThreadContext);
+        G_Base->ThreadCount--;
+        OS_Mutex_Unlock(G_Base->ThreadContextLock);
         
-		//Delete all the scratch arenas
-		for (size_t i = 0; i < MAX_SCRATCH_COUNT; i++) {
-			if (ThreadContext->ScratchArenas[i]) {
-				Arena_Delete(ThreadContext->ScratchArenas[i]);
-				ThreadContext->ScratchArenas[i] = NULL;
-			}
-		}
+        //Delete all the scratch arenas
+        for (size_t i = 0; i < MAX_SCRATCH_COUNT; i++) {
+            if (ThreadContext->ScratchArenas[i]) {
+                Arena_Delete(ThreadContext->ScratchArenas[i]);
+                ThreadContext->ScratchArenas[i] = NULL;
+            }
+        }
         
-		//Free the memory
-		Allocator_Free_Memory(Default_Allocator_Get(), ThreadContext);
-		OS_TLS_Set(G_Base->ThreadContextTLS, NULL);
-	}
+        //Free the memory
+        Allocator_Free_Memory(Default_Allocator_Get(), ThreadContext);
+        OS_TLS_Set(G_Base->ThreadContextTLS, NULL);
+    }
 }
 
 #ifdef DEBUG_BUILD
 export_function void Thread_Context_Validate_() {
-	thread_context* ThreadContext = Thread_Context_Get();
-	Assert(ThreadContext->ScratchIndex == 0);
+    thread_context* ThreadContext = Thread_Context_Get();
+    Assert(ThreadContext->ScratchIndex == 0);
 }
 #endif
 
 export_function arena* Scratch_Get() {
-	thread_context* ThreadContext = Thread_Context_Get();
-	Assert(ThreadContext->ScratchIndex < MAX_SCRATCH_COUNT);
+    thread_context* ThreadContext = Thread_Context_Get();
+    Assert(ThreadContext->ScratchIndex < MAX_SCRATCH_COUNT);
     
-	size_t ScratchIndex = ThreadContext->ScratchIndex++;
-	if (!ThreadContext->ScratchArenas[ScratchIndex]) {
-		char ScratchName[1024];
-		int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", (u32)ScratchIndex);
-		ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create(Make_String(ScratchName, TotalLength));
-	}
+    size_t ScratchIndex = ThreadContext->ScratchIndex++;
+    if (!ThreadContext->ScratchArenas[ScratchIndex]) {
+        char ScratchName[1024];
+        int TotalLength = stbsp_snprintf(ScratchName, sizeof(ScratchName), "Scratch %u", (u32)ScratchIndex);
+        ThreadContext->ScratchArenas[ScratchIndex] = Arena_Create(Make_String(ScratchName, TotalLength));
+    }
     
-	ThreadContext->ScratchMarkers[ScratchIndex] = Arena_Get_Marker(ThreadContext->ScratchArenas[ScratchIndex]);
-	return ThreadContext->ScratchArenas[ScratchIndex];
+    ThreadContext->ScratchMarkers[ScratchIndex] = Arena_Get_Marker(ThreadContext->ScratchArenas[ScratchIndex]);
+    return ThreadContext->ScratchArenas[ScratchIndex];
 }
 
 export_function void Scratch_Release() {
-	thread_context* ThreadContext = Thread_Context_Get();
-	Assert(ThreadContext->ScratchIndex != 0);
-	size_t ScratchIndex = --ThreadContext->ScratchIndex;
-	Arena_Set_Marker(ThreadContext->ScratchArenas[ScratchIndex], ThreadContext->ScratchMarkers[ScratchIndex]);
+    thread_context* ThreadContext = Thread_Context_Get();
+    Assert(ThreadContext->ScratchIndex != 0);
+    size_t ScratchIndex = --ThreadContext->ScratchIndex;
+    Arena_Set_Marker(ThreadContext->ScratchArenas[ScratchIndex], ThreadContext->ScratchMarkers[ScratchIndex]);
 }
 
 export_function random32_xor_shift Random32_XOrShift_Init() {
-	random32_xor_shift Result = { 0 };
-	OS_Get_Entropy(&Result.State, sizeof(u32));
-	return Result;
+    random32_xor_shift Result = { 0 };
+    OS_Get_Entropy(&Result.State, sizeof(u32));
+    return Result;
 }
 
 export_function u32 Random32_XOrShift(random32_xor_shift* Random) {
-	u32 x = Random->State;
+    u32 x = Random->State;
     
-	x ^= x << 13;
-	x ^= x >> 17;
-	x ^= x << 5;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
     
-	Random->State = x;
+    Random->State = x;
     
-	return x;
+    return x;
 }
 
 Array_Implement(char, Char);
@@ -2284,201 +2356,203 @@ export_function u32 UTF16_Write(wchar_t* Str, u32 Codepoint) {
 }
 
 export_function size_t String_Length(const char* Ptr) {
-	return strlen(Ptr);
+    return strlen(Ptr);
 }
 
 export_function string String_Empty() {
-	string Result = { 0 };
-	return Result;
+    string Result = { 0 };
+    return Result;
 }
 
 export_function string Make_String(const char* Ptr, size_t Size) {
-	string Result = {
-		.Ptr = Ptr,
-		.Size = Size
-	};
-	return Result;
+    string Result = {
+        .Ptr = Ptr,
+        .Size = Size
+    };
+    return Result;
 }
 
 export_function string String_Null_Term(const char* Ptr) {
-	return Make_String(Ptr, String_Length(Ptr));
+    return Make_String(Ptr, String_Length(Ptr));
 }
 
 export_function string String_FormatV(allocator* Allocator, const char* Format, va_list Args) {
-	va_list CopyArgs; 
-	va_copy(CopyArgs, Args);
-	char TmpBuffer[1];
-	int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, CopyArgs);
-	va_end(CopyArgs);
-	
-	va_copy(CopyArgs, Args);
-	char* Buffer = Allocator_Allocate_Array(Allocator, TotalLength + 1, char);
-	stbsp_vsnprintf(Buffer, TotalLength+1, Format, Args);
-	va_end(CopyArgs);
-	
-	return Make_String(Buffer, TotalLength);
+    va_list CopyArgs; 
+    va_copy(CopyArgs, Args);
+    char TmpBuffer[1];
+    int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, CopyArgs);
+    va_end(CopyArgs);
+    
+    va_copy(CopyArgs, Args);
+    char* Buffer = Allocator_Allocate_Array(Allocator, TotalLength + 1, char);
+    stbsp_vsnprintf(Buffer, TotalLength+1, Format, Args);
+    va_end(CopyArgs);
+    
+    return Make_String(Buffer, TotalLength);
 }
 
 export_function string String_Format(allocator* Allocator, const char* Format, ...) {
-	va_list List;
-	va_start(List, Format);
-	string Result = String_FormatV(Allocator, Format, List);
-	va_end(List);
-	return Result;
+    va_list List;
+    va_start(List, Format);
+    string Result = String_FormatV(Allocator, Format, List);
+    va_end(List);
+    return Result;
 }
 
 export_function string String_From_Buffer(buffer Buffer) {
-	return Make_String((const char*)Buffer.Ptr, Buffer.Size);
+    return Make_String((const char*)Buffer.Ptr, Buffer.Size);
 }
 
 export_function string String_From_Bool(b32 Boolean) {
-	return Boolean ? String_Lit("true") : String_Lit("false");
+    return Boolean ? String_Lit("true") : String_Lit("false");
 }
 
 export_function string String_From_F64(allocator* Allocator, f64 Number) {
-	return String_Format(Allocator, "%f", Number);
+    return String_Format(Allocator, "%f", Number);
 }
 
 export_function string String_Copy(allocator* Allocator, string Str) {
-	char* Ptr = Allocator_Allocate_Array(Allocator, Str.Size+1, char);
-	Memory_Copy(Ptr, Str.Ptr, Str.Size * sizeof(char));
-	Ptr[Str.Size] = 0;
-	return Make_String(Ptr, Str.Size);
+    if(String_Is_Empty(Str)) return String_Empty();
+    
+    char* Ptr = Allocator_Allocate_Array(Allocator, Str.Size+1, char);
+    Memory_Copy(Ptr, Str.Ptr, Str.Size * sizeof(char));
+    Ptr[Str.Size] = 0;
+    return Make_String(Ptr, Str.Size);
 }
 
 export_function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex) {
-	Assert(LastIndex != STRING_INVALID_INDEX && LastIndex != STRING_INVALID_INDEX);
-	if (FirstIndex == LastIndex) return String_Empty();
+    Assert(LastIndex != STRING_INVALID_INDEX && LastIndex != STRING_INVALID_INDEX);
+    if (FirstIndex == LastIndex) return String_Empty();
     
-	LastIndex = Min(LastIndex, Str.Size);
+    LastIndex = Min(LastIndex, Str.Size);
     
-	Assert(LastIndex > FirstIndex);
+    Assert(LastIndex > FirstIndex);
     
-	const char* At = Str.Ptr + FirstIndex;
-	return Make_String(At, LastIndex - FirstIndex);
+    const char* At = Str.Ptr + FirstIndex;
+    return Make_String(At, LastIndex - FirstIndex);
 }
 
 export_function string_array String_Split(allocator* Allocator, string String, string Substr) {
-	Assert(String.Size && Substr.Size);
-	dynamic_string_array Result = Dynamic_String_Array_Init(Allocator);
-	if (Substr.Size > String.Size) {
-		Dynamic_String_Array_Add(&Result, String);
-		return String_Array_Init(Result.Ptr, Result.Count);
-	}
+    Assert(String.Size && Substr.Size);
+    dynamic_string_array Result = Dynamic_String_Array_Init(Allocator);
+    if (Substr.Size > String.Size) {
+        Dynamic_String_Array_Add(&Result, String);
+        return String_Array_Init(Result.Ptr, Result.Count);
+    }
     
-	size_t StartIndex = 0;
-	size_t StringIndex = 0;
-	while (StringIndex < String.Size) {
-		size_t SubstringIndex = 0;
-		size_t TotalStringIndex = StringIndex+SubstringIndex;
-		while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
-			if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
-				SubstringIndex++;
-				TotalStringIndex++;
-			} else {
-				break;
-			}
-		}
+    size_t StartIndex = 0;
+    size_t StringIndex = 0;
+    while (StringIndex < String.Size) {
+        size_t SubstringIndex = 0;
+        size_t TotalStringIndex = StringIndex+SubstringIndex;
+        while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
+            if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
+                SubstringIndex++;
+                TotalStringIndex++;
+            } else {
+                break;
+            }
+        }
         
-		if (SubstringIndex == Substr.Size) {
-			Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
-			StartIndex = StringIndex+Substr.Size;
-		}
+        if (SubstringIndex == Substr.Size) {
+            Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
+            StartIndex = StringIndex+Substr.Size;
+        }
         
-		StringIndex++;
-	}
+        StringIndex++;
+    }
     
-	if (StartIndex < StringIndex) {
-		Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
-	}
+    if (StartIndex < StringIndex) {
+        Dynamic_String_Array_Add(&Result, String_Substr(String, StartIndex, StringIndex));
+    }
     
-	return String_Array_Init(Result.Ptr, Result.Count);
+    return String_Array_Init(Result.Ptr, Result.Count);
 }
 
 export_function b32 String_Is_Empty(string String) {
-	return !String.Ptr || !String.Size;
+    return !String.Ptr || !String.Size;
 }
 
 export_function b32 String_Is_Null_Term(string String) {
-	return String.Ptr[String.Size] == 0;
+    return String.Ptr[String.Size] == 0;
 }
 
 export_function b32 String_Equals(string StringA, string StringB) {
-	if (StringA.Size != StringB.Size) return false;
+    if (StringA.Size != StringB.Size) return false;
     
-	for (size_t i = 0; i < StringA.Size; i++) {
-		if (StringA.Ptr[i] != StringB.Ptr[i]) {
-			return false;
-		}
-	}
+    for (size_t i = 0; i < StringA.Size; i++) {
+        if (StringA.Ptr[i] != StringB.Ptr[i]) {
+            return false;
+        }
+    }
     
-	return true;
+    return true;
 }
 
 export_function size_t String_Find_First_Char(string String, char Character) {
-	for (size_t Index = 0; Index < String.Size; Index++) {
-		if (String.Ptr[Index] == Character) {
-			return Index;
-		}
-	}
+    for (size_t Index = 0; Index < String.Size; Index++) {
+        if (String.Ptr[Index] == Character) {
+            return Index;
+        }
+    }
     
-	return STRING_INVALID_INDEX;
+    return STRING_INVALID_INDEX;
 }
 
 export_function size_t String_Find_Last_Char(string String, char Character) {
-	for (size_t Index = String.Size; Index != 0; Index--) {
-		size_t ArrayIndex = Index - 1;
-		if (String.Ptr[ArrayIndex] == Character) {
-			return ArrayIndex;
-		}
-	}
+    for (size_t Index = String.Size; Index != 0; Index--) {
+        size_t ArrayIndex = Index - 1;
+        if (String.Ptr[ArrayIndex] == Character) {
+            return ArrayIndex;
+        }
+    }
     
-	return STRING_INVALID_INDEX;
+    return STRING_INVALID_INDEX;
 }
 
 export_function string String_Combine(allocator* Allocator, const string* Strings, size_t Count) {
-	size_t TotalSize = 0;
-	for (size_t i = 0; i < Count; i++) {
-		TotalSize += Strings[i].Size;
-	}
-	char* Ptr = Allocator_Allocate_Array(Allocator, TotalSize + 1, char);
-	char* At = Ptr;
+    size_t TotalSize = 0;
+    for (size_t i = 0; i < Count; i++) {
+        TotalSize += Strings[i].Size;
+    }
+    char* Ptr = Allocator_Allocate_Array(Allocator, TotalSize + 1, char);
+    char* At = Ptr;
     
-	for (size_t i = 0; i < Count; i++) {
-		Memory_Copy(At, Strings[i].Ptr, Strings[i].Size);
-		At += Strings[i].Size;		
-	}
-	Assert(((size_t)(At - Ptr)) == TotalSize);
-	Ptr[TotalSize] = 0;
-	return Make_String(Ptr, TotalSize);
+    for (size_t i = 0; i < Count; i++) {
+        Memory_Copy(At, Strings[i].Ptr, Strings[i].Size);
+        At += Strings[i].Size;		
+    }
+    Assert(((size_t)(At - Ptr)) == TotalSize);
+    Ptr[TotalSize] = 0;
+    return Make_String(Ptr, TotalSize);
 }
 
 export_function string String_Concat(allocator* Allocator, string StringA, string StringB) {
-	string Strings[] = { StringA, StringB };
-	string String = String_Combine(Allocator, Strings, Array_Count(Strings));
-	return String;
+    string Strings[] = { StringA, StringB };
+    string String = String_Combine(Allocator, Strings, Array_Count(Strings));
+    return String;
 }
 
 export_function size_t String_Get_Last_Directory_Slash_Index(string Directory) {
-	size_t DoubleSlashPathIndex = String_Find_Last_Char(Directory, '\\');
-	size_t SlashPathIndex = String_Find_Last_Char(Directory, '/');
+    size_t DoubleSlashPathIndex = String_Find_Last_Char(Directory, '\\');
+    size_t SlashPathIndex = String_Find_Last_Char(Directory, '/');
     
-	size_t PathIndex = STRING_INVALID_INDEX;
-	if (DoubleSlashPathIndex != STRING_INVALID_INDEX && SlashPathIndex != STRING_INVALID_INDEX) {
-		PathIndex = Max(SlashPathIndex, DoubleSlashPathIndex);
-	} else if (DoubleSlashPathIndex != STRING_INVALID_INDEX) {
-		PathIndex = DoubleSlashPathIndex;
-	} else if (SlashPathIndex != STRING_INVALID_INDEX) {
-		PathIndex = SlashPathIndex;
-	}
+    size_t PathIndex = STRING_INVALID_INDEX;
+    if (DoubleSlashPathIndex != STRING_INVALID_INDEX && SlashPathIndex != STRING_INVALID_INDEX) {
+        PathIndex = Max(SlashPathIndex, DoubleSlashPathIndex);
+    } else if (DoubleSlashPathIndex != STRING_INVALID_INDEX) {
+        PathIndex = DoubleSlashPathIndex;
+    } else if (SlashPathIndex != STRING_INVALID_INDEX) {
+        PathIndex = SlashPathIndex;
+    }
     
-	return PathIndex;
+    return PathIndex;
 }
 
 export_function string String_Get_Directory_Path(string Path) {
-	size_t PathIndex = String_Get_Last_Directory_Slash_Index(Path);
-	if (PathIndex == STRING_INVALID_INDEX) return Path;
-	return String_Substr(Path, 0, PathIndex + 1);
+    size_t PathIndex = String_Get_Last_Directory_Slash_Index(Path);
+    if (PathIndex == STRING_INVALID_INDEX) return Path;
+    return String_Substr(Path, 0, PathIndex + 1);
 }
 
 export_function string String_Directory_Combine(allocator* Allocator, const string* Strings, size_t Count) {
@@ -2510,26 +2584,26 @@ export_function string String_Directory_Combine(allocator* Allocator, const stri
 }
 
 export_function string String_Directory_Concat(allocator* Allocator, string StringA, string StringB) {
-	string Strings[] = { StringA, StringB };
-	string String = String_Directory_Combine(Allocator, Strings, Array_Count(Strings));
-	return String;
+    string Strings[] = { StringA, StringB };
+    string String = String_Directory_Combine(Allocator, Strings, Array_Count(Strings));
+    return String;
 }
 
 export_function b32 String_Starts_With_Char(string String, char Character) {
-	if (!String.Size) return false;
-	return String.Ptr[0] == Character;
+    if (!String.Size) return false;
+    return String.Ptr[0] == Character;
 }
 
 export_function b32 String_Ends_With_Char(string String, char Character) {
-	if (!String.Size) return false;
-	return String.Ptr[String.Size - 1] == Character;
+    if (!String.Size) return false;
+    return String.Ptr[String.Size - 1] == Character;
 }
 
 export_function string String_Get_Filename_Ext(string Filename) {
-	size_t DotIndex = String_Find_Last_Char(Filename, '.');
-	if (DotIndex == STRING_INVALID_INDEX) return Filename;
-	string Result = String_Substr(Filename, DotIndex + 1, Filename.Size);
-	return Result;
+    size_t DotIndex = String_Find_Last_Char(Filename, '.');
+    if (DotIndex == STRING_INVALID_INDEX) return Filename;
+    string Result = String_Substr(Filename, DotIndex + 1, Filename.Size);
+    return Result;
 }
 
 export_function b32 String_Has_Filename_Ext(string Filename) {
@@ -2538,216 +2612,222 @@ export_function b32 String_Has_Filename_Ext(string Filename) {
 }
 
 export_function string String_Get_Filename_Without_Ext(string Filename) {
-	size_t DotIndex = String_Find_Last_Char(Filename, '.');
-	size_t PathIndex = String_Get_Last_Directory_Slash_Index(Filename);
+    size_t DotIndex = String_Find_Last_Char(Filename, '.');
+    size_t PathIndex = String_Get_Last_Directory_Slash_Index(Filename);
     
-	size_t FirstIndex = 0;
-	size_t LastIndex = Filename.Size;
+    size_t FirstIndex = 0;
+    size_t LastIndex = Filename.Size;
     
-	if (PathIndex != STRING_INVALID_INDEX) {
-		FirstIndex = PathIndex + 1;
-	}
+    if (PathIndex != STRING_INVALID_INDEX) {
+        FirstIndex = PathIndex + 1;
+    }
     
-	if (DotIndex != STRING_INVALID_INDEX) {
-		if (DotIndex > FirstIndex) {
-			LastIndex = DotIndex;
-		}
-	}
+    if (DotIndex != STRING_INVALID_INDEX) {
+        if (DotIndex > FirstIndex) {
+            LastIndex = DotIndex;
+        }
+    }
     
-	string Result = String_Substr(Filename, FirstIndex, LastIndex);
-	return Result;
+    string Result = String_Substr(Filename, FirstIndex, LastIndex);
+    return Result;
 }
 
 export_function string String_Upper_Case(allocator* Allocator, string String) {
-	char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
-	for (size_t i = 0; i < String.Size; i++) {
-		Buffer[i] = To_Upper(String.Ptr[i]);
-	}
-	Buffer[String.Size] = 0;
-	return Make_String(Buffer, String.Size);
+    char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
+    for (size_t i = 0; i < String.Size; i++) {
+        Buffer[i] = To_Upper(String.Ptr[i]);
+    }
+    Buffer[String.Size] = 0;
+    return Make_String(Buffer, String.Size);
 }
 
 export_function string String_Lower_Case(allocator* Allocator, string String) {
-	char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
-	for (size_t i = 0; i < String.Size; i++) {
-		Buffer[i] = To_Lower(String.Ptr[i]);
-	}
-	Buffer[String.Size] = 0;
-	return Make_String(Buffer, String.Size);
+    char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
+    for (size_t i = 0; i < String.Size; i++) {
+        Buffer[i] = To_Lower(String.Ptr[i]);
+    }
+    Buffer[String.Size] = 0;
+    return Make_String(Buffer, String.Size);
 }
 
 export_function string String_Pascal_Case(allocator* Allocator, string String) {
-	char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
-	
-	b32 LastAlpha = false;
-	for (size_t i = 0; i < String.Size; i++) {
-		Buffer[i] = String.Ptr[i];
-		b32 IsAlpha = Is_Alpha(Buffer[i]);
-        
-		if (IsAlpha && !LastAlpha) {
-			Buffer[i] = To_Upper(Buffer[i]);
-		}
-        
-		if (IsAlpha && LastAlpha) {
-			Buffer[i] = To_Lower(Buffer[i]);
-		}
-        
-		LastAlpha = IsAlpha;
-	}
+    char* Buffer = Allocator_Allocate_Array(Allocator, String.Size + 1, char);
     
-	Buffer[String.Size] = 0;
+    b32 LastAlpha = false;
+    for (size_t i = 0; i < String.Size; i++) {
+        Buffer[i] = String.Ptr[i];
+        b32 IsAlpha = Is_Alpha(Buffer[i]);
+        
+        if (IsAlpha && !LastAlpha) {
+            Buffer[i] = To_Upper(Buffer[i]);
+        }
+        
+        if (IsAlpha && LastAlpha) {
+            Buffer[i] = To_Lower(Buffer[i]);
+        }
+        
+        LastAlpha = IsAlpha;
+    }
     
-	return Make_String(Buffer, String.Size);
+    Buffer[String.Size] = 0;
+    
+    return Make_String(Buffer, String.Size);
 }
 
 export_function string String_Trim_Whitespace(string String) {
-	size_t StartOffset = 0;
-	for (size_t i = 0; i < String.Size; i++) {
-		if (Is_Whitespace(String.Ptr[i])) {
-			StartOffset++;
-		} else {
-			break;
-		}
-	}
+    size_t StartOffset = 0;
+    for (size_t i = 0; i < String.Size; i++) {
+        if (Is_Whitespace(String.Ptr[i])) {
+            StartOffset++;
+        } else {
+            break;
+        }
+    }
     
-	if (StartOffset == String.Size) return String_Empty();
+    if (StartOffset == String.Size) return String_Empty();
     
-	size_t EndOffset = String.Size;
-	for (size_t i = String.Size; i > 0; i--) {
-		if (Is_Whitespace(String.Ptr[i - 1])) {
-			EndOffset--;
-		} else {
-			break;
-		}
-	}
+    size_t EndOffset = String.Size;
+    for (size_t i = String.Size; i > 0; i--) {
+        if (Is_Whitespace(String.Ptr[i - 1])) {
+            EndOffset--;
+        } else {
+            break;
+        }
+    }
     
-	Assert(EndOffset > StartOffset);
-	return Make_String(String.Ptr + StartOffset, EndOffset - StartOffset);
+    Assert(EndOffset > StartOffset);
+    return Make_String(String.Ptr + StartOffset, EndOffset - StartOffset);
 }
 
 export_function b32 String_Is_Whitespace(string String) {
-	for (size_t i = 0; i < String.Size; i++) {
-		if (!Is_Whitespace(String.Ptr[i])) {
-			return false;
-		}
-	}
-	return true;
+    for (size_t i = 0; i < String.Size; i++) {
+        if (!Is_Whitespace(String.Ptr[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 export_function string String_Insert_Text(allocator* Allocator, string String, string TextToInsert, size_t Cursor) {
-	Assert(Cursor <= String.Size);
-	if (Cursor == 0) {
-		return String_Concat(Allocator, TextToInsert, String);
-	} else if (Cursor == String.Size) {
-		return String_Concat(Allocator, String, TextToInsert);
-	} else {
-		string Strings[] = {
-			String_Substr(String, 0, Cursor),
-			TextToInsert, 
-			String_Substr(String, Cursor, String.Size)
-		};
-		return String_Combine(Allocator, Strings, Array_Count(Strings));
-	}
+    Assert(Cursor <= String.Size);
+    if (Cursor == 0) {
+        return String_Concat(Allocator, TextToInsert, String);
+    } else if (Cursor == String.Size) {
+        return String_Concat(Allocator, String, TextToInsert);
+    } else {
+        string Strings[] = {
+            String_Substr(String, 0, Cursor),
+            TextToInsert, 
+            String_Substr(String, Cursor, String.Size)
+        };
+        return String_Combine(Allocator, Strings, Array_Count(Strings));
+    }
 }
 
 export_function string String_Remove(allocator* Allocator, string String, size_t Cursor, size_t Size) {
-	if (String_Is_Empty(String)) {
-		return String;
-	}
+    if (String_Is_Empty(String)) {
+        return String;
+    }
     
-	Assert(Cursor < String.Size);
-	Assert((Cursor + Size) <= String.Size);
+    Assert(Cursor < String.Size);
+    Assert((Cursor + Size) <= String.Size);
     
-	if (Cursor == 0) {
-		return String_Substr(String, Cursor + Size, String.Size);
-	} else if (Cursor + Size == String.Size) {
-		return String_Substr(String, 0, Cursor);
-	} else {
-		string Strings[] = {
-			String_Substr(String, 0, Cursor),
-			String_Substr(String, Cursor+Size, String.Size)
-		};
-		return String_Combine(Allocator, Strings, Array_Count(Strings));
-	}
+    if (Cursor == 0) {
+        return String_Substr(String, Cursor + Size, String.Size);
+    } else if (Cursor + Size == String.Size) {
+        return String_Substr(String, 0, Cursor);
+    } else {
+        string Strings[] = {
+            String_Substr(String, 0, Cursor),
+            String_Substr(String, Cursor+Size, String.Size)
+        };
+        return String_Combine(Allocator, Strings, Array_Count(Strings));
+    }
     
 }
 
 export_function b32 String_Ends_With(string String, string Substr) {
-	Assert(String.Size && Substr.Size);
-	if (Substr.Size > String.Size) return false;
+    Assert(String.Size && Substr.Size);
+    if (Substr.Size > String.Size) return false;
     
-	const char* StrEnd = String.Ptr + (String.Size-1);
-	const char* SubstrEnd = Substr.Ptr + (Substr.Size-1);
+    const char* StrEnd = String.Ptr + (String.Size-1);
+    const char* SubstrEnd = Substr.Ptr + (Substr.Size-1);
     
-	while (Substr.Size) {
-		if (*SubstrEnd != *StrEnd) {
-			return false;
-		}
-		
-		SubstrEnd--;
-		StrEnd--;
-		Substr.Size--;
-	}
+    while (Substr.Size) {
+        if (*SubstrEnd != *StrEnd) {
+            return false;
+        }
+        
+        SubstrEnd--;
+        StrEnd--;
+        Substr.Size--;
+    }
     
-	return true;
+    return true;
 }
 
 export_function b32 String_Contains(string String, string Substr) {
-	Assert(String.Size && Substr.Size);
-	if (Substr.Size > String.Size) return false;
+    Assert(String.Size && Substr.Size);
+    if (Substr.Size > String.Size) return false;
     
-	size_t StringIndex = 0;
-	while (StringIndex < String.Size) {
-		size_t SubstringIndex = 0;
-		size_t TotalStringIndex = StringIndex+SubstringIndex;
-		while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
-			if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
-				SubstringIndex++;
-				TotalStringIndex++;
-			} else {
-				break;
-			}
-		}
+    size_t StringIndex = 0;
+    while (StringIndex < String.Size) {
+        size_t SubstringIndex = 0;
+        size_t TotalStringIndex = StringIndex+SubstringIndex;
+        while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
+            if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
+                SubstringIndex++;
+                TotalStringIndex++;
+            } else {
+                break;
+            }
+        }
         
-		if (SubstringIndex == Substr.Size) {
-			return true;
-		}
+        if (SubstringIndex == Substr.Size) {
+            return true;
+        }
         
-		StringIndex++;
-	}
+        StringIndex++;
+    }
     
-	return false;
+    return false;
+}
+
+export_function void String_Free(allocator* Allocator, string String) {
+    if(!String_Is_Empty(String)) {
+        Allocator_Free_Memory(Allocator, (void*)String.Ptr);
+    }
 }
 
 export_function size_t String_Find_First(string String, string Substr) {
-	Assert(String.Size && Substr.Size);
-	if (Substr.Size > String.Size) return STRING_INVALID_INDEX;
+    Assert(String.Size && Substr.Size);
+    if (Substr.Size > String.Size) return STRING_INVALID_INDEX;
     
-	size_t StringIndex = 0;
-	while (StringIndex < String.Size) {
-		size_t SubstringIndex = 0;
-		size_t TotalStringIndex = StringIndex+SubstringIndex;
-		while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
-			if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
-				SubstringIndex++;
-				TotalStringIndex++;
-			} else {
-				break;
-			}
-		}
+    size_t StringIndex = 0;
+    while (StringIndex < String.Size) {
+        size_t SubstringIndex = 0;
+        size_t TotalStringIndex = StringIndex+SubstringIndex;
+        while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
+            if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
+                SubstringIndex++;
+                TotalStringIndex++;
+            } else {
+                break;
+            }
+        }
         
-		if (SubstringIndex == Substr.Size) {
-			return StringIndex;
-		}
+        if (SubstringIndex == Substr.Size) {
+            return StringIndex;
+        }
         
-		StringIndex++;
-	}
+        StringIndex++;
+    }
     
-	return STRING_INVALID_INDEX;
+    return STRING_INVALID_INDEX;
 }
 
 export_function string String_From_WString(allocator* Allocator, wstring WString) {
-	arena* Scratch = Scratch_Get();
+    arena* Scratch = Scratch_Get();
     
     const wchar_t* WStrAt = WString.Ptr;
     const wchar_t* WStrEnd = WStrAt+WString.Size;
@@ -2770,68 +2850,68 @@ export_function string String_From_WString(allocator* Allocator, wstring WString
     }
     
     *StrAt = 0;
-	string Result = String_Copy(Allocator, Make_String(StrStart, (size_t)(StrAt - StrStart)));
-	Scratch_Release();
-	return Result;
+    string Result = String_Copy(Allocator, Make_String(StrStart, (size_t)(StrAt - StrStart)));
+    Scratch_Release();
+    return Result;
 }
 
 export_function b32 Try_Parse_Bool(string String, b32* OutBool) {
-	b32 EqualsTrue = String_Equals(String, String_Lit("true"));
-	if (EqualsTrue) {
-		if (OutBool) *OutBool = true;
-		return true;
-	}
+    b32 EqualsTrue = String_Equals(String, String_Lit("true"));
+    if (EqualsTrue) {
+        if (OutBool) *OutBool = true;
+        return true;
+    }
     
-	b32 EqualsFalse = String_Equals(String, String_Lit("false"));
-	if (EqualsFalse) {
-		if (OutBool) *OutBool = false;
-		return true;
-	}
+    b32 EqualsFalse = String_Equals(String, String_Lit("false"));
+    if (EqualsFalse) {
+        if (OutBool) *OutBool = false;
+        return true;
+    }
     
-	return false;
+    return false;
 }
 
 export_function b32 Try_Parse_F64(string String, f64* OutNumber) {
-	char* OutPtr;
-	f64 Numeric = strtod(String.Ptr, &OutPtr);
-	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
-		if (OutNumber) *OutNumber = Numeric;
-		return true;
-	}
-	return false;
+    char* OutPtr;
+    f64 Numeric = strtod(String.Ptr, &OutPtr);
+    if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+        if (OutNumber) *OutNumber = Numeric;
+        return true;
+    }
+    return false;
 }
 
 export_function b32 Try_Parse_S64(string String, s64* OutNumber) {
-	char* OutPtr;
-	s64 Numeric = strtol(String.Ptr, &OutPtr, 10);
-	if ((size_t)(OutPtr - String.Ptr) == String.Size) {
-		if (OutNumber) *OutNumber = Numeric;
-		return true;
-	}
-	return false;
+    char* OutPtr;
+    s64 Numeric = strtol(String.Ptr, &OutPtr, 10);
+    if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+        if (OutNumber) *OutNumber = Numeric;
+        return true;
+    }
+    return false;
 }
 
 export_function size_t WString_Length(const wchar_t* Ptr) {
-	return wcslen(Ptr);
+    return wcslen(Ptr);
 }
 
 export_function wstring Make_WString(const wchar_t* Ptr, size_t Size) {
-	wstring Result = {
-		.Ptr = Ptr,
-		.Size = Size
-	};
-	return Result;
+    wstring Result = {
+        .Ptr = Ptr,
+        .Size = Size
+    };
+    return Result;
 }
 
 export_function wstring WString_Null_Term(const wchar_t* Ptr) {
-	return Make_WString(Ptr, wcslen(Ptr));
+    return Make_WString(Ptr, wcslen(Ptr));
 }
 
 export_function wstring WString_Copy(allocator* Allocator, wstring WStr) {
-	wchar_t* Ptr = Allocator_Allocate_Array(Allocator, WStr.Size+1, wchar_t);
-	Memory_Copy(Ptr, WStr.Ptr, WStr.Size * sizeof(wchar_t));
-	Ptr[WStr.Size] = 0;
-	return Make_WString(Ptr, WStr.Size);
+    wchar_t* Ptr = Allocator_Allocate_Array(Allocator, WStr.Size+1, wchar_t);
+    Memory_Copy(Ptr, WStr.Ptr, WStr.Size * sizeof(wchar_t));
+    Ptr[WStr.Size] = 0;
+    return Make_WString(Ptr, WStr.Size);
 }
 
 
@@ -2860,429 +2940,434 @@ export_function wstring WString_From_String(allocator* Allocator, string String)
     
     *WStrAt = 0; 
     wstring Result = WString_Copy(Allocator, Make_WString(WStrStart, (size_t)(WStrAt-WStrStart)));
-	Scratch_Release();
-	return Result;
+    Scratch_Release();
+    return Result;
 }
 
 export_function sstream_reader SStream_Reader_Begin(string Content) {
-	sstream_reader Reader = { 0 };
-	Reader.Start = Content.Ptr;
-	Reader.At = Content.Ptr;
-	Reader.End = Content.Ptr + Content.Size;
-	Reader.LineIndex   = 1;
-	Reader.ColumnIndex = 1;
+    sstream_reader Reader = { 0 };
+    Reader.Start = Content.Ptr;
+    Reader.At = Content.Ptr;
+    Reader.End = Content.Ptr + Content.Size;
+    Reader.LineIndex   = 1;
+    Reader.ColumnIndex = 1;
     
-	return Reader;
+    return Reader;
 }
 
 export_function b32 SStream_Reader_Is_Valid(sstream_reader* Reader) {
-	return Reader->At < Reader->End;
+    return Reader->At < Reader->End;
 }
 
 export_function size_t SStream_Reader_Get_Index(sstream_reader* Reader) {
-	return ((intptr_t)Reader->At - (intptr_t)Reader->Start);
+    return ((intptr_t)Reader->At - (intptr_t)Reader->Start);
 }
 
 export_function sstream_char SStream_Reader_Peek_Char(sstream_reader* Reader) {
-	Assert(Reader->At < Reader->End);
-	sstream_char Result = {
-		.Char = *Reader->At,
-		.Index = SStream_Reader_Get_Index(Reader),
-		.LineIndex = Reader->LineIndex,
-		.ColumnIndex = Reader->ColumnIndex
-	};
+    Assert(Reader->At < Reader->End);
+    sstream_char Result = {
+        .Char = *Reader->At,
+        .Index = SStream_Reader_Get_Index(Reader),
+        .LineIndex = Reader->LineIndex,
+        .ColumnIndex = Reader->ColumnIndex
+    };
     
-	return Result;
+    return Result;
 }
 
 export_function sstream_char SStream_Reader_Consume_Char(sstream_reader* Reader) {
-	sstream_char Result = SStream_Reader_Peek_Char(Reader);
-	switch (Result.Char) {
-		case '\t': {
-			Reader->ColumnIndex += 4;
-		} break;
+    sstream_char Result = SStream_Reader_Peek_Char(Reader);
+    switch (Result.Char) {
+        case '\t': {
+            Reader->ColumnIndex += 4;
+        } break;
         
-		default: {
-			if (Is_Newline(Result.Char)) {
-				Reader->LineIndex++;
-				Reader->ColumnIndex = 1;
-			} else {
-				Reader->ColumnIndex++;
-			}
-		} break;
-	}
-	Reader->At++;
-	return Result;
+        default: {
+            if (Is_Newline(Result.Char)) {
+                Reader->LineIndex++;
+                Reader->ColumnIndex = 1;
+            } else {
+                Reader->ColumnIndex++;
+            }
+        } break;
+    }
+    Reader->At++;
+    return Result;
 }
 
 export_function void SStream_Reader_Eat_Whitespace(sstream_reader* Reader) {
-	while(SStream_Reader_Is_Valid(Reader)) {
-		sstream_char Result = SStream_Reader_Peek_Char(Reader);
-		if (!Is_Whitespace(Result.Char)) {
-			return;
-		}
+    while(SStream_Reader_Is_Valid(Reader)) {
+        sstream_char Result = SStream_Reader_Peek_Char(Reader);
+        if (!Is_Whitespace(Result.Char)) {
+            return;
+        }
         
-		switch (Result.Char) {
-			case '\t': {
-				Reader->ColumnIndex += 4;
-			} break;
+        switch (Result.Char) {
+            case '\t': {
+                Reader->ColumnIndex += 4;
+            } break;
             
-			default: {
-				if (Is_Newline(Result.Char)) {
-					Reader->LineIndex++;
-					Reader->ColumnIndex = 1;
-				} else {
-					Reader->ColumnIndex++;
-				}
-			} break;
-		}
+            default: {
+                if (Is_Newline(Result.Char)) {
+                    Reader->LineIndex++;
+                    Reader->ColumnIndex = 1;
+                } else {
+                    Reader->ColumnIndex++;
+                }
+            } break;
+        }
         
-		Reader->At++;
-	}
+        Reader->At++;
+    }
 }
 
 export_function void SStream_Reader_Eat_Whitespace_Without_Line(sstream_reader* Reader) {
-	while(SStream_Reader_Is_Valid(Reader)) {
-		sstream_char Result = SStream_Reader_Peek_Char(Reader);
-		if (!Is_Whitespace(Result.Char)) {
-			return;
-		}
+    while(SStream_Reader_Is_Valid(Reader)) {
+        sstream_char Result = SStream_Reader_Peek_Char(Reader);
+        if (!Is_Whitespace(Result.Char)) {
+            return;
+        }
         
-		switch (Result.Char) {
-			case '\t': {
-				Reader->ColumnIndex += 4;
-			} break;
+        switch (Result.Char) {
+            case '\t': {
+                Reader->ColumnIndex += 4;
+            } break;
             
-			default: {
-				if (Is_Newline(Result.Char)) {
-					return;
-				} else {
-					Reader->ColumnIndex++;
-				}
-			} break;
-		}
+            default: {
+                if (Is_Newline(Result.Char)) {
+                    return;
+                } else {
+                    Reader->ColumnIndex++;
+                }
+            } break;
+        }
         
-		Reader->At++;
-	}
+        Reader->At++;
+    }
 }
 
 export_function string SStream_Reader_Consume_Token(sstream_reader* Reader) {
-	SStream_Reader_Eat_Whitespace(Reader);
+    SStream_Reader_Eat_Whitespace(Reader);
     
-	const char* Ptr = Reader->At;
-	while (SStream_Reader_Is_Valid(Reader)) {
-		sstream_char Result = SStream_Reader_Peek_Char(Reader);
-		if (Is_Whitespace(Result.Char)) {
-			break;
-		}
+    const char* Ptr = Reader->At;
+    while (SStream_Reader_Is_Valid(Reader)) {
+        sstream_char Result = SStream_Reader_Peek_Char(Reader);
+        if (Is_Whitespace(Result.Char)) {
+            break;
+        }
         
-		SStream_Reader_Consume_Char(Reader);
-	}
+        SStream_Reader_Consume_Char(Reader);
+    }
     
-	size_t Size = (size_t)(Reader->At - Ptr);
-	Ptr = Size == 0 ? NULL : Ptr;
+    size_t Size = (size_t)(Reader->At - Ptr);
+    Ptr = Size == 0 ? NULL : Ptr;
     
-	return Make_String(Ptr, Size);
+    return Make_String(Ptr, Size);
 }
 
 export_function string SStream_Reader_Peek_Line(sstream_reader* Reader) {
-	const char* Ptr = Reader->At;
-	const char* At = Reader->At;
-	while (At < Reader->End) {
-		if (*At == '\n') {
-			break;
-		}
-		At++;
-	}
+    const char* Ptr = Reader->At;
+    const char* At = Reader->At;
+    while (At < Reader->End) {
+        if (*At == '\n') {
+            break;
+        }
+        At++;
+    }
     
-	size_t Size = (size_t)(At - Ptr);
-	Ptr = Size == 0 ? NULL : Ptr;
-	return Make_String(Ptr, Size);
+    size_t Size = (size_t)(At - Ptr);
+    Ptr = Size == 0 ? NULL : Ptr;
+    return Make_String(Ptr, Size);
 }
 
 export_function string SStream_Reader_Consume_Line(sstream_reader* Reader) {
-	const char* Ptr = Reader->At;
-	while (SStream_Reader_Is_Valid(Reader)) {
-		sstream_char Result = SStream_Reader_Consume_Char(Reader);
-		if (Result.Char == '\n') {
-			break;
-		}
-	}
+    const char* Ptr = Reader->At;
+    while (SStream_Reader_Is_Valid(Reader)) {
+        sstream_char Result = SStream_Reader_Consume_Char(Reader);
+        if (Result.Char == '\n') {
+            break;
+        }
+    }
     
-	size_t Size = (size_t)(Reader->At - Ptr);
-	Ptr = Size == 0 ? NULL : Ptr;
-	return Make_String(Ptr, Size);
+    size_t Size = (size_t)(Reader->At - Ptr);
+    Ptr = Size == 0 ? NULL : Ptr;
+    return Make_String(Ptr, Size);
 }
 
 export_function void SStream_Reader_Skip_Line(sstream_reader* Reader) {
-	while (SStream_Reader_Is_Valid(Reader)) {
-		sstream_char Result = SStream_Reader_Consume_Char(Reader);
-		if (Result.Char == '\n') {
-			break;
-		}
-	}
+    while (SStream_Reader_Is_Valid(Reader)) {
+        sstream_char Result = SStream_Reader_Consume_Char(Reader);
+        if (Result.Char == '\n') {
+            break;
+        }
+    }
 }
 
 export_function sstream_writer SStream_Writer_Begin(allocator* Allocator) {
-	sstream_writer Writer = { Allocator };
-	return Writer;
+    sstream_writer Writer = { Allocator };
+    return Writer;
 }
 
 export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Entry) {
-	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
-	Node->Entry = String_Copy(Writer->Allocator, Entry);
+    sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
+    Node->Entry = String_Copy(Writer->Allocator, Entry);
     
-	SLL_Push_Front(Writer->First, Node);
-	if (!Writer->Last) {
-		Writer->Last = Writer->First;
-	}
+    SLL_Push_Front(Writer->First, Node);
+    if (!Writer->Last) {
+        Writer->Last = Writer->First;
+    }
     
-	Writer->NodeCount++;
-	Writer->TotalCharCount += Entry.Size;
+    Writer->NodeCount++;
+    Writer->TotalCharCount += Entry.Size;
 }
 
 export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry) {
-	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
-	Node->Entry = String_Copy(Writer->Allocator, Entry);
-	SLL_Push_Back(Writer->First, Writer->Last, Node);
+    sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
+    Node->Entry = String_Copy(Writer->Allocator, Entry);
+    SLL_Push_Back(Writer->First, Writer->Last, Node);
     
-	Writer->NodeCount++;
-	Writer->TotalCharCount += Entry.Size;
+    Writer->NodeCount++;
+    Writer->TotalCharCount += Entry.Size;
 }
 
 export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const char* Format, ...) {
-	va_list List;
-	va_start(List, Format);
-	string String = String_FormatV(Writer->Allocator, Format, List);
-	va_end(List);
+    va_list List;
+    va_start(List, Format);
+    string String = String_FormatV(Writer->Allocator, Format, List);
+    va_end(List);
     
-	sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
-	Node->Entry = String;
-	SLL_Push_Back(Writer->First, Writer->Last, Node);
+    sstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, sstream_writer_node);
+    Node->Entry = String;
+    SLL_Push_Back(Writer->First, Writer->Last, Node);
     
-	Writer->NodeCount++;
-	Writer->TotalCharCount += String.Size;
+    Writer->NodeCount++;
+    Writer->TotalCharCount += String.Size;
 }
 
 export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator, string JoinChars) {
-	if (!Writer->NodeCount) return String_Empty();
-	
-	size_t TotalStringSize = Writer->TotalCharCount + ((Writer->NodeCount-1)*JoinChars.Size);
-	char* Buffer = Allocator_Allocate_Array(Allocator, TotalStringSize + 1, char);
-	char* At = Buffer;
+    if (!Writer->NodeCount) return String_Empty();
     
-	for (sstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
-		Memory_Copy(At, Node->Entry.Ptr, Node->Entry.Size * sizeof(char));
-		At += Node->Entry.Size;
-		if (Node != Writer->Last) {
-			Memory_Copy(At, JoinChars.Ptr, JoinChars.Size * sizeof(char));
-			At += JoinChars.Size;
-		}
-	}
+    size_t TotalStringSize = Writer->TotalCharCount + ((Writer->NodeCount-1)*JoinChars.Size);
+    char* Buffer = Allocator_Allocate_Array(Allocator, TotalStringSize + 1, char);
+    char* At = Buffer;
     
-	Assert((size_t)(At - Buffer) == TotalStringSize);
-	Buffer[TotalStringSize] = 0;
-	return Make_String(Buffer, TotalStringSize);
+    for (sstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
+        Memory_Copy(At, Node->Entry.Ptr, Node->Entry.Size * sizeof(char));
+        At += Node->Entry.Size;
+        if (Node != Writer->Last) {
+            Memory_Copy(At, JoinChars.Ptr, JoinChars.Size * sizeof(char));
+            At += JoinChars.Size;
+        }
+    }
+    
+    Assert((size_t)(At - Buffer) == TotalStringSize);
+    Buffer[TotalStringSize] = 0;
+    return Make_String(Buffer, TotalStringSize);
+}
+
+export_function b32 SStream_Writer_Is_Empty(sstream_writer* Writer) {
+    b32 Result = !Writer->NodeCount || !Writer->TotalCharCount;
+    return Result;
 }
 
 export_function bstream_reader BStream_Reader_Begin(buffer Buffer) {
-	bstream_reader Result = {
-		.Start = Buffer.Ptr,
-		.End = Buffer.Ptr+Buffer.Size,
-		.At = Buffer.Ptr
-	};
-	return Result;
+    bstream_reader Result = {
+        .Start = Buffer.Ptr,
+        .End = Buffer.Ptr+Buffer.Size,
+        .At = Buffer.Ptr
+    };
+    return Result;
 }
 
 export_function b32 BStream_Reader_Is_Valid(bstream_reader* Reader) {
-	return Reader->At < Reader->End;
+    return Reader->At < Reader->End;
 }
 
 export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t Size) {
-	Assert(Reader->At + Size <= Reader->End);
-	const void* Result = Reader->At;
-	Reader->At += Size;
-	return Result;
+    Assert(Reader->At + Size <= Reader->End);
+    const void* Result = Reader->At;
+    Reader->At += Size;
+    return Result;
 }
 
 export_function u32 BStream_Reader_U32(bstream_reader* Reader) {
-	u32 Result = *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
-	return Result;
+    u32 Result = *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
+    return Result;
 }
 
 export_function bstream_writer BStream_Writer_Begin(allocator* Allocator) {
-	bstream_writer Result;
-	Memory_Clear(&Result, sizeof(bstream_writer));
-	Result.Allocator = Allocator;
-	return Result;
+    bstream_writer Result;
+    Memory_Clear(&Result, sizeof(bstream_writer));
+    Result.Allocator = Allocator;
+    return Result;
 }
 
 export_function void BStream_Writer_Front(bstream_writer* Writer, size_t Size, const void* Data) {
-	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
-	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
+    bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
+    Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
     
-	Writer->NodeCount++;
-	Writer->TotalByteCount += Size;
+    Writer->NodeCount++;
+    Writer->TotalByteCount += Size;
     
-	SLL_Push_Front(Writer->First, Node);	
+    SLL_Push_Front(Writer->First, Node);	
 }
 
 export_function void BStream_Writer_Write(bstream_writer* Writer, size_t Size, const void* Data) {
-	bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
-	Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
+    bstream_writer_node* Node = Allocator_Allocate_Struct(Writer->Allocator, bstream_writer_node);
+    Node->Entry = Buffer_Copy(Writer->Allocator, Make_Buffer((void*)Data, Size));
     
-	Writer->NodeCount++;
-	Writer->TotalByteCount += Size;
-	
-	SLL_Push_Back(Writer->First, Writer->Last, Node);
+    Writer->NodeCount++;
+    Writer->TotalByteCount += Size;
     
-	if (!Writer->Last) {
-		Writer->Last = Writer->First;
-	}
+    SLL_Push_Back(Writer->First, Writer->Last, Node);
+    
+    if (!Writer->Last) {
+        Writer->Last = Writer->First;
+    }
 }
 
 export_function buffer BStream_Writer_Join(bstream_writer* Writer, allocator* Allocator) {
-	void* Data = Allocator_Allocate_Memory(Allocator, Writer->TotalByteCount);
+    void* Data = Allocator_Allocate_Memory(Allocator, Writer->TotalByteCount);
     
-	u8* DataAt = (u8*)Data;
-	for (bstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
-		Memory_Copy(DataAt, Node->Entry.Ptr, Node->Entry.Size);
-		DataAt += Node->Entry.Size;
-	}
+    u8* DataAt = (u8*)Data;
+    for (bstream_writer_node* Node = Writer->First; Node; Node = Node->Next) {
+        Memory_Copy(DataAt, Node->Entry.Ptr, Node->Entry.Size);
+        DataAt += Node->Entry.Size;
+    }
     
-	return Make_Buffer(Data, Writer->TotalByteCount);
+    return Make_Buffer(Data, Writer->TotalByteCount);
 }
 
 export_function hashmap Hashmap_Init_With_Size(allocator* Allocator, size_t ValueSize, size_t KeySize, u32 ItemCapacity, key_hash_func* HashFunc, key_comp_func* CompareFunc) {
-	hashmap Result = { Allocator };
-	Result.ItemCapacity = ItemCapacity;
-	Result.KeySize = KeySize;
-	Result.ValueSize = ValueSize;
+    hashmap Result = { Allocator };
+    Result.ItemCapacity = ItemCapacity;
+    Result.KeySize = KeySize;
+    Result.ValueSize = ValueSize;
     
-	Result.HashFunc = HashFunc;
-	Result.CompareFunc = CompareFunc;
+    Result.HashFunc = HashFunc;
+    Result.CompareFunc = CompareFunc;
     
-	size_t TotalKeySize = KeySize * ItemCapacity;
-	size_t TotalValueSize = ValueSize * ItemCapacity;
-	size_t TotalSlotSize = sizeof(u32) * ItemCapacity;
+    size_t TotalKeySize = KeySize * ItemCapacity;
+    size_t TotalValueSize = ValueSize * ItemCapacity;
+    size_t TotalSlotSize = sizeof(u32) * ItemCapacity;
     
-	Result.Keys = Allocator_Allocate_Memory(Result.Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
-	Result.Values = Offset_Pointer(Result.Keys, TotalKeySize);
-	Result.ItemSlots = (u32*)Offset_Pointer(Result.Values, TotalValueSize);
+    Result.Keys = Allocator_Allocate_Memory(Result.Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
+    Result.Values = Offset_Pointer(Result.Keys, TotalKeySize);
+    Result.ItemSlots = (u32*)Offset_Pointer(Result.Values, TotalValueSize);
     
-	Result.ItemCount = 0;
+    Result.ItemCount = 0;
     
-	return Result;
+    return Result;
 }
 
 export_function hashmap Hashmap_Init(allocator* Allocator, size_t ItemSize, size_t KeySize, key_hash_func* HashFunc, key_comp_func* CompareFunc) {
-	return Hashmap_Init_With_Size(Allocator, ItemSize, KeySize, 256, HashFunc, CompareFunc);
+    return Hashmap_Init_With_Size(Allocator, ItemSize, KeySize, 256, HashFunc, CompareFunc);
 }
 
 export_function void Hashmap_Delete(hashmap* Hashmap) {
-	Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
-	Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
-	Memory_Clear(Hashmap, sizeof(hashmap));
+    Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
+    Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
+    Memory_Clear(Hashmap, sizeof(hashmap));
 }
 
 export_function b32 Hashmap_Is_Valid(hashmap* Hashmap) {
-	return Hashmap->Keys != NULL;
+    return Hashmap->Keys != NULL;
 }
 
 export_function void Hashmap_Clear(hashmap* Hashmap) {
-	Assert(Hashmap_Is_Valid(Hashmap));
+    Assert(Hashmap_Is_Valid(Hashmap));
     
-	Memory_Clear(Hashmap->Slots, Hashmap->SlotCapacity * sizeof(hash_slot));
+    Memory_Clear(Hashmap->Slots, Hashmap->SlotCapacity * sizeof(hash_slot));
     
-	for(u32 SlotIndex = 0; SlotIndex < Hashmap->SlotCapacity; SlotIndex++) {
-		Hashmap->Slots[SlotIndex].ItemIndex = HASH_INVALID_SLOT;
+    for(u32 SlotIndex = 0; SlotIndex < Hashmap->SlotCapacity; SlotIndex++) {
+        Hashmap->Slots[SlotIndex].ItemIndex = HASH_INVALID_SLOT;
     }
     
-	Memory_Clear(Hashmap->Keys, Hashmap->KeySize * Hashmap->ItemCount);
-	Memory_Clear(Hashmap->Values, Hashmap->ValueSize * Hashmap->ItemCount);
-	for (u32 i = 0; i < Hashmap->ItemCount; i++) {
-		Hashmap->ItemSlots[i] = HASH_INVALID_SLOT;
-	}
+    Memory_Clear(Hashmap->Keys, Hashmap->KeySize * Hashmap->ItemCount);
+    Memory_Clear(Hashmap->Values, Hashmap->ValueSize * Hashmap->ItemCount);
+    for (u32 i = 0; i < Hashmap->ItemCount; i++) {
+        Hashmap->ItemSlots[i] = HASH_INVALID_SLOT;
+    }
     
     Hashmap->ItemCount = 0;
 }
 
 export_function u32 Hashmap_Find_Slot(hashmap* Hashmap, void* Key, u32 Hash) {
-	if (Hashmap->SlotCapacity == 0 || !Hashmap->Slots) return HASH_INVALID_SLOT;
+    if (Hashmap->SlotCapacity == 0 || !Hashmap->Slots) return HASH_INVALID_SLOT;
     
-	u32 SlotMask = Hashmap->SlotCapacity - 1;
-	u32 BaseSlot = (Hash & SlotMask);
-	u32 BaseCount = Hashmap->Slots[BaseSlot].BaseCount;
-	u32 Slot = BaseSlot;
+    u32 SlotMask = Hashmap->SlotCapacity - 1;
+    u32 BaseSlot = (Hash & SlotMask);
+    u32 BaseCount = Hashmap->Slots[BaseSlot].BaseCount;
+    u32 Slot = BaseSlot;
     
-	while (BaseCount > 0) {
-		if (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT) {
-			u32 SlotHash = Hashmap->Slots[Slot].Hash;
-			u32 SlotBase = (SlotHash & SlotMask);
-			if (SlotBase == BaseSlot) {
-				Assert(BaseCount > 0);
-				BaseCount--;
+    while (BaseCount > 0) {
+        if (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT) {
+            u32 SlotHash = Hashmap->Slots[Slot].Hash;
+            u32 SlotBase = (SlotHash & SlotMask);
+            if (SlotBase == BaseSlot) {
+                Assert(BaseCount > 0);
+                BaseCount--;
                 
-				if (SlotHash == Hash) {
-					void* KeyComp = Offset_Pointer(Hashmap->Keys, Hashmap->Slots[Slot].ItemIndex * Hashmap->KeySize);
-					if (Hashmap->CompareFunc(Key, KeyComp)) {
-						return Slot;
-					}
-				}
-			}
-		}
+                if (SlotHash == Hash) {
+                    void* KeyComp = Offset_Pointer(Hashmap->Keys, Hashmap->Slots[Slot].ItemIndex * Hashmap->KeySize);
+                    if (Hashmap->CompareFunc(Key, KeyComp)) {
+                        return Slot;
+                    }
+                }
+            }
+        }
         
-		Slot = (Slot + 1) & SlotMask;
-	}
+        Slot = (Slot + 1) & SlotMask;
+    }
     
-	return HASH_INVALID_SLOT;
+    return HASH_INVALID_SLOT;
 }
 
 export_function void Hashmap_Expand_Slots(hashmap* Hashmap, u32 NewCapacity) {
-	NewCapacity = Ceil_Pow2_U32(NewCapacity);
-	u32 SlotMask = NewCapacity - 1;
+    NewCapacity = Ceil_Pow2_U32(NewCapacity);
+    u32 SlotMask = NewCapacity - 1;
     
-	hash_slot* NewSlots = Allocator_Allocate_Array(Hashmap->Allocator, NewCapacity, hash_slot);
-	for (u32 i = 0; i < NewCapacity; i++) {
-		NewSlots[i].ItemIndex = HASH_INVALID_SLOT;
-	}
+    hash_slot* NewSlots = Allocator_Allocate_Array(Hashmap->Allocator, NewCapacity, hash_slot);
+    for (u32 i = 0; i < NewCapacity; i++) {
+        NewSlots[i].ItemIndex = HASH_INVALID_SLOT;
+    }
     
-	for (u32 i = 0; i < Hashmap->SlotCapacity; i++) {
-		if (Hashmap->Slots[i].ItemIndex != HASH_INVALID_SLOT) {
-			u32 Hash = Hashmap->Slots[i].ItemIndex;
-			u32 BaseSlot = (Hash & SlotMask);
-			u32 Slot = BaseSlot;
-			while (NewSlots[Slot].ItemIndex != HASH_INVALID_SLOT) {
-				Slot = (Slot + 1) & SlotMask;
-			}
-			NewSlots[Slot].Hash = Hash;
-			u32 ItemIndex = Hashmap->Slots[i].ItemIndex;
-			NewSlots[Slot].ItemIndex = ItemIndex;
-			Hashmap->ItemSlots[ItemIndex] = Slot;
-			NewSlots[BaseSlot].BaseCount++;
-		}
-	}
+    for (u32 i = 0; i < Hashmap->SlotCapacity; i++) {
+        if (Hashmap->Slots[i].ItemIndex != HASH_INVALID_SLOT) {
+            u32 Hash = Hashmap->Slots[i].ItemIndex;
+            u32 BaseSlot = (Hash & SlotMask);
+            u32 Slot = BaseSlot;
+            while (NewSlots[Slot].ItemIndex != HASH_INVALID_SLOT) {
+                Slot = (Slot + 1) & SlotMask;
+            }
+            NewSlots[Slot].Hash = Hash;
+            u32 ItemIndex = Hashmap->Slots[i].ItemIndex;
+            NewSlots[Slot].ItemIndex = ItemIndex;
+            Hashmap->ItemSlots[ItemIndex] = Slot;
+            NewSlots[BaseSlot].BaseCount++;
+        }
+    }
     
-	if (Hashmap->Slots) {
-		Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
-	}
-	Hashmap->Slots = NewSlots;
-	Hashmap->SlotCapacity = NewCapacity;
+    if (Hashmap->Slots) {
+        Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Slots);
+    }
+    Hashmap->Slots = NewSlots;
+    Hashmap->SlotCapacity = NewCapacity;
 }
 
 export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	Assert(Hashmap_Find_Slot(Hashmap, Key, Hash) == HASH_INVALID_SLOT);
+    Assert(Hashmap_Is_Valid(Hashmap));
+    Assert(Hashmap_Find_Slot(Hashmap, Key, Hash) == HASH_INVALID_SLOT);
     
-	if (Hashmap->ItemCount >= (Hashmap->SlotCapacity - (Hashmap->SlotCapacity / 3))) {
-		u32 NewSlotCapacity = Hashmap->SlotCapacity ? Hashmap->SlotCapacity*2 : 128;
-		Hashmap_Expand_Slots(Hashmap, NewSlotCapacity);
-	}
+    if (Hashmap->ItemCount >= (Hashmap->SlotCapacity - (Hashmap->SlotCapacity / 3))) {
+        u32 NewSlotCapacity = Hashmap->SlotCapacity ? Hashmap->SlotCapacity*2 : 128;
+        Hashmap_Expand_Slots(Hashmap, NewSlotCapacity);
+    }
     
-	u32 SlotMask = Hashmap->SlotCapacity - 1;
-	u32 BaseSlot = (Hash & SlotMask);
+    u32 SlotMask = Hashmap->SlotCapacity - 1;
+    u32 BaseSlot = (Hash & SlotMask);
     
-	//Linear probing. This is not great for preventing collision
+    //Linear probing. This is not great for preventing collision
     u32 BaseCount = Hashmap->Slots[BaseSlot].BaseCount;
     u32 Slot = BaseSlot;
     u32 FirstFree = Slot;
@@ -3299,120 +3384,120 @@ export_function void Hashmap_Add_By_Hash(hashmap* Hashmap, void* Key, void* Valu
     Slot = FirstFree;
     while (Hashmap->Slots[Slot].ItemIndex != HASH_INVALID_SLOT)  {
         Slot = (Slot + 1) & SlotMask;
-	}
+    }
     
-	if (Hashmap->ItemCount == Hashmap->ItemCapacity) {
-		size_t NewItemCapacity = Hashmap->ItemCapacity * 2;
-		size_t TotalKeySize = Hashmap->KeySize * NewItemCapacity;
-		size_t TotalValueSize = Hashmap->ValueSize * NewItemCapacity;
-		size_t TotalSlotSize = sizeof(u32) * NewItemCapacity;
+    if (Hashmap->ItemCount == Hashmap->ItemCapacity) {
+        size_t NewItemCapacity = Hashmap->ItemCapacity * 2;
+        size_t TotalKeySize = Hashmap->KeySize * NewItemCapacity;
+        size_t TotalValueSize = Hashmap->ValueSize * NewItemCapacity;
+        size_t TotalSlotSize = sizeof(u32) * NewItemCapacity;
         
-		void* Keys = Allocator_Allocate_Memory(Hashmap->Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
-		void* Values = Offset_Pointer(Hashmap->Keys, TotalKeySize);
-		u32* ItemSlots = (u32*)Offset_Pointer(Hashmap->Values, TotalValueSize);
+        void* Keys = Allocator_Allocate_Memory(Hashmap->Allocator, TotalKeySize + TotalValueSize + TotalSlotSize);
+        void* Values = Offset_Pointer(Hashmap->Keys, TotalKeySize);
+        u32* ItemSlots = (u32*)Offset_Pointer(Hashmap->Values, TotalValueSize);
         
-		Memory_Copy(Keys, Hashmap->Keys, Hashmap->ItemCapacity * Hashmap->KeySize);
-		Memory_Copy(Values, Hashmap->Values, Hashmap->ItemCapacity * Hashmap->ValueSize);
-		Memory_Copy(ItemSlots, Hashmap->ItemSlots, Hashmap->ItemCapacity * sizeof(u32));
+        Memory_Copy(Keys, Hashmap->Keys, Hashmap->ItemCapacity * Hashmap->KeySize);
+        Memory_Copy(Values, Hashmap->Values, Hashmap->ItemCapacity * Hashmap->ValueSize);
+        Memory_Copy(ItemSlots, Hashmap->ItemSlots, Hashmap->ItemCapacity * sizeof(u32));
         
-		Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
+        Allocator_Free_Memory(Hashmap->Allocator, Hashmap->Keys);
         
-		Hashmap->ItemCapacity = (u32)NewItemCapacity;
-		Hashmap->Keys = Keys;
-		Hashmap->Values = Values;
-		Hashmap->ItemSlots = ItemSlots;
-	}
-	Assert(Hashmap->ItemCount < Hashmap->ItemCapacity);
+        Hashmap->ItemCapacity = (u32)NewItemCapacity;
+        Hashmap->Keys = Keys;
+        Hashmap->Values = Values;
+        Hashmap->ItemSlots = ItemSlots;
+    }
+    Assert(Hashmap->ItemCount < Hashmap->ItemCapacity);
     
-	u32 Index = Hashmap->ItemCount++;
+    u32 Index = Hashmap->ItemCount++;
     
-	Hashmap->Slots[Slot].Hash = Hash;
-	Hashmap->Slots[Slot].ItemIndex = Index;
-	Hashmap->Slots[BaseSlot].BaseCount++;
+    Hashmap->Slots[Slot].Hash = Hash;
+    Hashmap->Slots[Slot].ItemIndex = Index;
+    Hashmap->Slots[BaseSlot].BaseCount++;
     
-	Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index*Hashmap->KeySize)), Key, Hashmap->KeySize);
-	Memory_Copy(Offset_Pointer(Hashmap->Values, (Index*Hashmap->ValueSize)), Value, Hashmap->ValueSize);
-	Hashmap->ItemSlots[Index] = Slot;
+    Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index*Hashmap->KeySize)), Key, Hashmap->KeySize);
+    Memory_Copy(Offset_Pointer(Hashmap->Values, (Index*Hashmap->ValueSize)), Value, Hashmap->ValueSize);
+    Hashmap->ItemSlots[Index] = Slot;
 }
 
 export_function u32 Hashmap_Hash(hashmap* Hashmap, void* Key) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	return Hashmap->HashFunc(Key);
+    Assert(Hashmap_Is_Valid(Hashmap));
+    return Hashmap->HashFunc(Key);
 }
 
 export_function void Hashmap_Add(hashmap* Hashmap, void* Key, void* Value) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	u32 Hash = Hashmap_Hash(Hashmap, Key); 
-	Hashmap_Add_By_Hash(Hashmap, Key, Value, Hash);
+    Assert(Hashmap_Is_Valid(Hashmap));
+    u32 Hash = Hashmap_Hash(Hashmap, Key); 
+    Hashmap_Add_By_Hash(Hashmap, Key, Value, Hash);
 }
 
 export_function void* Hashmap_Find_By_Hash_Ptr(hashmap* Hashmap, void* Key, u32 Hash) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
-	if (Slot == HASH_INVALID_SLOT) return NULL;
-	u32 ItemIndex = Hashmap->Slots[Slot].ItemIndex;
-	return Offset_Pointer(Hashmap->Values, (ItemIndex * Hashmap->ValueSize));
+    Assert(Hashmap_Is_Valid(Hashmap));
+    u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
+    if (Slot == HASH_INVALID_SLOT) return NULL;
+    u32 ItemIndex = Hashmap->Slots[Slot].ItemIndex;
+    return Offset_Pointer(Hashmap->Values, (ItemIndex * Hashmap->ValueSize));
 }
 
 export_function void* Hashmap_Find_Ptr(hashmap* Hashmap, void* Key) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	u32 Hash = Hashmap_Hash(Hashmap, Key);
-	void* Result = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
-	return Result;
+    Assert(Hashmap_Is_Valid(Hashmap));
+    u32 Hash = Hashmap_Hash(Hashmap, Key);
+    void* Result = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
+    return Result;
 }
 
 export_function b32 Hashmap_Find_By_Hash(hashmap* Hashmap, void* Key, void* Value, u32 Hash) {
-	void* ValuePtr = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
-	b32 Result = false;
-	if (ValuePtr) {
-		Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
-		Result = true;
-	}
-	return Result;
+    void* ValuePtr = Hashmap_Find_By_Hash_Ptr(Hashmap, Key, Hash);
+    b32 Result = false;
+    if (ValuePtr) {
+        Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
+        Result = true;
+    }
+    return Result;
 }
 
 export_function b32 Hashmap_Find(hashmap* Hashmap, void* Key, void* Value) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	u32 Hash = Hashmap_Hash(Hashmap, Key);
-	b32 Result = Hashmap_Find_By_Hash(Hashmap, Key, Value, Hash);
-	return Result;
+    Assert(Hashmap_Is_Valid(Hashmap));
+    u32 Hash = Hashmap_Hash(Hashmap, Key);
+    b32 Result = Hashmap_Find_By_Hash(Hashmap, Key, Value, Hash);
+    return Result;
 }
 
 export_function void* Hashmap_Get_Value_Ptr(hashmap* Hashmap, size_t Index) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	if (Index >= Hashmap->ItemCount) return NULL;
-	return Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize));
+    Assert(Hashmap_Is_Valid(Hashmap));
+    if (Index >= Hashmap->ItemCount) return NULL;
+    return Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize));
 }
 
 export_function b32 Hashmap_Get_Value(hashmap* Hashmap, size_t Index, void* Value) {
-	void* ValuePtr = Hashmap_Get_Value_Ptr(Hashmap, Index);
-	b32 Result = false;
-	if (ValuePtr) {
-		Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
-		Result = true;
-	}
-	return Result;
+    void* ValuePtr = Hashmap_Get_Value_Ptr(Hashmap, Index);
+    b32 Result = false;
+    if (ValuePtr) {
+        Memory_Copy(Value, ValuePtr, Hashmap->ValueSize);
+        Result = true;
+    }
+    return Result;
 }
 
 export_function b32 Hashmap_Get_Key(hashmap* Hashmap, size_t Index, void* Key) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	if (Index >= Hashmap->ItemCount) return false;
-	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
-	return true;
+    Assert(Hashmap_Is_Valid(Hashmap));
+    if (Index >= Hashmap->ItemCount) return false;
+    Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
+    return true;
 }
 
 export_function b32 Hashmap_Get_Key_Value(hashmap* Hashmap, size_t Index, void* Key, void* Value) {
-	Assert(Hashmap_Is_Valid(Hashmap));
-	if (Index >= Hashmap->ItemCount) return false;
-	Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
-	Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
-	return true;
+    Assert(Hashmap_Is_Valid(Hashmap));
+    if (Index >= Hashmap->ItemCount) return false;
+    Memory_Copy(Key, Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), Hashmap->KeySize);
+    Memory_Copy(Value, Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), Hashmap->ValueSize);
+    return true;
 }
 
 export_function void Hashmap_Remove(hashmap* Hashmap, void* Key) {
-	u32 Hash = Hashmap_Hash(Hashmap, Key);
-	u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
-	
+    u32 Hash = Hashmap_Hash(Hashmap, Key);
+    u32 Slot = Hashmap_Find_Slot(Hashmap, Key, Hash);
+    
     if(Slot == HASH_INVALID_SLOT) return;
     
     u32 SlotMask = Hashmap->SlotCapacity-1;
@@ -3424,13 +3509,13 @@ export_function void Hashmap_Remove(hashmap* Hashmap, void* Key) {
     Hashmap->Slots[Slot].ItemIndex = HASH_INVALID_SLOT;
     
     if(Index != LastIndex) {
-		Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), 
-					Offset_Pointer(Hashmap->Keys, (LastIndex * Hashmap->KeySize)), 
-					Hashmap->KeySize);
+        Memory_Copy(Offset_Pointer(Hashmap->Keys, (Index * Hashmap->KeySize)), 
+                    Offset_Pointer(Hashmap->Keys, (LastIndex * Hashmap->KeySize)), 
+                    Hashmap->KeySize);
         
-		Memory_Copy(Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), 
-					Offset_Pointer(Hashmap->Values, (LastIndex * Hashmap->ValueSize)), 
-					Hashmap->ValueSize);
+        Memory_Copy(Offset_Pointer(Hashmap->Values, (Index * Hashmap->ValueSize)), 
+                    Offset_Pointer(Hashmap->Values, (LastIndex * Hashmap->ValueSize)), 
+                    Hashmap->ValueSize);
         
         Hashmap->ItemSlots[Index] = Hashmap->ItemSlots[LastIndex];
         Hashmap->Slots[Hashmap->ItemSlots[LastIndex]].ItemIndex = Index;
@@ -3440,207 +3525,207 @@ export_function void Hashmap_Remove(hashmap* Hashmap, void* Key) {
 }
 
 export_function void Slot_Map_Clear(slot_map* SlotMap) {
-	SlotMap->FreeCount = SlotMap->Capacity;
-	SlotMap->Count = 0;
-	for (size_t i = 0; i < SlotMap->Capacity; i++) {
-		SlotMap->Slots[i] = 1;
-		SlotMap->FreeIndices[i] = (u32)i;
-	}
+    SlotMap->FreeCount = SlotMap->Capacity;
+    SlotMap->Count = 0;
+    for (size_t i = 0; i < SlotMap->Capacity; i++) {
+        SlotMap->Slots[i] = 1;
+        SlotMap->FreeIndices[i] = (u32)i;
+    }
 }
 
 export_function slot_map Slot_Map_Init(allocator* Allocator, size_t Capacity) {
-	slot_map Result = { 0 };
-	Result.Allocator = Allocator;
-	Result.Slots = Allocator_Allocate_Array(Allocator, 2 * Capacity, u32);
-	Result.FreeIndices = Result.Slots + Capacity;
-	Result.Capacity = Capacity;
-	Slot_Map_Clear(&Result);
-	return Result;
+    slot_map Result = { 0 };
+    Result.Allocator = Allocator;
+    Result.Slots = Allocator_Allocate_Array(Allocator, 2 * Capacity, u32);
+    Result.FreeIndices = Result.Slots + Capacity;
+    Result.Capacity = Capacity;
+    Slot_Map_Clear(&Result);
+    return Result;
 }
 
 export_function void Slot_Map_Delete(slot_map* SlotMap) {
-	Allocator_Free_Memory(SlotMap->Allocator, SlotMap->Slots);
-	Memory_Clear(SlotMap, sizeof(slot_map));
+    Allocator_Free_Memory(SlotMap->Allocator, SlotMap->Slots);
+    Memory_Clear(SlotMap, sizeof(slot_map));
 }
 
 export_function slot_id Slot_Map_Allocate(slot_map* SlotMap) {
-	Assert(SlotMap->FreeCount);
-	u32 FreeIndex = SlotMap->FreeIndices[--SlotMap->FreeCount];
-	
-	//Set the slot as allocated (last bit)
-	Set_Bit(SlotMap->Slots[FreeIndex], 31);
-	
-	SlotMap->Count++;
-	slot_id Result = { .Index = FreeIndex, .Slot = SlotMap->Slots[FreeIndex] };
-	return Result;
+    Assert(SlotMap->FreeCount);
+    u32 FreeIndex = SlotMap->FreeIndices[--SlotMap->FreeCount];
+    
+    //Set the slot as allocated (last bit)
+    Set_Bit(SlotMap->Slots[FreeIndex], 31);
+    
+    SlotMap->Count++;
+    slot_id Result = { .Index = FreeIndex, .Slot = SlotMap->Slots[FreeIndex] };
+    return Result;
 }
 
 export_function void Slot_Map_Free(slot_map* SlotMap, slot_id ID) {
-	Assert(ID.ID);
-	if (!ID.ID) {
-		return;
-	}
-	
-	u32 Index = ID.Index;
-	Assert(Index < SlotMap->Capacity);
+    Assert(ID.ID);
+    if (!ID.ID) {
+        return;
+    }
     
-	if (SlotMap->Slots[Index] == ID.Slot) {
-		SlotMap->Slots[Index]++;
-		Clear_Bit(SlotMap->Slots[Index], 31);
+    u32 Index = ID.Index;
+    Assert(Index < SlotMap->Capacity);
+    
+    if (SlotMap->Slots[Index] == ID.Slot) {
+        SlotMap->Slots[Index]++;
+        Clear_Bit(SlotMap->Slots[Index], 31);
         
-		if (!SlotMap->Slots[Index]) {
-			SlotMap->Slots[Index] = 1;
-		}
+        if (!SlotMap->Slots[Index]) {
+            SlotMap->Slots[Index] = 1;
+        }
         
-		SlotMap->FreeIndices[SlotMap->FreeCount++] = Index;
-		SlotMap->Count--;
-	}
+        SlotMap->FreeIndices[SlotMap->FreeCount++] = Index;
+        SlotMap->Count--;
+    }
 }
 
 export_function b32 Slot_Map_Is_Allocated(slot_map* SlotMap, slot_id SlotID) {
-	if (!SlotID.ID) return false;
-	u32 Index = SlotID.Index;
-	Assert(Index < SlotMap->Capacity);
-	return SlotMap->Slots[Index] == SlotID.Slot;
+    if (!SlotID.ID) return false;
+    u32 Index = SlotID.Index;
+    Assert(Index < SlotMap->Capacity);
+    return SlotMap->Slots[Index] == SlotID.Slot;
 }
 
 export_function b32 Slot_Map_Is_Allocated_Index(slot_map* SlotMap, size_t Index) {
-	Assert(Index < SlotMap->Capacity);
-	u32 Slot = SlotMap->Slots[Index];
-	return Read_Bit(Slot, 31) != 0;
+    Assert(Index < SlotMap->Capacity);
+    u32 Slot = SlotMap->Slots[Index];
+    return Read_Bit(Slot, 31) != 0;
 }
 
 export_function slot_id Slot_Map_Get_ID(slot_map* SlotMap, size_t Index) {
-	Assert(Index < SlotMap->Capacity);
-	slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
-	return Result;
+    Assert(Index < SlotMap->Capacity);
+    slot_id Result = { .Index = (u32)Index, .Slot = SlotMap->Slots[Index] };
+    return Result;
 }
 
 #define Pool_Entry_Size(entry) (sizeof(pool_id)+(entry)->ItemSize)
 #define Pool_Get_Internal_ID(entry, index) ((pool_id*)Offset_Pointer((entry)->Data, (index)*Pool_Entry_Size(entry)))
 
 export_function void Pool_Init_With_Size(pool* Pool, size_t ItemSize, size_t ReserveSize) {
-	Memory_Clear(Pool, sizeof(pool));
-	Pool->ItemSize = ItemSize;
-	Pool->Reserve = Make_Memory_Reserve(ReserveSize);
-	Pool->Data = Pool->Reserve.BaseAddress;
-	Pool_Clear(Pool);
+    Memory_Clear(Pool, sizeof(pool));
+    Pool->ItemSize = ItemSize;
+    Pool->Reserve = Make_Memory_Reserve(ReserveSize);
+    Pool->Data = Pool->Reserve.BaseAddress;
+    Pool_Clear(Pool);
 }
 
 export_function void Pool_Init(pool* Pool, size_t ItemSize) {
-	Pool_Init_With_Size(Pool, ItemSize, GB(1));
+    Pool_Init_With_Size(Pool, ItemSize, GB(1));
 }
 
 export_function void Pool_Delete(pool* Pool) {
-	if (Pool && Pool->Reserve.BaseAddress) {
-		Delete_Memory_Reserve(&Pool->Reserve);
-		Memory_Clear(Pool, sizeof(pool));
-	}
+    if (Pool && Pool->Reserve.BaseAddress) {
+        Delete_Memory_Reserve(&Pool->Reserve);
+        Memory_Clear(Pool, sizeof(pool));
+    }
 }
 
 export_function pool_id Pool_Allocate(pool* Pool) {
-	u32 Index;
-	if (Pool->FirstFreeIndex != INVALID_POOL_INDEX) {
-		Index = Pool->FirstFreeIndex;
-		Pool->FirstFreeIndex = Pool_Get_Internal_ID(Pool, Index)->NextIndex;
-	} else {
-		Index = Pool->MaxUsed++;
-		if (Pool->MaxUsed * Pool_Entry_Size(Pool) > Pool->Reserve.CommitSize) {
-			if (!Commit_New_Size(&Pool->Reserve, Pool->MaxUsed * Pool_Entry_Size(Pool))) {
-				Debug_Log("Failed to commit more memory for the pool");
-				return Empty_Pool_ID();
-			}
+    u32 Index;
+    if (Pool->FirstFreeIndex != INVALID_POOL_INDEX) {
+        Index = Pool->FirstFreeIndex;
+        Pool->FirstFreeIndex = Pool_Get_Internal_ID(Pool, Index)->NextIndex;
+    } else {
+        Index = Pool->MaxUsed++;
+        if (Pool->MaxUsed * Pool_Entry_Size(Pool) > Pool->Reserve.CommitSize) {
+            if (!Commit_New_Size(&Pool->Reserve, Pool->MaxUsed * Pool_Entry_Size(Pool))) {
+                Debug_Log("Failed to commit more memory for the pool");
+                return Empty_Pool_ID();
+            }
             
-			size_t Iter = Index;
-			while (Iter*Pool_Entry_Size(Pool) < Pool->Reserve.CommitSize) {
-				pool_id* PoolID = Pool_Get_Internal_ID(Pool, Iter);
-				PoolID->Generation = 1;
-				PoolID->Index = INVALID_POOL_INDEX;
-				Iter++;
-			}
-		}
-	}
+            size_t Iter = Index;
+            while (Iter*Pool_Entry_Size(Pool) < Pool->Reserve.CommitSize) {
+                pool_id* PoolID = Pool_Get_Internal_ID(Pool, Iter);
+                PoolID->Generation = 1;
+                PoolID->Index = INVALID_POOL_INDEX;
+                Iter++;
+            }
+        }
+    }
     
-	pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
-	PoolID->Index = Index;
+    pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
+    PoolID->Index = Index;
     
     Pool->Count++;
     
-	return *PoolID;
+    return *PoolID;
 }
 
 export_function void Pool_Free(pool* Pool, pool_id ID) {
-	if (!Pool_ID_Null(ID)) {
-		pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
-		if (Pool_ID_Equal(ID, *PoolID)) {
-			PoolID->Generation++;
-			PoolID->NextIndex = Pool->FirstFreeIndex;
-			Pool->FirstFreeIndex = ID.Index;
+    if (!Pool_ID_Null(ID)) {
+        pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+        if (Pool_ID_Equal(ID, *PoolID)) {
+            PoolID->Generation++;
+            PoolID->NextIndex = Pool->FirstFreeIndex;
+            Pool->FirstFreeIndex = ID.Index;
             Pool->Count--;
-			Memory_Clear(PoolID + 1, Pool->ItemSize);
-		}
-	}
+            Memory_Clear(PoolID + 1, Pool->ItemSize);
+        }
+    }
 }
 
 export_function void* Pool_Get(pool* Pool, pool_id ID) {
-	if (Pool_ID_Null(ID)) return NULL;
-	pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
-	if (!Pool_ID_Equal(ID, *PoolID)) return NULL;
-	return PoolID + 1;
+    if (Pool_ID_Null(ID)) return NULL;
+    pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+    if (!Pool_ID_Equal(ID, *PoolID)) return NULL;
+    return PoolID + 1;
 }
 
 export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID) {
-	if (Pool_ID_Null(ID)) return false;
-	pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
-	return Pool_ID_Equal(ID, *PoolID);
+    if (Pool_ID_Null(ID)) return false;
+    pool_id* PoolID = Pool_Get_Internal_ID(Pool, ID.Index);
+    return Pool_ID_Equal(ID, *PoolID);
 }
 
 export_function void Pool_Clear(pool* Pool) {
-	for (size_t i = 0; i < Pool->MaxUsed; i++) {
-		pool_id* PoolID = Pool_Get_Internal_ID(Pool, i);
-		PoolID->Generation = 1;
-		PoolID->Index = INVALID_POOL_INDEX;
-	}
-	Pool->Count = 0;
-	Pool->MaxUsed = 0;
-	Pool->FirstFreeIndex = INVALID_POOL_INDEX;
+    for (size_t i = 0; i < Pool->MaxUsed; i++) {
+        pool_id* PoolID = Pool_Get_Internal_ID(Pool, i);
+        PoolID->Generation = 1;
+        PoolID->Index = INVALID_POOL_INDEX;
+    }
+    Pool->Count = 0;
+    Pool->MaxUsed = 0;
+    Pool->FirstFreeIndex = INVALID_POOL_INDEX;
 }
 
 export_function pool_id Pool_Get_ID(pool* Pool, void* Data) {
-	Assert(Data >= Pool->Data && Data <= Offset_Pointer(Pool->Data, Pool->MaxUsed * Pool_Entry_Size(Pool)));
-	pool_id* ID = ((pool_id*)Data)-1;
-	return *ID;
+    Assert(Data >= Pool->Data && Data <= Offset_Pointer(Pool->Data, Pool->MaxUsed * Pool_Entry_Size(Pool)));
+    pool_id* ID = ((pool_id*)Data)-1;
+    return *ID;
 }
 
 export_function pool_iter Pool_Begin_Iter(pool* Pool) {
-	pool_iter Result = {
-		.Pool = Pool
-	};
+    pool_iter Result = {
+        .Pool = Pool
+    };
     
-	for (u32 i = 0; i < Pool->MaxUsed; i++) {
-		pool_id* PoolID = Pool_Get_Internal_ID(Result.Pool, i);
-		if (i == Pool_Get_Internal_ID(Pool, i)->Index) {
-			Result.Index = i;
-			Result.IsValid = true;
-			Result.Data = (PoolID + 1);
-			return Result;
-		}
-	}
+    for (u32 i = 0; i < Pool->MaxUsed; i++) {
+        pool_id* PoolID = Pool_Get_Internal_ID(Result.Pool, i);
+        if (i == Pool_Get_Internal_ID(Pool, i)->Index) {
+            Result.Index = i;
+            Result.IsValid = true;
+            Result.Data = (PoolID + 1);
+            return Result;
+        }
+    }
     
-	return Result;
+    return Result;
 }
 
 export_function void Pool_Iter_Next(pool_iter* Iter) {
-	Iter->IsValid = false;
-	for (u32 i = Iter->Index+1; i < Iter->Pool->MaxUsed; i++) {
-		pool_id* PoolID = Pool_Get_Internal_ID(Iter->Pool, i);
-		if (i == PoolID->Index) {
-			Iter->Index = i;
-			Iter->IsValid = true;
-			Iter->Data = (PoolID + 1);
-			return;
-		}
-	}
+    Iter->IsValid = false;
+    for (u32 i = Iter->Index+1; i < Iter->Pool->MaxUsed; i++) {
+        pool_id* PoolID = Pool_Get_Internal_ID(Iter->Pool, i);
+        if (i == PoolID->Index) {
+            Iter->Index = i;
+            Iter->IsValid = true;
+            Iter->Data = (PoolID + 1);
+            return;
+        }
+    }
 }
 
 #define Binary_Heap_Parent(i) ((i - 1) / 2)
@@ -3650,99 +3735,99 @@ export_function void Pool_Iter_Next(pool_iter* Iter) {
 #define Binary_Heap_Right(i) (2 * i + 2)
 
 export_function b32 Binary_Heap_Is_Empty(binary_heap* Heap) {
-	b32 Result = Heap->Count == 0;
-	return Result;
+    b32 Result = Heap->Count == 0;
+    return Result;
 }
 
 export_function binary_heap Binary_Heap_Init(void* Ptr, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
-	binary_heap Result = {
-		.CompareFunc = CompareFunc,
-		.Capacity = Capacity,
-		.ItemSize = ItemSize,
-		.Ptr = (u8*)Ptr
-	};
-	return Result; 
+    binary_heap Result = {
+        .CompareFunc = CompareFunc,
+        .Capacity = Capacity,
+        .ItemSize = ItemSize,
+        .Ptr = (u8*)Ptr
+    };
+    return Result; 
 }
 
 export_function binary_heap Binary_Heap_Alloc(arena* Arena, size_t Capacity, size_t ItemSize, binary_heap_compare_func* CompareFunc) {
-	void* Result = Arena_Push(Arena, Capacity * ItemSize);
-	return Binary_Heap_Init(Result, Capacity, ItemSize, CompareFunc);
+    void* Result = Arena_Push(Arena, Capacity * ItemSize);
+    return Binary_Heap_Init(Result, Capacity, ItemSize, CompareFunc);
 }
 
 function void* Binary_Heap_Get_Data(binary_heap* Heap, size_t Index) {	
-	Assert(Index < Heap->Count);
-	void* Ptr = Heap->Ptr + Heap->ItemSize*Index;
-	return Ptr;
+    Assert(Index < Heap->Count);
+    void* Ptr = Heap->Ptr + Heap->ItemSize*Index;
+    return Ptr;
 }
 
 function void Binary_Heap_Swap(binary_heap* Heap, size_t Index0, size_t Index1) {
-	arena* Scratch = Scratch_Get();
+    arena* Scratch = Scratch_Get();
     
-	void* Tmp = Arena_Push(Scratch, Heap->ItemSize);
-	void* Data1 = Binary_Heap_Get_Data(Heap, Index0);
-	Memory_Copy(Tmp, Data1, Heap->ItemSize);
-	void* Data2 = Binary_Heap_Get_Data(Heap, Index1);
-	Memory_Copy(Data1, Data2, Heap->ItemSize);
-	Memory_Copy(Data2, Tmp, Heap->ItemSize);
+    void* Tmp = Arena_Push(Scratch, Heap->ItemSize);
+    void* Data1 = Binary_Heap_Get_Data(Heap, Index0);
+    Memory_Copy(Tmp, Data1, Heap->ItemSize);
+    void* Data2 = Binary_Heap_Get_Data(Heap, Index1);
+    Memory_Copy(Data1, Data2, Heap->ItemSize);
+    Memory_Copy(Data2, Tmp, Heap->ItemSize);
     
-	Scratch_Release();
+    Scratch_Release();
 }
 
 function void Binary_Heap_Maxify(binary_heap* Heap) {
-	size_t Index = 0;
-	size_t Largest = Index;
-	do {
-		size_t Left = Binary_Heap_Left(Index);
-		size_t Right = Binary_Heap_Right(Index);
+    size_t Index = 0;
+    size_t Largest = Index;
+    do {
+        size_t Left = Binary_Heap_Left(Index);
+        size_t Right = Binary_Heap_Right(Index);
         
-		size_t Count = Heap->Count;
+        size_t Count = Heap->Count;
         
-		binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
-		if (Left < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Left),
-										Binary_Heap_Get_Data(Heap, Index))) {
-			Largest = Left;
-		}
+        binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
+        if (Left < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Left),
+                                        Binary_Heap_Get_Data(Heap, Index))) {
+            Largest = Left;
+        }
         
-		if (Right < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Right),
-										 Binary_Heap_Get_Data(Heap, Largest))) {
-			Largest = Right;
-		}
+        if (Right < Count && CompareFunc(Binary_Heap_Get_Data(Heap, Right),
+                                         Binary_Heap_Get_Data(Heap, Largest))) {
+            Largest = Right;
+        }
         
-		if (Largest != Index) {
-			Binary_Heap_Swap(Heap, Index, Largest);
-			Index = Largest;
-		}
-		
-	} while (Largest != Index);
+        if (Largest != Index) {
+            Binary_Heap_Swap(Heap, Index, Largest);
+            Index = Largest;
+        }
+        
+    } while (Largest != Index);
 }
 
 export_function void Binary_Heap_Push(binary_heap* Heap, void* Data) {
-	Assert(Heap->Count < Heap->Capacity);
-	size_t Index = Heap->Count++;
-	Memory_Copy(Binary_Heap_Get_Data(Heap, Index), 
-				Data, Heap->ItemSize);
-	binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
+    Assert(Heap->Count < Heap->Capacity);
+    size_t Index = Heap->Count++;
+    Memory_Copy(Binary_Heap_Get_Data(Heap, Index), 
+                Data, Heap->ItemSize);
+    binary_heap_compare_func* CompareFunc = Heap->CompareFunc;
     
-	//If the parent of the binary heap is smaller, we need to fixup the structure
-	while (Index != 0 && !CompareFunc(Binary_Heap_Get_Data(Heap, Binary_Heap_Parent(Index)),
-									  Binary_Heap_Get_Data(Heap, Index))) {
-		Binary_Heap_Swap(Heap, Index, Binary_Heap_Parent(Index));
-		Index = Binary_Heap_Parent(Index);
-	}
+    //If the parent of the binary heap is smaller, we need to fixup the structure
+    while (Index != 0 && !CompareFunc(Binary_Heap_Get_Data(Heap, Binary_Heap_Parent(Index)),
+                                      Binary_Heap_Get_Data(Heap, Index))) {
+        Binary_Heap_Swap(Heap, Index, Binary_Heap_Parent(Index));
+        Index = Binary_Heap_Parent(Index);
+    }
 }
 
 export_function void* Binary_Heap_Pop(binary_heap* Heap) {
-	Assert(Heap->Count);
-	if (Heap->Count == 1) {
-		Heap->Count--;
-		return Heap->Ptr;
-	}
+    Assert(Heap->Count);
+    if (Heap->Count == 1) {
+        Heap->Count--;
+        return Heap->Ptr;
+    }
     
-	Binary_Heap_Swap(Heap, 0, Heap->Count-1);
-	void* Result = Binary_Heap_Get_Data(Heap, Heap->Count-1);
-	Heap->Count--;
-	Binary_Heap_Maxify(Heap);
-	return Result;
+    Binary_Heap_Swap(Heap, 0, Heap->Count-1);
+    void* Result = Binary_Heap_Get_Data(Heap, Heap->Count-1);
+    Heap->Count--;
+    Binary_Heap_Maxify(Heap);
+    return Result;
 }
 
 function async_stack_index16_key Async_Stack_Index16_Make_Key(u16 Index, u16 Key) {
@@ -3858,142 +3943,142 @@ export_function u32 Async_Stack_Index32_Pop(async_stack_index32* StackIndex) {
 }
 
 export_function void Debug_Log(const char* Format, ...) {
-	arena* Scratch = Scratch_Get();
+    arena* Scratch = Scratch_Get();
     
-	va_list List;
-	va_start(List, Format);
-	string String = String_FormatV((allocator *)Scratch, Format, List);
-	va_end(List);
+    va_list List;
+    va_start(List, Format);
+    string String = String_FormatV((allocator *)Scratch, Format, List);
+    va_end(List);
     
 #ifdef OS_WIN32
-	wstring WString = WString_From_String((allocator *)Scratch, String);
-	OutputDebugStringW(WString.Ptr);
+    wstring WString = WString_From_String((allocator *)Scratch, String);
+    OutputDebugStringW(WString.Ptr);
     
-	if(WString.Size && !(WString.Size == 1 && WString.Ptr[0] == '\n')) OutputDebugStringA("\n");
+    if(WString.Size && !(WString.Size == 1 && WString.Ptr[0] == '\n')) OutputDebugStringA("\n");
 #endif
     
     printf("%.*s", (int)String.Size, String.Ptr);
-	if(String.Size && !(String.Size == 1 && String.Ptr[0] == '\n')) printf("\n");
+    if(String.Size && !(String.Size == 1 && String.Ptr[0] == '\n')) printf("\n");
     
-	Scratch_Release();
+    Scratch_Release();
 }
 
 //Hash functions
 global const XXH32_hash_t InitialSeed = 1234567890;
 
 export_function u32 U32_Hash_U32_With_Seed(u32 Value, u32 Seed) {
-	u32 Result = (u32)XXH32(&Value, sizeof(u32), Seed);
-	return Result;
+    u32 Result = (u32)XXH32(&Value, sizeof(u32), Seed);
+    return Result;
 }
 
 export_function u32 U32_Hash_U32(u32 Value) {
-	u32 Result = (u32)XXH32(&Value, sizeof(u32), InitialSeed);
-	return Result;
+    u32 Result = (u32)XXH32(&Value, sizeof(u32), InitialSeed);
+    return Result;
 }
 
 export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed) {
-	u32 Result = (u32)XXH32(&Value, sizeof(u64), Seed);
-	return Result;
+    u32 Result = (u32)XXH32(&Value, sizeof(u64), Seed);
+    return Result;
 }
 
 export_function u32 U32_Hash_U64(u64 Value) {
-	u32 Result = (u32)XXH32(&Value, sizeof(u64), InitialSeed);
-	return Result;
+    u32 Result = (u32)XXH32(&Value, sizeof(u64), InitialSeed);
+    return Result;
 }
 
 export_function u32 U32_Hash_String(string String) {
-	return (u32)XXH32(String.Ptr, String.Size, InitialSeed);
+    return (u32)XXH32(String.Ptr, String.Size, InitialSeed);
 }
 
 export_function u64 U64_Hash_U32_With_Seed(u32 Value, u64 Seed) {
-	u64 Result = (u64)XXH64(&Value, sizeof(u32), Seed);
-	return Result;
+    u64 Result = (u64)XXH64(&Value, sizeof(u32), Seed);
+    return Result;
 }
 
 export_function u64 U64_Hash_U32(u32 Value) {
-	u64 Result = (u32)XXH64(&Value, sizeof(u32), InitialSeed);
-	return Result;
+    u64 Result = (u32)XXH64(&Value, sizeof(u32), InitialSeed);
+    return Result;
 }
 
 export_function u64 U64_Hash_String(string String) {
-	return (u64)XXH64(String.Ptr, String.Size, InitialSeed);
+    return (u64)XXH64(String.Ptr, String.Size, InitialSeed);
 }
 
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed) {
-	return (u64)XXH64(String.Ptr, String.Size, (XXH64_hash_t)Seed);
+    return (u64)XXH64(String.Ptr, String.Size, (XXH64_hash_t)Seed);
 }
 
 export_function u32 U32_Hash_Bytes(void* Data, size_t Size) {
-	return (u32)XXH32(Data, Size, InitialSeed);
+    return (u32)XXH32(Data, Size, InitialSeed);
 }
 
 export_function u32 U32_Hash_Bytes_With_Seed(void* Data, size_t Size, u32 Seed) {
-	return (u32)XXH32(Data, Size, Seed);
+    return (u32)XXH32(Data, Size, Seed);
 }
 
 export_function u64 U64_Hash_Bytes_With_Seed(void* Data, size_t Size, u64 Seed) {
-	return (u64)XXH64(Data, Size, Seed);
+    return (u64)XXH64(Data, Size, Seed);
 }
 
 export_function u64 U64_Hash_Bytes(void* Data, size_t Size) {
-	return (u64)XXH64(Data, Size, InitialSeed);
+    return (u64)XXH64(Data, Size, InitialSeed);
 }
 
 export_function u32 U32_Hash_Ptr(const void* Ptr) {
-	size_t Value = (size_t)Ptr;
-	return U32_Hash_Bytes(&Value, sizeof(size_t));
+    size_t Value = (size_t)Ptr;
+    return U32_Hash_Bytes(&Value, sizeof(size_t));
 }
 
 export_function u32 U32_Hash_Ptr_With_Seed(const void* Ptr, u32 Seed) {
-	size_t Value = (size_t)Ptr;
-	return U32_Hash_Bytes_With_Seed(&Value, sizeof(size_t), Seed);
+    size_t Value = (size_t)Ptr;
+    return U32_Hash_Bytes_With_Seed(&Value, sizeof(size_t), Seed);
 }
 
 export_function KEY_HASH_FUNC(Hash_String) {
-	string* StringA = (string*)Key;
-	return U32_Hash_String(*StringA);
+    string* StringA = (string*)Key;
+    return U32_Hash_String(*StringA);
 }
 
 export_function KEY_COMP_FUNC(Compare_String) {
-	string* StringA = (string*)KeyA;
-	string* StringB = (string*)KeyB;
-	return String_Equals(*StringA, *StringB);
+    string* StringA = (string*)KeyA;
+    string* StringB = (string*)KeyB;
+    return String_Equals(*StringA, *StringB);
 }
 
 export_function KEY_HASH_FUNC(Hash_U64) {
-	u64 Value = *(u64*)Key;
-	return U32_Hash_U64(Value);
+    u64 Value = *(u64*)Key;
+    return U32_Hash_U64(Value);
 }
 
 export_function KEY_COMP_FUNC(Compare_U64) {
-	u64 ValueA = *(u64*)KeyA;
-	u64 ValueB = *(u64*)KeyB;
-	return ValueA == ValueB;
+    u64 ValueA = *(u64*)KeyA;
+    u64 ValueB = *(u64*)KeyB;
+    return ValueA == ValueB;
 }
 
 export_function buffer Read_Entire_File(allocator* Allocator, string Path) {
-	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_READ);
-	if (!File) return Buffer_Empty();
+    os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_READ);
+    if (!File) return Buffer_Empty();
     
-	size_t Size = OS_Get_File_Size(File);
-	buffer Result = Buffer_Alloc(Allocator, Size);
+    size_t Size = OS_Get_File_Size(File);
+    buffer Result = Buffer_Alloc(Allocator, Size);
     
-	if (!OS_Read_File(File, Result.Ptr, Result.Size)) {
-		Allocator_Free_Memory(Allocator, Result.Ptr);
-		Result = Buffer_Empty();
-	}
+    if (!OS_Read_File(File, Result.Ptr, Result.Size)) {
+        Allocator_Free_Memory(Allocator, Result.Ptr);
+        Result = Buffer_Empty();
+    }
     
-	OS_Close_File(File);
-	return Result;
+    OS_Close_File(File);
+    return Result;
 }
 
 export_function b32 Write_Entire_File(string Path, buffer Data) {
-	os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_WRITE);
-	if (!File) return false;
+    os_file* File = OS_Open_File(Path, OS_FILE_ATTRIBUTE_WRITE);
+    if (!File) return false;
     
-	b32 Result = OS_Write_File(File, Data.Ptr, Data.Size);
-	OS_Close_File(File);
-	return Result;
+    b32 Result = OS_Write_File(File, Data.Ptr, Data.Size);
+    OS_Close_File(File);
+    return Result;
 }
 
 #include "profiler.c"

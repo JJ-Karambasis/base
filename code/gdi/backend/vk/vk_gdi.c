@@ -2878,12 +2878,12 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 				BindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, Handle);
 			} else {
 				//If the shader changed make sure to update the bind group to the last one bound
-				if ((DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) && (i < CurrentShader->BindGroupCount)) {
+				if (DirtyFlag & GDI_RENDER_PASS_SHADER_BIT) {
 					BindGroup = BindGroups[i];
 				}
 			}
             
-			if (BindGroup) {
+			if (BindGroup && i < CurrentShader->BindGroupCount) {
 				vkCmdBindDescriptorSets(VkRenderPass->CmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CurrentShader->Layout, (u32)i, 1, &BindGroup->Sets[Frame->Index], 0, NULL);
 				BindGroups[i] = BindGroup;
 			}

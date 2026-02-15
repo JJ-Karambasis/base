@@ -12,7 +12,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	G_MetaForLoopFlagsMetadataMap = Hashmap_Init((allocator*)Arena, sizeof(meta_for_loop_flags_metadata*), sizeof(string), Hash_String, Compare_String);
 	G_MetaRoutinesMap = Hashmap_Init((allocator*)Arena, sizeof(meta_routine), sizeof(string), Hash_String, Compare_String);
 	G_MetaPredicatesMap = Hashmap_Init((allocator*)Arena, sizeof(meta_predicate), sizeof(string), Hash_String, Compare_String);
-
+    
 	//Keywords
 	string Keywords[] = {
 		String_Lit("META_MACRO"),
@@ -50,7 +50,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	for (size_t i = 0; i < Array_Count(Keywords); i++) {
 		Hashmap_Add(&G_MetaKeywordMap, &Keywords[i], &KeywordsType[i]);
 	}
-
+    
 	//Replacement attributes
 	string ReplacementAttributes[] = {
 		String_Lit("pascal"),
@@ -66,7 +66,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	for (size_t i = 0; i < Array_Count(ReplacementAttributes); i++) {
 		Hashmap_Add(&G_MetaReplacementAttributeMap, &ReplacementAttributes[i], &ReplacementFlags[i]);
 	}
-
+    
 	//For loop flags
 	string ForLoopFlagsStr[] = {
 		String_Lit("NoBraces")
@@ -78,10 +78,10 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	for (size_t i = 0; i < Array_Count(ForLoopFlagsMetadata); i++) {
 		meta_for_loop_flags_metadata* MetadataPtr = Arena_Push_Struct(Arena, meta_for_loop_flags_metadata);
 		*MetadataPtr = ForLoopFlagsMetadata[i];
-
+        
 		Hashmap_Add(&G_MetaForLoopFlagsMetadataMap, &ForLoopFlagsStr[i], &MetadataPtr);
 	}
-
+    
 	//For loop Replacement 
 	string ForLoopReplacementsStr[] = {
 		String_Lit("META_ENTRY_NAME"),
@@ -105,7 +105,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		*MetadataPtr = ForLoopReplacementsMetadata[i];
 		Hashmap_Add(&G_MetaForLoopReplacementsMetadataMap, &ForLoopReplacementsStr[i], &MetadataPtr);
 	}
-
+    
 	//For loop routines
 	string RoutinesStr[] = {
 		String_Lit("META_GET_FUNCTIONS_WITH_TAG")
@@ -118,7 +118,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	for (size_t i = 0; i < Array_Count(Routines); i++) {
 		Hashmap_Add(&G_MetaRoutinesMap, &RoutinesStr[i], &Routines[i]);
 	}
-
+    
 	//If statement predicates
 	string PredicatesStr[] = {
 		String_Lit("META_CONTAINS_TAG"),
@@ -153,7 +153,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 
 function string Meta_Get_Enum_Value_Name(arena* Arena, meta_enum_type* Enum, meta_enum_entry* Entry) {
 	if (Enum->IsTrueName) return Entry->Name;
-
+    
 	arena* Scratch = Scratch_Get();
 	string EnumName = String_Upper_Case((allocator*)Scratch, Enum->Name);
 	string Name = String_Upper_Case((allocator*)Scratch, Entry->Name);
@@ -258,7 +258,7 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 	if (!Hashmap_Find(&G_MetaPredicatesMap, &PredicateName, &Predicate)) {
 		return NULL;
 	}
-
+    
 	local meta_parser_predicate_func* MetaPredicates[] = {
 		Meta_Parser_Contains_Tag_Predicate,
 		Meta_Parser_Not_Contains_Tag_Predicate,
@@ -321,15 +321,15 @@ function void Meta_Tokenizer_End_Identifier(meta_tokenizer* Tokenizer) {
 function void Meta_Tokens_Replace(meta_token_list* ReplaceList, meta_token_list* InsertLink) {
 	InsertLink->First->Prev = ReplaceList->First->Prev;
 	InsertLink->Last->Next = ReplaceList->Last->Next;
-
+    
 	if (ReplaceList->First->Prev) {
 		ReplaceList->First->Prev->Next = InsertLink->First;
 	}
-
+    
 	if (ReplaceList->Last->Next) {
 		ReplaceList->Last->Next->Prev = InsertLink->Last;
 	}
-
+    
 	ReplaceList->First->Prev = NULL;
 	ReplaceList->First->Next = NULL;
 }
@@ -340,7 +340,7 @@ function void Meta_Tokens_Free(meta_tokenizer* Tokenizer, meta_token_list* FreeL
 	while (TokenToFree) {
 		meta_token* TokenToDelete = TokenToFree;
 		TokenToFree = TokenToFree->Next;
-
+        
 		TokenToDelete->Next = NULL;
 		TokenToDelete->Prev = NULL;
 		SLL_Push_Front(Tokenizer->FreeTokens, TokenToDelete);
@@ -361,7 +361,7 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 	
 	//Check if the character before the replacement token is apart of the same 
 	//string 
-
+    
 	size_t StartIndex = Token->c0;
 	Assert(Token->c0 && Token->Prev);
 	if (!Is_Whitespace(Tokenizer->Content.Ptr[StartIndex-1]) && Token->Prev->Type == META_TOKEN_TYPE_IDENTIFIER) {
@@ -371,7 +371,7 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 	meta_token* StartReplacementToken = Token;
 	meta_token* EndReplacementToken = NULL;
 	meta_token* TokenIter = StartReplacementToken->Next->Next;
-
+    
 	b32 StartedIdentifier = false;
 	b32 GotAttributes = false;
 	b32 GotParameters = false;
@@ -382,19 +382,19 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 				ReplacementToken->Identifier = String_Copy((allocator*)Tokenizer->Arena, TokenIter->Identifier);
 				StartedIdentifier = true;
 			} break;
-
+            
 			case '(': {
 				if (!StartedIdentifier) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
-
+                
 				if (GotAttributes || GotParameters || GotStackUpwardOffset) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
 				string_list Parameters = {0};
-
+                
 				TokenIter = TokenIter->Next;
 				while (TokenIter && TokenIter->Type != ')') {
 					if (!Meta_Check_Token(TokenIter, META_TOKEN_TYPE_IDENTIFIER)) {
@@ -406,46 +406,46 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 					Entry->String = String_Copy((allocator*)Tokenizer->Arena, TokenIter->Identifier);
 					SLL_Push_Back(Parameters.First, Parameters.Last, Entry);
 					Parameters.Count++;
-
+                    
 					TokenIter = TokenIter->Next;
 					if (Meta_Check_Token(TokenIter, ')')) {
 						continue;
 					}
-
+                    
 					if (!Meta_Check_Token(TokenIter, ',')) {
 						Report_Error(Tokenizer->FilePath, Token->LineNumber, "Expected ',' after '%.*s'", Token->Prev->Identifier.Size, Token->Prev->Identifier.Ptr);
 						return NULL;
 					}
 				}
-
+                
 				if (!Meta_Check_Token(TokenIter, ')')) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Expected ')' after '%.*s'", Token->Prev->Identifier.Size, Token->Prev->Identifier.Ptr);
 					return NULL;
 				}
-
+                
 				ReplacementToken->Parameters = Parameters;
 				GotParameters = true;
 			} break;
-
+            
 			case ':': {
 				if (!StartedIdentifier || GotAttributes) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
-
+                
 				if (!TokenIter->Next) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected an attribute");
 					return NULL;
 				}
-
+                
 				TokenIter = TokenIter->Next;
 				if (TokenIter->Type != META_TOKEN_TYPE_IDENTIFIER) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected an attribute identifier");
 					return NULL;
 				}
-
+                
 				string AttributeTokenStr = TokenIter->Identifier;
-
+                
 				meta_token_flag AttributeFlag;
 				if (Hashmap_Find(&G_MetaReplacementAttributeMap, &AttributeTokenStr, &AttributeFlag)) {
 					ReplacementToken->Flags |= AttributeFlag;
@@ -455,43 +455,43 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 					return NULL;
 				}
 			} break;
-
+            
 			case '-': {
 				if (!StartedIdentifier || GotStackUpwardOffset || GotAttributes) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
-
+                
 				if (!TokenIter->Next) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected a upward stack offset value");
 					return NULL;
 				}
-
+                
 				TokenIter = TokenIter->Next;
 				if (TokenIter->Type != META_TOKEN_TYPE_IDENTIFIER) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected a upward stack offset value identifier");
 					return NULL;
 				}
-
+                
 				s64 StackUpwardOffset;
 				if (!Try_Parse_S64(TokenIter->Identifier, &StackUpwardOffset)) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Replacement token expected an integer value for the upward stack offset");
 					return NULL;
 				}
-
+                
 				ReplacementToken->StackUpwardOffset = StackUpwardOffset;
 				GotStackUpwardOffset = true;
 			} break;
-
+            
 			case '}': {
 				if (!StartedIdentifier) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
-
+                
 				EndReplacementToken = TokenIter;
 			} break;
-
+            
 			default: {
 				if (!StartedIdentifier) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
@@ -499,28 +499,28 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 				}
 			} break;
 		}
-
+        
 		TokenIter = TokenIter->Next;
 	}
-
+    
 	if (!EndReplacementToken) {
 		Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 		return NULL;
 	}
 	size_t EndIndex = EndReplacementToken->c0 + EndReplacementToken->Identifier.Size;
-
+    
 	//Check if the character after the replacement token is apart of the same 
 	//string 
 	if (EndReplacementToken->Next && EndReplacementToken->Next->Type == META_TOKEN_TYPE_IDENTIFIER &&
 		!Is_Whitespace(Tokenizer->Content.Ptr[EndIndex])) {
 		ReplacementToken->Flags |= META_TOKEN_FLAG_HAS_NEXT_IDENTIFIER;
 	}
-
+    
 	meta_token_list InsertList = { ReplacementToken, ReplacementToken };
 	meta_token_list ReplaceList = { StartReplacementToken, EndReplacementToken };
 	Meta_Tokens_Replace(&ReplaceList, &InsertList);
 	Meta_Tokens_Free(Tokenizer, &ReplaceList);
-
+    
 	return ReplacementToken;
 }
 
@@ -528,7 +528,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 	Tokenizer->Arena = Arena;
 	Tokenizer->Content = Content;
 	Tokenizer->Stream = SStream_Reader_Begin(Content);
-
+    
 	sstream_reader* Stream = &Tokenizer->Stream;
 	while (SStream_Reader_Is_Valid(Stream)) {
 		sstream_char Char = SStream_Reader_Peek_Char(Stream);
@@ -548,11 +548,11 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 				Meta_Tokenizer_End_Identifier(Tokenizer);
 				Meta_Add_Token_Char(Tokenizer, SStream_Reader_Consume_Char(Stream));
 			} break;
-
+            
 			case '/': {
 				Meta_Tokenizer_End_Identifier(Tokenizer);
 				SStream_Reader_Consume_Char(Stream);
-
+                
 				b32 IsComment = false;
 				if (SStream_Reader_Is_Valid(Stream)) {
 					sstream_char NextChar = SStream_Reader_Peek_Char(Stream);
@@ -561,10 +561,10 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 						IsComment = true;
 						SStream_Reader_Skip_Line(Stream);
 					}
-
+                    
 					if (NextChar.Char == '*') {
 						//Multi line comment
-
+                        
 						IsComment = true;
 						b32 FinishedComment = false;
 						while (SStream_Reader_Is_Valid(Stream) && !FinishedComment) {
@@ -577,20 +577,20 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 								}
 							}
 						}
-
+                        
 						if (!FinishedComment) {
 							Report_Error(Tokenizer->FilePath, Char.LineIndex, "Unexpected end of multi line comment");
 							return false;
 						}
 					}
 				}
-					
+                
 				if (!IsComment) {
 					Meta_Add_Token_Char(Tokenizer, Char);
 				}
-
+                
 			} break;
-
+            
 			default: {
 				if (Is_Whitespace(Char.Char)) {
 					Meta_Tokenizer_End_Identifier(Tokenizer);
@@ -602,7 +602,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 		}
 	}
 	Meta_Tokenizer_End_Identifier(Tokenizer);
-
+    
 	for (meta_token* Token = Tokenizer->Tokens.First; Token; Token = Token->Next) {
 		if (Token->Type == META_TOKEN_TYPE_IDENTIFIER) {
 			meta_token_type Type;
@@ -614,14 +614,14 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 				}
 			}
 		}
-
+        
 		if (Token->Type == '-') {
 			if (Token->Next && Token->Next->Type == '>') {
 				meta_token* ReplacementToken = Meta_Allocate_Token(Tokenizer, META_TOKEN_TYPE_RETURN_ARROW);
 				ReplacementToken->Identifier = String_Lit("->");
 				ReplacementToken->LineNumber = Token->LineNumber;
 				ReplacementToken->c0 = Token->c0;
-
+                
 				meta_token_list InsertList = { ReplacementToken, ReplacementToken };
 				meta_token_list ReplaceList = { Token, Token->Next };
 				Meta_Tokens_Replace(&ReplaceList, &InsertList);
@@ -629,7 +629,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 				Token = ReplacementToken;
 			}
 		}
-
+        
 		if (Token->Type == '$') {
 			if (Token->Next && Token->Next->Type == '{') {
 				Token = Meta_Add_Replacement_Token(Tokenizer, Token);
@@ -639,7 +639,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 			}
 		}
 	}
-
+    
 	return true;
 }
 
@@ -660,7 +660,7 @@ function meta_token_iter Meta_Begin_Token_Iter(meta_token_list* List) {
 
 function b32 Meta_Token_Iter_Move_Next(meta_token_iter* Iter) {
 	if (!Iter->Token) return false;
-
+    
 	Iter->PrevToken = Iter->Token;
 	Iter->Token = Iter->Token->Next;
 	b32 Result = Iter->Index < Iter->Count;
@@ -691,47 +691,47 @@ function meta_token* Meta_Parse_Code_Tokens(meta_parser* Parser, meta_token* Tok
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '{' after ')'");
 		return NULL;
 	}
-
+    
 	Memory_Clear(CodeTokens, sizeof(meta_token_list));
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	size_t BracketStackIndex = 0;
 	while (TokenIter.Token && (TokenIter.Token->Type != '}' || BracketStackIndex)) {
 		if (TokenIter.Token->Type == '{') {
 			BracketStackIndex++;
 		}
-
+        
 		if (TokenIter.Token->Type == '}') {
 			if (BracketStackIndex == 0) continue;
 			BracketStackIndex--;
 		}
-
+        
 		if (!CodeTokens->Count) {
 			CodeTokens->First = TokenIter.Token;
 		}
-
+        
 		CodeTokens->Count++;
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '}') || BracketStackIndex) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of for loop. Missing '}' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	if (CodeTokens->Count) {
 		CodeTokens->Last = TokenIter.Token->Prev;
 	}
-
+    
 	return TokenIter.Token;
 }
 
 function meta_token* Meta_Parse_Macro(meta_parser* Parser, meta_token* MacroToken) {
 	Assert(MacroToken->Type == META_TOKEN_TYPE_MACRO);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(MacroToken->Next);
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Macro must begin with an open parenthesis '('");
 		return NULL;
@@ -742,7 +742,7 @@ function meta_token* Meta_Parse_Macro(meta_parser* Parser, meta_token* MacroToke
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Macro must start with a valid macro name.");
 		return NULL;
 	}
-
+    
 	meta_token* MacroNameToken = TokenIter.Token;
 	string MacroName = MacroNameToken->Identifier;
 	
@@ -751,55 +751,55 @@ function meta_token* Meta_Parse_Macro(meta_parser* Parser, meta_token* MacroToke
 		Report_Error(Parser->Tokenizer->FilePath, MacroNameToken->LineNumber, "Duplicate macro names '%.*s'", MacroName.Size, MacroName.Ptr);
 		return NULL;
 	}
-
+    
 	Assert(!Macro);
 	Macro = Arena_Push_Struct(Parser->Arena, meta_macro);
 	Macro->Name = String_Copy((allocator*)Parser->Arena, MacroName);
 	Hashmap_Add(&Parser->MacroMap, &Macro->Name, &Macro);
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		if (!Meta_Check_Token(TokenIter.Token, ',')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after macro name");
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		while (TokenIter.Token && TokenIter.Token->Type != ')') {
 			if (!Meta_Check_Token(TokenIter.Token , META_TOKEN_TYPE_IDENTIFIER)) {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after ','");
 				return NULL;
 			}
-
+            
 			meta_parameter* Parameter = Arena_Push_Struct(Parser->Arena, meta_parameter);
 			Parameter->Name = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-
+            
 			SLL_Push_Back(Macro->FirstParameter, Macro->LastParameter, Parameter);
 			Macro->ParameterCount++;
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 			if (Meta_Check_Token(TokenIter.Token, ')')) {
 				continue;
 			}
-
+            
 			if (!Meta_Check_Token(TokenIter.Token, ',')) {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 				return NULL;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 		}
-
+        
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	meta_token* EndToken = Meta_Parse_Code_Tokens(Parser, TokenIter.Token, &Macro->CodeTokens);
 	return EndToken;
 }
@@ -811,94 +811,94 @@ function meta_token* Meta_Get_Macro_Parameter_Values(meta_parser* Parser, meta_m
 	}
 	
 	Hashmap_Clear(&Parser->MacroParamMap);
-
+    
 	meta_parameter* Parameter = Macro->FirstParameter;
 	size_t ParameterCount = 0;
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	while (TokenIter.Token && TokenIter.Token->Type != ')') {
 		if (Parameter == NULL) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Too many macro parameters");
 			return NULL;
 		}
-
+        
 		string MacroParameterName = Parameter->Name;
-
+        
 		//To parse the parameter values of the macro, we need to loop over all the tokens until we see a 
 		//comma, or until we see a closing parenthesis that matches the first parenthesis.
 		size_t ParenStack = 0;
 		size_t BracketStackIndex = 0;
-
+        
 		meta_token_list ValueTokens = { 0 };
-
+        
 		while (TokenIter.Token) {	
 			if (TokenIter.Token->Type == '{') {
 				BracketStackIndex++;
 			}
-
+            
 			if (TokenIter.Token->Type == '}') {
 				BracketStackIndex--;
 			}
-
+            
 			if (TokenIter.Token->Type == '(') {
 				ParenStack++;
 			}
-
+            
 			if (TokenIter.Token->Type == ')') {
 				if (ParenStack == 0) {
 					break;
 				}
 				ParenStack--;
 			}
-
+            
 			if (TokenIter.Token->Type == ',') {
 				if (ParenStack == 0 && BracketStackIndex == 0) {
 					break;
 				}
 			}
-
+            
 			if (!ValueTokens.First) {
 				ValueTokens.First = TokenIter.Token;
 			}
-
+            
 			ValueTokens.Count++;
 			Meta_Token_Iter_Move_Next(&TokenIter);
 		}
-
+        
 		if (!TokenIter.Token || ParenStack) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of macro");
 			return NULL;
 		}
-
+        
 		//Remove the last entry so we don't add the comma or parenthesis
 		ValueTokens.Last = TokenIter.PrevToken;
-
+        
 		Hashmap_Add(&Parser->MacroParamMap, &MacroParameterName, &ValueTokens);
 		ParameterCount++;
-
+        
 		if (Meta_Check_Token(TokenIter.Token, ')')) {
 			continue;
 		}
-
+        
 		if (!Meta_Check_Token(TokenIter.Token, ',')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		Parameter = Parameter->Next;
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of macro. Expected ')' to end the macro");
 		return NULL;
 	}
-
+    
 	if (ParameterCount != Macro->ParameterCount) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Macro parameter mismatch. Expected %d, actual %d", Macro->ParameterCount, ParameterCount);
 		return NULL;
 	}
-
+    
 	return TokenIter.Token;
 }
 
@@ -906,15 +906,15 @@ function string Meta_Get_Replacement_Identifier(arena* Arena, meta_token_flag Fl
 	if (Flags & META_TOKEN_FLAG_PASCAL) {
 		Identifier = String_Pascal_Case((allocator*)Arena, Identifier);
 	}
-
+    
 	if (Flags & META_TOKEN_FLAG_UPPER) {
 		Identifier = String_Upper_Case((allocator*)Arena, Identifier);
 	}
-
+    
 	if (Flags & META_TOKEN_FLAG_LOWER) {
 		Identifier = String_Lower_Case((allocator*)Arena, Identifier);
 	}
-
+    
 	return Identifier;
 }
 
@@ -962,26 +962,26 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Variable does not have a valid name");
 				return false;
 			}
-
+            
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, Entry->Name);
 		} break;
-
+        
 		case META_FOR_LOOP_REPLACEMENT_ENTRY_TYPE: {
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, Entry->Type);
 		} break;
-
+        
 		case META_FOR_LOOP_REPLACEMENT_SHORT_ENTRY_NAME: {
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, Entry->ShortName);
 		} break;
-
+        
 		case META_FOR_LOOP_REPLACEMENT_GET_TAG_VALUE: {
 			if (Token->Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_GET_TAG_VALUE. Expected '1', got '%d'", Token->Parameters.Count);
 				return false;
 			}
-
+            
 			string Parameter = Token->Parameters.First->String;
-
+            
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
 										   Meta_Parser_Get_Tag_Value(Entry->Tags, Parameter));
 			if (String_Is_Empty(ReplacementValue)) {
@@ -989,48 +989,48 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 				return false;
 			}
 		} break;
-
+        
 		case META_FOR_LOOP_REPLACEMENT_SHORT_NAME_SUBSTR_CHAR: {
 			if (Token->Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_ENTRY_SHORT_NAME_SUBSTR_CHAR. Expected '1', got '%d'", Token->Parameters.Count);
 				return false;
 			}
-
+            
 			string Parameter = Token->Parameters.First->String;
 			if (Parameter.Size != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid parameter entry for META_ENTRY_SHORT_NAME_SUBSTR_CHAR. Expected char, got a string '%.*s' instead", Parameter.Size, Parameter.Size);
 				return false;
 			}
-
+            
 			string ShortName = Entry->ShortName;
 			size_t CharEntry = String_Find_First_Char(ShortName, Parameter.Ptr[0]);
 			if (CharEntry == STRING_INVALID_INDEX) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Could not find '_' in short name entry '%.*s'", Parameter.Ptr[0], ShortName.Size, ShortName.Ptr);
 				return false;
 			}
-
+            
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
 										   String_Substr(Entry->ShortName, 0, CharEntry));
 		} break;
-
+        
 		case META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE: {
 			if (Token->Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_ENTRY_VARIABLE_TYPE. Expected '1', got '%d'", Token->Parameters.Count);
 				return false;
 			}
-
+            
 			f64 Value;
 			if (!Try_Parse_F64(Token->Parameters.First->String, &Value) && Value > 0) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid parameter entry for META_ENTRY_VARIABLE_TYPE. Expected number, got a string '%.*s' instead", Token->Parameters.First->String.Size, Token->Parameters.First->String.Ptr);
 				return false;
 			}
-
+            
 			meta_struct_type* Struct;
 			if (!Meta_Parser_Is_Struct(Parser, Entry->Type, &Struct)) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Type '%.*s' must be a struct for META_ENTRY_VARIABLE_TYPE", Entry->Type.Size, Entry->Type.Ptr);
 				return false;
 			}
-
+            
 			string Type = Meta_Parser_Get_Struct_Type(Struct, (size_t)Value);
 			if (String_Is_Empty(Type)) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Struct does not have a '%d' entry.", (size_t)Value);
@@ -1039,12 +1039,12 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 			
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, Type);
 		} break;
-
+        
 		Invalid_Default_Case;
 	}
-
+    
 	*OutResult = Meta_Get_Replacement_Identifier(Tokenizer->Arena, Token->Flags, ReplacementValue);
-
+    
 	return true;
 }
 
@@ -1052,38 +1052,38 @@ function b32 Meta_Replace_Next_For_Token(meta_parser* Parser, meta_token_iter* T
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
 	if (TokenIter->Token->Type == META_TOKEN_TYPE_REPLACEMENT) {
 		string ReplacementName = TokenIter->Token->Identifier;
-
+        
 		meta_for_loop_replacement_metadata* ReplacementTypeMeta;
 		if (!Hashmap_Find(&G_MetaForLoopReplacementsMetadataMap, &ReplacementName, &ReplacementTypeMeta)) {
 			Report_Error(Tokenizer->FilePath, TokenIter->Token->LineNumber, "Invalid replacement type '%.*s'", ReplacementName.Size, ReplacementName.Ptr);
 			return false;
 		}
-
+        
 		if (ForLoopStack->Count == (size_t)-1) {
 			//todo: Error message sucks
 			Report_Error(Tokenizer->FilePath, TokenIter->Token->LineNumber, "Invalid for loop replacement");
 			return false;
 		}
-
+        
 		size_t ContextIndex = ForLoopStack->Count - 1;
-
+        
 		size_t StackUpwardOffset = TokenIter->Token->StackUpwardOffset;
 		if (((s64)ContextIndex - (s64)StackUpwardOffset) < 0) {
 			Report_Error(Tokenizer->FilePath, TokenIter->Token->LineNumber, "Invalid replacement stack offset value. Offset is '%d' and value cannot exceed more tha '%d'", StackUpwardOffset, ContextIndex);
 			return false;
 		}
-
+        
 		meta_for_loop_context* Context = &ForLoopStack->Stack[ContextIndex - StackUpwardOffset];
 		if (!(ReplacementTypeMeta->SupportFlag & Context->SupportFlag)) {
 			Report_Error(Tokenizer->FilePath, TokenIter->Token->LineNumber, "Invalid %.*s replacement type flag '%.*s'", ForLoopStack->CurrentContext->TypeStr.Size, ForLoopStack->CurrentContext->TypeStr.Ptr, ReplacementName.Size, ReplacementName.Ptr);
 			return false;
 		}
-
+        
 		string ReplacementValue;
 		if (!Meta_Get_Replacement_Value(Parser, TokenIter->Token, ReplacementTypeMeta->Replacement, Context->CurrentEntry, &ReplacementValue)) {
 			return false;
 		}
-
+        
 		if (TokenIter->Token->Flags & META_TOKEN_FLAG_HAS_PREV_IDENTIFIER) {
 			meta_token* Last = NewTokens->Last;
 			Assert(Last->Type == META_TOKEN_TYPE_IDENTIFIER);
@@ -1093,19 +1093,19 @@ function b32 Meta_Replace_Next_For_Token(meta_parser* Parser, meta_token_iter* T
 			FirstNewToken->LineNumber = TokenIter->Token->LineNumber;
 			FirstNewToken->Identifier = ReplacementValue;
 			FirstNewToken->Flags = TokenIter->Token->Flags;
-
+            
 			DLL_Push_Back(NewTokens->First, NewTokens->Last, FirstNewToken);
 			NewTokens->Count++;
 		}
-
+        
 		if (TokenIter->Token->Flags & META_TOKEN_FLAG_HAS_NEXT_IDENTIFIER) {
 			meta_token* LastToken = NewTokens->Last;
 			Assert(LastToken->Type == META_TOKEN_TYPE_IDENTIFIER);
-
+            
 			meta_token* NextToken = TokenIter->Token->Next;
 			Assert(NextToken->Type == META_TOKEN_TYPE_IDENTIFIER);
 			LastToken->Identifier = String_Concat((allocator*)Tokenizer->Arena, LastToken->Identifier, NextToken->Identifier);
-
+            
 			//We want to skip the next token since we've concat it with the previous token
 			Meta_Token_Iter_Move_Next(TokenIter);
 		}
@@ -1114,11 +1114,11 @@ function b32 Meta_Replace_Next_For_Token(meta_parser* Parser, meta_token_iter* T
 		NewToken->LineNumber = TokenIter->Token->LineNumber;
 		NewToken->Identifier = TokenIter->Token->Identifier;
 		NewToken->Flags = TokenIter->Token->Flags;
-
+        
 		DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 		NewTokens->Count++;
 	}
-
+    
 	return true;
 }
 
@@ -1126,59 +1126,59 @@ function meta_token* Meta_Parse_For_Params(meta_parser* Parser, meta_token* Toke
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
 	
 	meta_token_list TypeTokens = { 0 };
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token);
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after for loop declaration");
 		return NULL;
 	}
-
+    
 	TypeTokens.First = TokenIter.Token;
 	TypeTokens.Count++;
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	size_t ParamStackIndex = 0;
 	while (TokenIter.Token && (TokenIter.Token->Type != ')' || ParamStackIndex)) {
 		if (TokenIter.Token->Type == '(') {
 			ParamStackIndex++;
 		}
-
+        
 		if (TokenIter.Token->Type == ')') {
 			ParamStackIndex--;
 		}
-
+        
 		TypeTokens.Count++;
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')') || ParamStackIndex) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of META_FOR parameters");
 		return NULL;
 	}
 	TypeTokens.Last = TokenIter.Token;
 	TypeTokens.Count++;
-
+    
 	meta_token_iter TypeTokenIter = Meta_Begin_Token_Iter(&TypeTokens);
 	while (Meta_Token_Iter_Is_Valid(&TypeTokenIter)) {
 		if (!Meta_Replace_Next_For_Token(Parser, &TypeTokenIter, NewTokens, Stack)) return NULL;
 		Meta_Token_Iter_Move_Next(&TypeTokenIter);
 	}
-
+    
 	if (!NewTokens->Count) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Invalid META_FOR parameters");
 		return NULL;
 	}
-
+    
 	return TokenIter.Token;
 }
 
 function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro* Macro, meta_token* MacroToken, meta_token_list* NewTokens, meta_for_loop_context_stack* ForLoopStack) {
 	Assert(MacroToken->Type == META_TOKEN_TYPE_IDENTIFIER && String_Equals(Macro->Name, MacroToken->Identifier));
-
+    
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
-
+    
 	meta_token* Token = NULL;
 	if (ForLoopStack) {
 		meta_token_list NewMacroTokens = { 0 };
@@ -1193,35 +1193,35 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 		if (!Token) { return NULL; }
 		Token = Token->Next;
 	}
-
+    
 	if (!Meta_Check_Token(Token, ';')) {
 		Report_Error(Parser->Tokenizer->FilePath, Token->LineNumber, "Unexpected end of macro. Expected ';' after ')'");
 		return NULL;
 	}
-
+    
 	meta_token* EndMacroToken = Token;
-
+    
 	meta_token_list MacroTokenList = Macro->CodeTokens;
-
+    
 	//Iterative algorithm for replacing replacement tokens. Replacement token values can have replacement tokens within
 	//themselves, so we need to iterate until we find no replacement tokens. Final replacement tokens are stored in
 	//the NewToken list
 	b32 FirstLoop = true;
 	b32 FoundReplacements = false;
 	do {
-
+        
 		FoundReplacements = false;
-
+        
 		meta_token_iter MacroTokenIter = Meta_Begin_Token_Iter(&MacroTokenList);
 		while(Meta_Token_Iter_Is_Valid(&MacroTokenIter)) {
-
+            
 			meta_token_list ReplacementTokens = { 0 };
 			b32 ReplaceToken = ((MacroTokenIter.Token->Type == META_TOKEN_TYPE_REPLACEMENT) &&
-				Hashmap_Find(&Parser->MacroParamMap, &MacroTokenIter.Token->Identifier, &ReplacementTokens));
-
+                                Hashmap_Find(&Parser->MacroParamMap, &MacroTokenIter.Token->Identifier, &ReplacementTokens));
+            
 			if (ReplaceToken) {
 				FoundReplacements = true;
-
+                
 				string FirstReplacementIdentifier = Meta_Get_Replacement_Identifier(Parser->Arena, MacroTokenIter.Token->Flags, ReplacementTokens.First->Identifier);
 				if (MacroTokenIter.Token->Flags & META_TOKEN_FLAG_HAS_PREV_IDENTIFIER) {
 					meta_token* Last = NewTokens->Last;
@@ -1232,15 +1232,15 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 					FirstNewToken->LineNumber = ReplacementTokens.First->LineNumber;
 					FirstNewToken->Identifier = FirstReplacementIdentifier;
 					FirstNewToken->Flags = ReplacementTokens.First->Flags;
-
+                    
 					DLL_Push_Back(NewTokens->First, NewTokens->Last, FirstNewToken);
 					NewTokens->Count++;
 				}
-
+                
 				meta_token* SrcToken = ReplacementTokens.First;
 				for (size_t j = 1; j < ReplacementTokens.Count; j++) {
 					SrcToken = SrcToken->Next;
-
+                    
 					meta_token* DstToken = Meta_Allocate_Token(Tokenizer, SrcToken->Type);
 					DstToken->LineNumber = SrcToken->LineNumber;
 					DstToken->Identifier = Meta_Get_Replacement_Identifier(Parser->Arena, MacroTokenIter.Token->Flags, SrcToken->Identifier);
@@ -1249,23 +1249,23 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 					NewTokens->Count++;
 				}
 				Assert(SrcToken == ReplacementTokens.Last);
-
+                
 				if (MacroTokenIter.Token->Flags & META_TOKEN_FLAG_HAS_NEXT_IDENTIFIER) {
 					meta_token* LastToken = NewTokens->Last;
-
+                    
 					//Could be another replacement token that will be combined
 					if (LastToken->Type != META_TOKEN_TYPE_REPLACEMENT) {
 						Assert(LastToken->Type == META_TOKEN_TYPE_IDENTIFIER);
-
+                        
 						Meta_Token_Iter_Move_Next(&MacroTokenIter);
 						Assert(MacroTokenIter.Token);
-					
+                        
 						meta_token* NextToken = MacroTokenIter.Token;
 						Assert(NextToken->Type == META_TOKEN_TYPE_IDENTIFIER);
 						LastToken->Identifier = String_Concat((allocator*)Tokenizer->Arena, LastToken->Identifier, NextToken->Identifier);
 					}
 				}
-
+                
 			} else {
 				meta_token* NewToken = Meta_Allocate_Token(Tokenizer, MacroTokenIter.Token->Type);
 				NewToken->LineNumber = MacroTokenIter.Token->LineNumber;
@@ -1273,14 +1273,14 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 				NewToken->Flags = MacroTokenIter.Token->Flags;
 				NewToken->Parameters = MacroTokenIter.Token->Parameters;
 				NewToken->StackUpwardOffset = MacroTokenIter.Token->StackUpwardOffset;
-
+                
 				DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 				NewTokens->Count++;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&MacroTokenIter);
 		}
-
+        
 		if (FoundReplacements) {
 			//Only free the tokens if the macro token list is not the original macro
 			//code tokens. Those tokens can be reused if the code ever uses the 
@@ -1293,29 +1293,29 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 					SLL_Push_Front(Tokenizer->FreeTokens, TokenToDelete);
 				}
 			}
-
+            
 			MacroTokenList = *NewTokens;
 			Memory_Clear(NewTokens, sizeof(meta_token_list));
 		}
-
+        
 		FirstLoop = false;
 	} while (FoundReplacements);
-
+    
 	return EndMacroToken;
 }
 
 function meta_token* Meta_Parse_And_Replace_Macro(meta_parser* Parser, meta_token* Token, meta_macro* Macro) {
 	meta_token_list ReplaceTokens = { Token };
 	meta_token_list NewTokens = { 0 };
-
+    
 	ReplaceTokens.Last = Meta_Parse_And_Expand_Macro(Parser, Macro, Token, &NewTokens, NULL);
 	if (!ReplaceTokens.Last) return NULL;
-
+    
 	meta_token* NextToken = NULL;
 	if (NewTokens.Count) {
 		Meta_Tokens_Replace(&ReplaceTokens, &NewTokens);
 		Meta_Tokens_Free(Parser->Tokenizer, &ReplaceTokens);
-
+        
 		//New iterator starts on the token right before the macro expansion since
 		//we will be iterating at the end of the loop to retry parsing with the newly
 		//expanded tokens
@@ -1331,328 +1331,328 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
 		String_Equals(Token->Identifier, String_Lit("Tags"))) {
 		
 		meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token);
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		if (!Meta_Check_Token(TokenIter.Token, '(')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '(' after 'Tags'");
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		while (TokenIter.Token && TokenIter.Token->Type != ')') {
 			if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected tag identifer after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 				return NULL;
 			}
-
+            
 			meta_tag* Tag = Arena_Push_Struct(Parser->Arena, meta_tag);
 			Tag->Name = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
 			Tag->Value = Tag->Name;
 			SLL_Push_Back(Tags->First, Tags->Last, Tag);
 			Tags->Count++;
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
-
+            
 			//Token has a value
 			if (Meta_Check_Token(TokenIter.Token, ':')) {
 				sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
-
+                
 				size_t ParamStackIndex = 0;
 				Meta_Token_Iter_Move_Next(&TokenIter);
-
+                
 				if (!TokenIter.Token || TokenIter.Token->Type != META_TOKEN_TYPE_IDENTIFIER) {
 					Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
 					return NULL;
 				}
-
+                
 				while (TokenIter.Token) {
 					if (TokenIter.Token->Type == '(') {
 						ParamStackIndex++;
 					}
-
+                    
 					if (TokenIter.Token->Type == ')') {
 						if (ParamStackIndex == 0) {
 							break;
 						}
 						ParamStackIndex--;
 					}
-
+                    
 					if (TokenIter.Token->Type == ',') {
 						if (ParamStackIndex == 0) {
 							break;
 						}
 						ParamStackIndex--;
 					}
-
+                    
 					SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
 					Meta_Token_Iter_Move_Next(&TokenIter);
 				}
-
+                
 				Tag->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
 			}
-
+            
 			if (Meta_Check_Token(TokenIter.Token, ')')) {
 				continue;
 			}
-
+            
 			if (!Meta_Check_Token(TokenIter.Token, ',')) {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 				return NULL;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 		}
-
+        
 		if (!Meta_Check_Token(TokenIter.Token, ')')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		return TokenIter.Token;
 	}
-
+    
 	return Token;
 }
 
 function meta_token* Meta_Parse_Enum_Entry(meta_parser* Parser, meta_enum_type* Enum, meta_token* Token, arena* Scratch) {
 	Assert(Token->Type == META_TOKEN_TYPE_ENUM_ENTRY);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after enum entry declaration");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing enum entry name '('");
 		return NULL;
 	}
-
+    
 	meta_token* NameToken = TokenIter.Token;
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!TokenIter.Token) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of enum declaration");
 		return NULL;
 	}
-
+    
 	string OptionalValue = String_Empty();
 	meta_tag_list Tags = { 0 };
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		if (!Meta_Check_Token(TokenIter.Token, ',')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
-
+        
 		sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
-			
+        
 		size_t ParenStackIndex = 0;
 		while (TokenIter.Token && (TokenIter.Token->Type != ',' && (TokenIter.Token->Type != ')' || ParenStackIndex))) {
 			SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
-				
+            
 			if (TokenIter.Token->Type == '(') {
 				ParenStackIndex++;
 			}
-
+            
 			if (TokenIter.Token->Type == ')') {
 				if (ParenStackIndex == 0) continue;
 				ParenStackIndex--;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 		}
-
+        
 		OptionalValue = SStream_Writer_Join(&ValueWriter, (allocator*)Scratch, String_Empty());
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected token after variable entry. Expected 'Tags()' or ';'");
 			return NULL;
 		}
-
+        
 		if (!String_Equals(TokenIter.Token->Identifier, String_Lit("Tags"))) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected identifier '%.*s' after variable entry. Expected 'Tags()' or ';'", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		arena* Scratch2 = Scratch_Get();
 		meta_token* NextToken = Meta_Parse_Tags(Parser, TokenIter.Token, &Tags, Scratch2);
 		Scratch_Release();
-
+        
 		if (!NextToken) {
 			return NULL;
 		}
-
+        
 		TokenIter = Meta_Begin_Simple_Token_Iter(NextToken);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of enum entry declaration. Expected ';' after ')'");
 		return NULL;
 	}
-
+    
 	meta_enum_entry* Entry = Arena_Push_Struct(Parser->Arena, meta_enum_entry);
 	Entry->Name = String_Copy((allocator*)Parser->Arena, NameToken->Identifier);
 	Entry->OptionalValue = String_Copy((allocator*)Parser->Arena, OptionalValue);
 	Entry->Tags = Tags;
-
+    
 	SLL_Push_Back(Enum->FirstEntry, Enum->LastEntry, Entry);
 	Enum->EntryCount++;
-
+    
 	return TokenIter.Token;
 }
 
 function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_type* Struct, meta_token* Token) {
 	Assert(Token->Type == META_TOKEN_TYPE_VARIABLE_ENTRY);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after variable declaration");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	meta_token* TypeToken = TokenIter.Token;
 	if (!Meta_Check_Token(TypeToken, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing variable type identifier after '('");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, ',')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TypeToken->Identifier.Size, TypeToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	meta_token* NameToken = TokenIter.Token;
 	if (!Meta_Check_Token(NameToken, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing variable name identifier after ','");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	meta_tag_list Tags = { 0 };
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected token after variable entry. Expected 'Tags()' or ';'");
 			return NULL;
 		}
-
+        
 		if (!String_Equals(TokenIter.Token->Identifier, String_Lit("Tags"))) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected identifier '%.*s' after variable entry. Expected 'Tags()' or ';'", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		arena* Scratch2 = Scratch_Get();
 		meta_token* NextToken = Meta_Parse_Tags(Parser, TokenIter.Token, &Tags, Scratch2);
 		Scratch_Release();
-
+        
 		if (!NextToken) {
 			return NULL;
 		}
-
+        
 		TokenIter = Meta_Begin_Simple_Token_Iter(NextToken);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of variable declaration. Expected ';' after ')'");
 		return NULL;
 	}
-
+    
 	meta_variable_entry* Entry = Arena_Push_Struct(Parser->Arena, meta_variable_entry);
 	Entry->Type = String_Copy((allocator*)Parser->Arena, TypeToken->Identifier);
 	Entry->Name = String_Copy((allocator*)Parser->Arena, NameToken->Identifier);
 	Entry->Tags = Tags;
-
+    
 	SLL_Push_Back(Struct->FirstEntry, Struct->LastEntry, Entry);
 	Struct->EntryCount++;
-
+    
 	return TokenIter.Token;
 }
 
 function meta_token* Meta_Parse_Enum(meta_parser* Parser, meta_token* Token) {
 	Assert(Token->Type == META_TOKEN_TYPE_ENUM);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after enum declaration");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Enum must start with a valid name");
 		return NULL;
 	}
-
+    
 	meta_token* NameToken = TokenIter.Token;
-
+    
 	string EnumName = TokenIter.Token->Identifier;
 	string EnumType = String_Lit("u64");
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		if (!Meta_Check_Token(TokenIter.Token, ',')) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ',' after enum name '%.*s' for optional parameters", NameToken->Identifier.Size, NameToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected token. Expected an identifier for enum type");
 			return NULL;
 		}
-
+        
 		EnumType = TokenIter.Token->Identifier;
 		
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", Token->Identifier.Size, Token->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, '{')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '{' after ')'");
 		return NULL;
 	}
-
+    
 	hashmap* EnumMap = &Parser->EnumMap;
 	meta_enum_type* Enum = NULL;
 	if (Hashmap_Find(EnumMap, &EnumName, &Enum)) {
 		Report_Error(Parser->Tokenizer->FilePath, NameToken->LineNumber, "Duplicate enum names '%.*s'", EnumName.Size, EnumName.Ptr);
 		return NULL;
 	}
-
+    
 	Assert(!Enum);
-
+    
 	Enum = Arena_Push_Struct(Parser->Arena, meta_enum_type);
 	Enum->Name = String_Copy((allocator*)Parser->Arena, EnumName);
 	Enum->Type = String_Copy((allocator*)Parser->Arena, EnumType);
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	
 	size_t BracketStackIndex = 0;
@@ -1660,14 +1660,14 @@ function meta_token* Meta_Parse_Enum(meta_parser* Parser, meta_token* Token) {
 		switch (TokenIter.Token->Type) {
 			case '{': { BracketStackIndex++; } break;
 			case '}': { BracketStackIndex--; } break;
-
+            
 			case META_TOKEN_TYPE_IDENTIFIER: {
 				//If we see an identifier in a struct, the only valid
 				//code it can be is if its a macro expansion call. This
 				//must be in the format of MACRO_NAME -> ( -> parameters -> )
 				//with the amount of parameters matching whats in the macro
 				//definition
-
+                
 				meta_macro* Macro;
 				if (Hashmap_Find(&Parser->MacroMap, &TokenIter.Token->Identifier, &Macro)) {
 					Token = Meta_Parse_And_Replace_Macro(Parser, TokenIter.Token, Macro);
@@ -1678,32 +1678,32 @@ function meta_token* Meta_Parse_Enum(meta_parser* Parser, meta_token* Token) {
 					return NULL;
 				}
 			} break;
-
+            
 			case META_TOKEN_TYPE_ENUM_ENTRY: {
 				arena* Scratch = Scratch_Get();
 				meta_token* EnumToken = Meta_Parse_Enum_Entry(Parser, Enum, TokenIter.Token, Scratch);
 				TokenIter = Meta_Begin_Simple_Token_Iter(EnumToken);
 				Scratch_Release();
 			} break;
-
+            
 			default: {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected token '%.*s'", Token->Identifier.Size, Token->Identifier.Ptr);
 				return NULL;
 			} break;
 		}
-
+        
 		if (!TokenIter.Token) {
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '}') || BracketStackIndex) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of enum");
 		return NULL;
 	}
-
+    
 	Hashmap_Add(EnumMap, &Enum->Name, &Enum);
 	return TokenIter.Token;
 }
@@ -1716,64 +1716,64 @@ function meta_token* Meta_Parse_For_Loop_Flags(meta_parser* Parser, meta_for_loo
 			Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing identifier after ','");
 			return NULL;
 		}
-
+        
 		if (String_Equals(TokenIter.Token->Identifier, String_Lit("flags"))) {
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 			if (!Meta_Check_Token(TokenIter.Token, ':')) {
 				Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ':' after 'flags'");
 				return NULL;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&TokenIter);
 			while (!Meta_Check_Token(TokenIter.Token, ')')) {
 				if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 					return NULL;
 				}
-
+                
 				string FlagStr = TokenIter.Token->Identifier;
-
+                
 				meta_for_loop_flags_metadata* FlagMeta;
 				if (!Hashmap_Find(&G_MetaForLoopFlagsMetadataMap, &FlagStr, &FlagMeta)) {
 					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Invalid for loop flag '%.*s'", FlagStr.Size, FlagStr.Ptr);
 					return NULL;
 				}
-
+                
 				if (!(FlagMeta->SupportFlag & Context->SupportFlag)) {
 					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Invalid %.*s flag '%.*s'", Context->TypeStr.Size, Context->TypeStr.Ptr, FlagStr.Size, FlagStr.Ptr);
 					return NULL;
 				}
-
+                
 				*OutFlags |= FlagMeta->Flag;
-
+                
 				Meta_Token_Iter_Move_Next(&TokenIter);
 				if (Meta_Check_Token(TokenIter.Token, ')')) {
 					continue;
 				}
-
+                
 				if (!Meta_Check_Token(TokenIter.Token, ',')) {
 					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 					return NULL;
 				}
-
+                
 				Meta_Token_Iter_Move_Next(&TokenIter);
 			}
-
+            
 		}
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	return TokenIter.Token;
 }
 
@@ -1785,7 +1785,7 @@ function meta_for_loop_entries Meta_Get_Struct_Entries(arena* Arena, meta_struct
 		Entry->Type = StructEntry->Type;
 		Entry->Tags = StructEntry->Tags;
 		Entry->IsArray = StructEntry->IsArray;
-
+        
 		SLL_Push_Back(Result.First, Result.Last, Entry);
 	}
 	return Result;
@@ -1819,78 +1819,78 @@ function meta_for_loop_entries Meta_Get_Functions_With_Tag_Routine(arena* Arena,
 function meta_token* Meta_Parse_Parameters(meta_parser* Parser, meta_token* Token, string_list* Parameters, arena* Arena) {
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
 	Memory_Clear(Parameters, sizeof(string_list));
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token);
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '(' after identifier '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	while (!Meta_Check_Token(TokenIter.Token, ')')) {
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		string_entry* StrEntry = Arena_Push_Struct(Arena, string_entry);
 		StrEntry->String = String_Copy((allocator*)Arena, TokenIter.Token->Identifier);
 		SLL_Push_Back(Parameters->First, Parameters->Last, StrEntry);
 		Parameters->Count++;
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 		if (Meta_Check_Token(TokenIter.Token, ')')) {
 			continue;
 		}
-
+        
 		if (!Meta_Check_Token(TokenIter.Token, ',')) {
 			Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after identifier '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after routine name");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	return TokenIter.Token;
 }
 
 function meta_token* Meta_Evaluate_Routine(meta_parser* Parser, meta_for_loop_context* Context, meta_routine Routine, meta_token* Token, arena* Scratch) {
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
-
+    
 	string_list Parameters;
 	Token = Meta_Parse_Parameters(Parser, Token->Next, &Parameters, Scratch);
 	if (!Token) return NULL;
-
+    
 	switch (Routine) {
 		case META_GET_FUNCTIONS_WITH_TAG: {
 			if (Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_GET_FUNCTIONS_WITH_TAG. Expected '1', got '%d'", Parameters.Count);
 				return NULL;
 			}
-
+            
 			Context->SupportFlag = META_FOR_LOOP_SUPPORT_FUNCTION;
 			Context->TypeStr = String_Lit("function");
 			Context->Entries = Meta_Get_Functions_With_Tag_Routine(Parser->Arena, (meta_function_type* *)Parser->FunctionMap.Values, Parser->FunctionMap.ItemCount, Parameters.First->String);
 		} break;
-
+        
 		Invalid_Default_Case;
 	}
-
+    
 	return Token;
 }
 
 function meta_token* Meta_Parse_If(meta_parser* Parser, meta_token* Token, meta_for_loop_context_stack* ForLoopStack, meta_for_loop_entry* Entry, meta_if_state* IfState, arena* Scratch) {
 	Assert(Token->Type == META_TOKEN_TYPE_IF);
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
-
+    
 	meta_token_list NewTokens = { 0 };
 	meta_token* EndParamsToken = Meta_Parse_For_Params(Parser, Token->Next, ForLoopStack, &NewTokens);
 	if (!EndParamsToken) return NULL;
@@ -1898,87 +1898,87 @@ function meta_token* Meta_Parse_If(meta_parser* Parser, meta_token* Token, meta_
 	//Parse the parameters with the new tokens 
 	meta_token_iter TokenIter = Meta_Begin_Token_Iter(&NewTokens);
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '('");
 		return NULL;
 	}
-
+    
 	string PredicateName = TokenIter.Token->Identifier;
-
+    
 	string_list Parameters;
 	Token = Meta_Parse_Parameters(Parser, TokenIter.Token->Next, &Parameters, Scratch);
 	if (!Token) return NULL;
-
+    
 	if (!Meta_Check_Token(Token, ')')) {
 		Report_Error(Tokenizer->FilePath, Token->LineNumber, "Expected ')' after predicate call");
 		return NULL;
 	}
-
+    
 	//Now start parsing the if statement. We will continue with the original token list
 	meta_token_iter IfTokenIter = Meta_Begin_Simple_Token_Iter(EndParamsToken->Next);
 	if (!Meta_Check_Token(IfTokenIter.Token, '{')) {
 		Report_Error(Tokenizer->FilePath, IfTokenIter.PrevToken->LineNumber, "Expected '{' after after ')'");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&IfTokenIter);
-
+    
 	size_t BracketStackIndex = 0;
 	while (IfTokenIter.Token && (IfTokenIter.Token->Type != '}' || BracketStackIndex)) {
 		if (IfTokenIter.Token->Type == '{') {
 			BracketStackIndex++;
 		}
-
+        
 		if (IfTokenIter.Token->Type == '}') {
 			BracketStackIndex--;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&IfTokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(IfTokenIter.Token, '}') || BracketStackIndex) {
 		Report_Error(Tokenizer->FilePath, IfTokenIter.PrevToken->LineNumber, "Unexpected end of if statement");
 		return NULL;
 	}
-
+    
 	IfState->ElseToken = IfTokenIter.Token;
-
+    
 	Meta_Token_Iter_Move_Next(&IfTokenIter);
-
+    
 	//Check for an optional else statement
 	if (Meta_Check_Token(IfTokenIter.Token, META_TOKEN_TYPE_ELSE)) {
 		Meta_Token_Iter_Move_Next(&IfTokenIter);
-
+        
 		if (!Meta_Check_Token(IfTokenIter.Token, '{')) {
 			Report_Error(Tokenizer->FilePath, IfTokenIter.PrevToken->LineNumber, "Expected '{' after after 'META_ELSE'");
 			return NULL;
 		}
-
+        
 		BracketStackIndex = 0;
 		meta_token_iter ElseTokenIter = Meta_Begin_Simple_Token_Iter(IfTokenIter.Token->Next);
 		while (ElseTokenIter.Token && (ElseTokenIter.Token->Type != '}' || BracketStackIndex)) {
 			if (ElseTokenIter.Token->Type == '{') {
 				BracketStackIndex++;
 			}
-
+            
 			if (ElseTokenIter.Token->Type == '}') {
 				BracketStackIndex--;
 			}
-
+            
 			Meta_Token_Iter_Move_Next(&ElseTokenIter);
 		}
-
+        
 		if (!Meta_Check_Token(ElseTokenIter.Token, '}') || BracketStackIndex) {
 			Report_Error(Tokenizer->FilePath, ElseTokenIter.PrevToken->LineNumber, "Unexpected end of if statement");
 			return NULL;
 		}
-
+        
 		IfState->EndToken = ElseTokenIter.Token;
 	} else {
 		IfState->EndToken = IfState->ElseToken;
 	}
-
+    
 	meta_parser_predicate_func* PredicateFunc = Meta_Parser_Get_Predicate(PredicateName);
 	if (!PredicateFunc) {
 		Report_Error(Tokenizer->FilePath, TokenIter.Token->LineNumber, "Invalid META_IF predicate '%.*s'", PredicateName.Size, PredicateName.Ptr);
@@ -2021,27 +2021,27 @@ function b32 Meta_Replace_For_Tokens(meta_parser* Parser, meta_token_iter* Token
 		switch (TokenIter->Token->Type) {
 			case META_TOKEN_TYPE_IF: {
 				Meta_If_State_Stack_Push(IfStateStack);
-
+                
 				arena* Scratch = Scratch_Get();
 				meta_token* Token = Meta_Parse_If(Parser, TokenIter->Token, ForLoopStack, ForLoopStack->CurrentContext->CurrentEntry, IfStateStack->CurrentState, Scratch);
 				Scratch_Release();
-
+                
 				if (!Token) return false;
-
+                
 				Meta_Token_Iter_Skip_To(TokenIter, Token);
-
+                
 				//Skip passed the if statement tokens if the routine failed
 				//and begin the else statement (if it has one)
 				if (!IfStateStack->CurrentState->PassedPredicate) {
 					Meta_Token_Iter_Skip_To(TokenIter, IfStateStack->CurrentState->ElseToken);
-						
+                    
 					//If there is no else statement pop the stack
 					if (IfStateStack->CurrentState->ElseToken == IfStateStack->CurrentState->EndToken) {
 						Meta_If_State_Stack_Pop(IfStateStack);
 					}
 				}
 			} break;
-
+            
 			case META_TOKEN_TYPE_ELSE: {
 				//Skip passed the else statement tokens if the routine passed
 				//and begin the else and pop the stack
@@ -2052,7 +2052,7 @@ function b32 Meta_Replace_For_Tokens(meta_parser* Parser, meta_token_iter* Token
 					Meta_Token_Iter_Move_Next(TokenIter);
 				}
 			} break;
-
+            
 			case META_TOKEN_TYPE_FOR: {
 				//For loops can have internal for loops. Recursive call to
 				//build more NewTokens
@@ -2060,13 +2060,13 @@ function b32 Meta_Replace_For_Tokens(meta_parser* Parser, meta_token_iter* Token
 				if (!Token) return false;
 				Meta_Token_Iter_Skip_To(TokenIter, Token);
 			} break;
-
+            
 			case META_TOKEN_TYPE_REPLACEMENT: {
 				if (!Meta_Replace_Next_For_Token(Parser, TokenIter, NewTokens, ForLoopStack)) {
 					return false;
 				}
 			} break;
-
+            
 			default: {
 				//Replace the token if we know we this isn't an if statement
 				//terminating character
@@ -2087,22 +2087,22 @@ function b32 Meta_Replace_For_Tokens(meta_parser* Parser, meta_token_iter* Token
 						Meta_Replace_Next_For_Token(Parser, TokenIter, NewTokens, ForLoopStack);
 					} else {
 						meta_token_list MacroTokens = { 0 };
-
+                        
 						meta_token* EndMacroToken = Meta_Parse_And_Expand_Macro(Parser, Macro, TokenIter->Token, &MacroTokens, ForLoopStack);
-
+                        
 						if (!EndMacroToken) return false;
-
+                        
 						meta_token_iter MacroTokenIter = Meta_Begin_Token_Iter(&MacroTokens);
 						if (!Meta_Replace_For_Tokens(Parser, &MacroTokenIter, ForLoopStack, IfStateStack, NewTokens)) {
 							return false;
 						}
-
+                        
 						Meta_Token_Iter_Skip_To(TokenIter, EndMacroToken);
 					}
 				}
 			} break;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(TokenIter);
 	}
 	return true;
@@ -2110,25 +2110,25 @@ function b32 Meta_Replace_For_Tokens(meta_parser* Parser, meta_token_iter* Token
 
 function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* Token, meta_for_loop_context_stack* ForLoopStack, meta_token_list* NewTokens) {
 	Assert(Token->Type == META_TOKEN_TYPE_FOR);
-
+    
 	meta_tokenizer* Tokenizer = Parser->Tokenizer;
 	
 	meta_token_list ParamsToken = { 0 };
 	meta_token* EndParamsToken = Meta_Parse_For_Params(Parser, Token->Next, ForLoopStack, &ParamsToken);
 	if (!EndParamsToken) return NULL;
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Token_Iter(&ParamsToken);
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	//Get the type we are looping on (struct, global, enum, functions, etc..)
 	string TypeIdentifier = TokenIter.Token->Identifier;
-
+    
 	Meta_For_Loop_Stack_Push(ForLoopStack);
-
+    
 	meta_routine Routine;
 	meta_struct_type* Struct;
 	meta_enum_type* Enum;
-
+    
 	if (Meta_Parser_Is_Routine(TypeIdentifier, &Routine)) {
 		arena* Scratch = Scratch_Get();
 		Token = Meta_Evaluate_Routine(Parser, ForLoopStack->CurrentContext, Routine, TokenIter.Token, Scratch);
@@ -2149,27 +2149,27 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
 		Report_Error(Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected identifier '%.*s'", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	//Additional generation flags
 	meta_for_loop_flags ForLoopFlags = META_FOR_LOOP_FLAG_NONE;
 	Token = Meta_Parse_For_Loop_Flags(Parser, ForLoopStack->CurrentContext, TokenIter.Token, &ForLoopFlags);
 	if (!Token) return NULL;
-
+    
 	//CodeTokens contains the body of the for loop to generate on every loop
 	meta_token_list CodeTokens = { 0 };
 	Token = Meta_Parse_Code_Tokens(Parser, EndParamsToken->Next, &CodeTokens);
 	if (!Token) return NULL;
-
+    
 	meta_if_state_stack IfStateStack = { .Index = (size_t)-1 };
 	for (meta_for_loop_entry* Entry = ForLoopStack->CurrentContext->Entries.First; Entry; Entry = Entry->Next) {
 		ForLoopStack->CurrentContext->CurrentEntry = Entry;
 		TokenIter = Meta_Begin_Token_Iter(&CodeTokens);
-
+        
 		if (!(ForLoopFlags & META_FOR_LOOP_NO_BRACE_FLAG)) {
 			meta_token* NewToken = Meta_Allocate_Token(Tokenizer, '{');
 			DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 		}
-
+        
 		if (!Meta_Replace_For_Tokens(Parser, &TokenIter, ForLoopStack, &IfStateStack, NewTokens)) {
 			return NULL;
 		}
@@ -2179,107 +2179,136 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
 			DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 		}
 	}
-
+    
 	Assert(IfStateStack.Index == (size_t)-1);
-
+    
 	Meta_For_Loop_Stack_Pop(ForLoopStack);
 	return CodeTokens.Last->Next;
 }
 
 function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token) {
 	Assert(Token->Type == META_TOKEN_TYPE_FUNCTION || Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after function declaration");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Function must start with a valid name");
 		return NULL;
 	}
-
+    
 	meta_token* FunctionNameToken = TokenIter.Token;
 	string FunctionName = FunctionNameToken->Identifier;
-
+    
 	meta_function_type* Function;
 	if (Hashmap_Find(&Parser->FunctionMap, &FunctionName, &Function)) {
 		Report_Error(Parser->Tokenizer->FilePath, FunctionNameToken->LineNumber, "Duplicate function names '%.*s'", FunctionName.Size, FunctionName.Ptr);
 		return NULL;
 	}
-
+    
 	Function = Arena_Push_Struct(Parser->Arena, meta_function_type);
 	Function->Name = String_Copy((allocator*)Parser->Arena, FunctionName);
 	Function->IsExport = Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION;
 	
 	Meta_Token_Iter_Move_Next(&TokenIter);
+    if(!Meta_Check_Token(TokenIter.Token, ')')) {
+        if (!Meta_Check_Token(TokenIter.Token, ',')) {
+            Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+            return NULL;
+        }
+        
+        Meta_Token_Iter_Move_Next(&TokenIter);
+    }
+    
 	while (TokenIter.Token && TokenIter.Token->Type != ')') {
-		if (!Meta_Check_Token(TokenIter.Token, ',')) {
-			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+        size_t ParamTokenCount = 0;
+        meta_token* FirstTokenForParam = NULL;
+        
+        while(TokenIter.Token && TokenIter.Token->Type != ')' && TokenIter.Token->Type != ',') {
+            //Make sure all these tokens are identifiers
+            if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
+                Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+                return NULL;
+            }
+            
+            ParamTokenCount++;
+            if(!FirstTokenForParam) FirstTokenForParam = TokenIter.Token;
+            Meta_Token_Iter_Move_Next(&TokenIter);
+        }
+        
+        if(ParamTokenCount < 2) {
+            Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Invalid function parameter declaration");
 			return NULL;
-		}
-
-		Meta_Token_Iter_Move_Next(&TokenIter);
-		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
-			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after ','");
-			return NULL;
-		}
-
-		meta_parameter* Parameter = Arena_Push_Struct(Parser->Arena, meta_parameter);
-		Parameter->Type = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-
-		Meta_Token_Iter_Move_Next(&TokenIter);
-		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
-			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
-			return NULL;
-		}
-
-		Parameter->Name = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-
+        }
+        
+        meta_parameter* Parameter = Arena_Push_Struct(Parser->Arena, meta_parameter);
+        meta_token* LastTokenForParam = TokenIter.PrevToken;
+        Parameter->Name = String_Copy((allocator*)Parser->Arena, LastTokenForParam->Identifier);
+        
+        arena* Scratch = Scratch_Get();
+        sstream_writer TypeWriter = SStream_Writer_Begin((allocator*)Scratch);
+        
+        LastTokenForParam = LastTokenForParam->Prev;
+        for(size_t i = 0; i < (ParamTokenCount-1); i++) {
+            SStream_Writer_Add_Front(&TypeWriter, LastTokenForParam->Identifier);
+            LastTokenForParam = LastTokenForParam->Prev;
+        }
+        Parameter->Type = SStream_Writer_Join(&TypeWriter, (allocator*)Parser->Arena, String_Lit(" "));
+        Scratch_Release();
+        
 		SLL_Push_Back(Function->FirstParameter, Function->LastParameter, Parameter);
 		Function->ParameterCount++;
-
-		Meta_Token_Iter_Move_Next(&TokenIter);
+        
+        if(!Meta_Check_Token(TokenIter.Token, ')')) {
+            if (!Meta_Check_Token(TokenIter.Token, ',')) {
+                Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+                return NULL;
+            }
+            
+            Meta_Token_Iter_Move_Next(&TokenIter);
+        }
 	}
-
+    
 	
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_RETURN_ARROW)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '->' after ')'");
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '->'");
 		return NULL;
 	}
-
+    
 	Function->ReturnType = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, '{')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '{' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
 	}
-
+    
 	meta_token_list CodeTokenList = { 0 };
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	size_t BracketStackIndex = 0;
 	while (TokenIter.Token && (TokenIter.Token->Type != '}' || BracketStackIndex)) {
 		switch (TokenIter.Token->Type) {
 			case '{': { BracketStackIndex++; } break;
 			case '}': { BracketStackIndex--; } break;
-
+            
 			case META_TOKEN_TYPE_IDENTIFIER: {
 				meta_macro* Macro;
 				if (Hashmap_Find(&Parser->MacroMap, &TokenIter.Token->Identifier, &Macro)) {
@@ -2290,48 +2319,48 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 					continue;
 				}
 			} break;
-
+            
 			case META_TOKEN_TYPE_FOR: {
 				meta_for_loop_context_stack ForLoopStack = { 0 };
 				meta_token_list NewTokens = { 0 };
 				meta_token_list ForEachTokens = { .First = TokenIter.Token };
-
+                
 				ForEachTokens.Last = Meta_Parse_And_Expand_For(Parser, TokenIter.Token, &ForLoopStack, &NewTokens);
 				
 				if (!ForEachTokens.Last) return NULL;
-
+                
 				if (NewTokens.Count) {
 					Meta_Tokens_Replace(&ForEachTokens, &NewTokens);
 					Meta_Tokens_Free(Parser->Tokenizer, &ForEachTokens);
 					Token = NewTokens.First->Prev;
 				} Invalid_Else;
-
+                
 				TokenIter = Meta_Begin_Simple_Token_Iter(Token);
 				Meta_Token_Iter_Move_Next(&TokenIter);
 				continue;
 			} break;
 		}
-
+        
 		if (!TokenIter.Token) {
 			return NULL;
 		}
-
+        
 		if (!CodeTokenList.Count) {
 			CodeTokenList.First = TokenIter.Token;
 		}
 		CodeTokenList.Count++;
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!TokenIter.Token || TokenIter.Token->Type != '}' || BracketStackIndex) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexepected end of function");
 		return NULL;
 	}
-
+    
 	CodeTokenList.Last = TokenIter.PrevToken;
 	Function->CodeTokens = CodeTokenList;
-
+    
 	meta_token* Result = TokenIter.Token;
 	if (TokenIter.Token->Next &&
 		TokenIter.Token->Next->Type == META_TOKEN_TYPE_IDENTIFIER &&
@@ -2339,77 +2368,77 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 		arena* Scratch2 = Scratch_Get();
 		Result = Meta_Parse_Tags(Parser, TokenIter.Token->Next, &Function->Tags, Scratch2);
 		Scratch_Release();
-
+        
 		if (!Result) return NULL;
 		Result = Result->Prev;
 	}
-
+    
 	Hashmap_Add(&Parser->FunctionMap, &FunctionName, &Function);
 	return Result;
 }
 
 function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token* Token, arena* Scratch) {
 	Assert(Token->Type == META_TOKEN_TYPE_STRUCT || Token->Type == META_TOKEN_TYPE_GLOBAL);
-
+    
 	meta_token_type StructType = Token->Type;
 	string StructOrGlobal = StructType == META_TOKEN_TYPE_STRUCT ? String_Lit("struct") : String_Lit("global");
 	string StructOrGlobalPascal = String_Pascal_Case((allocator*)Scratch, StructOrGlobal);
-
+    
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing '(' after %.*s declaration", StructOrGlobal.Size, StructOrGlobal.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "%.*s must start with a valid struct name", StructOrGlobalPascal.Size, StructOrGlobalPascal.Ptr);
 		return NULL;
 	}
-
+    
 	meta_token* StructNameToken = TokenIter.Token;
 	string StructName = TokenIter.Token->Identifier;
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after the %.*s name", StructOrGlobal.Size, StructOrGlobal.Ptr);
 		return NULL;
 	}
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	if (!Meta_Check_Token(TokenIter.Token, '{')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '{' after ')'");
 		return NULL;
 	}
-
+    
 	hashmap* StructMap = StructType == META_TOKEN_TYPE_STRUCT ? &Parser->StructMap : &Parser->GlobalMap;
-
+    
 	meta_struct_type* Struct = NULL;
 	if (Hashmap_Find(StructMap, &StructName, &Struct)) {
 		Report_Error(Parser->Tokenizer->FilePath, StructNameToken->LineNumber, "Duplicate %.*s names '%.*s'", StructOrGlobal.Size, StructOrGlobal.Ptr, StructName.Size, StructName.Ptr);
 		return NULL;
 	}
-
+    
 	Assert(!Struct);
-
+    
 	Struct = Arena_Push_Struct(Parser->Arena, meta_struct_type);
 	Struct->Name = String_Copy((allocator*)Parser->Arena, StructName);
-
+    
 	Meta_Token_Iter_Move_Next(&TokenIter);
-
+    
 	size_t BracketStackIndex = 0;
 	while (TokenIter.Token && (TokenIter.Token->Type != '}' || BracketStackIndex)) {
 		switch (TokenIter.Token->Type) {
 			case '{': { BracketStackIndex++; } break;
 			case '}': { BracketStackIndex--; } break;
-
+            
 			case META_TOKEN_TYPE_IDENTIFIER: {
 				//If we see an identifier in a struct, the only valid
 				//code it can be is if its a macro expansion call. This
 				//must be in the format of MACRO_NAME -> ( -> parameters -> )
 				//with the amount of parameters matching whats in the macro
 				//definition
-
+                
 				meta_macro* Macro;
 				if (Hashmap_Find(&Parser->MacroMap, &TokenIter.Token->Identifier, &Macro)) {
 					Token = Meta_Parse_And_Replace_Macro(Parser, TokenIter.Token, Macro);
@@ -2420,12 +2449,12 @@ function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token
 					return NULL;
 				}
 			} break;
-
+            
 			case META_TOKEN_TYPE_VARIABLE_ENTRY: {
 				meta_token* StructToken = Meta_Parse_Variable_Entry(Parser, Struct, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
-
+            
 			case META_TOKEN_TYPE_STRUCT: 
 			case META_TOKEN_TYPE_GLOBAL: {
 				arena* Scratch2 = Scratch_Get();
@@ -2433,72 +2462,72 @@ function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token
 				Scratch_Release();
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
-
+            
 			case META_TOKEN_TYPE_ENUM: {
 				meta_token* StructToken = Meta_Parse_Enum(Parser, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
-
+            
 			case META_TOKEN_TYPE_FUNCTION: 
 			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
 				meta_token* StructToken = Meta_Parse_Function(Parser, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
-
+            
 			case META_TOKEN_TYPE_MACRO: {
 				meta_token* StructToken = Meta_Parse_Macro(Parser, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
-
+            
 			default: {
 				Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected token '%.*s'", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
 				return NULL;
 			} break;
 		}
-
+        
 		if (!TokenIter.Token) {
 			return NULL;
 		}
-
+        
 		Meta_Token_Iter_Move_Next(&TokenIter);
 	}
-
+    
 	if (!Meta_Check_Token(TokenIter.Token, '}') || BracketStackIndex) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of struct");
 		return NULL;
 	}
-
+    
 	Hashmap_Add(StructMap, &Struct->Name, &Struct);
 	return TokenIter.Token;
 }
 
 function b32 Meta_Parser_Evaluate(meta_parser* Parser) {
 	meta_token_list* Tokens = &Parser->Tokenizer->Tokens;
-
+    
 	meta_token* Token = Tokens->First;
 	while (Token) {
-
+        
 		switch (Token->Type) {
 			case META_TOKEN_TYPE_MACRO: {
 				Token = Meta_Parse_Macro(Parser, Token);
 			} break;
-
+            
 			case META_TOKEN_TYPE_STRUCT: 
 			case META_TOKEN_TYPE_GLOBAL: {
 				arena* Scratch = Scratch_Get();
 				Token = Meta_Parse_Struct_Or_Global(Parser, Token, Scratch);
 				Scratch_Release();
 			} break;
-
+            
 			case META_TOKEN_TYPE_ENUM: {
 				Token = Meta_Parse_Enum(Parser, Token);
 			} break;
-
+            
 			case META_TOKEN_TYPE_FUNCTION:
 			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
 				Token = Meta_Parse_Function(Parser, Token);
 			} break;
-
+            
 			case META_TOKEN_TYPE_IDENTIFIER: {
 				meta_macro* Macro;
 				if (Hashmap_Find(&Parser->MacroMap, &Token->Identifier, &Macro)) {
@@ -2508,20 +2537,20 @@ function b32 Meta_Parser_Evaluate(meta_parser* Parser) {
 					return false;
 				}
 			} break;
-
+            
 			default: {
 				Report_Error(Parser->Tokenizer->FilePath, Token->LineNumber, "Unexpected token '%.*s'", Token->Identifier.Size, Token->Identifier.Ptr);
 				return false;
 			} break;
 		}
-
+        
 		if (!Token) {
 			return false;
 		}
-
+        
 		Token = Token->Next;
 	}
-
+    
 	return true;
 }
 
@@ -2547,24 +2576,24 @@ function b32 Meta_Parser_Parse(meta_parser* Parser, string FilePath, string Cont
 			Parser->MacroParamMap = Hashmap_Init((allocator*)ParserArena, sizeof(meta_token_list), sizeof(string), Hash_String, Compare_String);
 			
 			//Add the global structs
-
+            
 			if (ProcessInfo) {
 				for (size_t i = 0; i < ProcessInfo->StructCount; i++) {
 					Hashmap_Add(&Parser->StructInfoMap, &ProcessInfo->Structs[i]->Name, &ProcessInfo->Structs[i]);
 				}
-
+                
 				for (size_t i = 0; i < ProcessInfo->UnionCount; i++) {
 					Hashmap_Add(&Parser->UnionInfoMap, &ProcessInfo->Unions[i]->Name, &ProcessInfo->Unions[i]);
 				}
-
+                
 				for (size_t i = 0; i < ProcessInfo->EnumCount; i++) {
 					Hashmap_Add(&Parser->EnumInfoMap, &ProcessInfo->Enums[i]->Name, &ProcessInfo->Enums[i]);
 				}
 			}
 			Result = Meta_Parser_Evaluate(Parser);
 		}
-
+        
 	}
-
+    
 	return Result;
 }

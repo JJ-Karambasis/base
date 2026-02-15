@@ -184,6 +184,16 @@ function inline void Array_Init(array<type>* Array, allocator* Allocator = Defau
 }
 
 template <typename type>
+function inline void Array_Release(array<type>* Array) {
+    if(Array->Type == array<type>::array_type::VIRTUAL) {
+        Delete_Memory_Reserve(&Array->MemoryReserve);
+    } else {
+        Allocator_Free_Memory(Array->Allocator, Array->Ptr);
+    }
+    Memory_Clear(Array, sizeof(array<type>));
+}
+
+template <typename type>
 function inline void Virtual_Array_Init(array<type>* Array, size_t ReserveSize=GB(1)) {
 	*Array = array<type>();
     Array->Type = array<type>::array_type::VIRTUAL;
@@ -193,6 +203,12 @@ function inline void Virtual_Array_Init(array<type>* Array, size_t ReserveSize=G
 
 template<typename type>
 function inline void Array_Reserve(array<type>* Array, size_t NewCapacity) {
+    //If the new capacity is less than the minimum, set it to the minimum
+    if(NewCapacity < 32) {
+        NewCapacity = 32;
+    }
+    
+    
     if(Array->Type == array<type>::array_type::VIRTUAL) {
         Recommit_New_Size(&Array->MemoryReserve, NewCapacity*sizeof(type));
         NewCapacity = Array->MemoryReserve.CommitSize/sizeof(type);
@@ -219,6 +235,12 @@ function inline void Array_Resize(array<type>* Array, size_t NewSize) {
 }
 
 template <typename type>
+function inline void Array_Init(array<type>* Array, size_t Count, allocator* Allocator = Default_Allocator_Get()) {
+    Array_Init(Array, Allocator);
+    Array_Resize(Array, Count);
+}
+
+template <typename type>
 function inline void Array_Add(array<type>* Array, const type& Entry) {
 	if(Array->Count == Array->Capacity) {
 		size_t NewCapacity = Array->Capacity ? Array->Capacity*2 : 32;
@@ -240,9 +262,9 @@ function inline void Array_Clear(array<type>* Array) {
 }
 
 template<typename type>
-function inline array<type> Array_Copy(allocator* Allocator, const array<type>* Src) {
-	array<type> Array(Allocator, Src->Count);
-    Memory_Copy(Array.Ptr, Src->Ptr, Src->Count*sizeof(type));
+function inline array<type> Array_Copy(allocator* Allocator, const array<type>& Src) {
+	array<type> Array(Allocator, Src.Count);
+    Memory_Copy(Array.Ptr, Src.Ptr, Src.Count*sizeof(type));
     return Array;
 }
 
@@ -255,9 +277,108 @@ function inline void Array_Add_Range(array<type>* Array, const type* Ptr, size_t
     Array->Count += Count;
 }
 
+template<typename type>
+function inline void Array_Add_Range(array<type>* Array, const array<type>* ArrayRange) {
+    Array_Add_Range(Array, ArrayRange->Ptr, ArrayRange->Count);
+}
+
+template <typename type>
+function inline array<type> Array_Combine(allocator* Allocator, span<array<type>> Arrays) {
+    size_t TotalCount = 0;
+    for(size_t i = 0; i < Arrays.Count; i++) {
+        array<type> Array = Arrays[i];
+        TotalCount += Array.Count;
+    }
+    
+    array<type> Result;
+    Array_Init(&Result, TotalCount, Allocator);
+    
+    size_t Offset = 0;
+    for(size_t i = 0; i < Arrays.Count; i++) {
+        Memory_Copy(Result.Ptr+Offset, Arrays[i].Ptr, Arrays[i].Count*sizeof(type));
+        Offset += Arrays[i].Count;
+    }
+    
+    return Result;
+}
+
+template <typename type>
+function inline array<type> Array_Splice(array<type>* Array, size_t StartIdx, size_t EndIdx) {
+    if(StartIdx == EndIdx) return {};
+    
+    EndIdx = Min(EndIdx, Array->Count);
+    Assert(EndIdx > StartIdx);
+    
+    type* Ptr = Array->Ptr+StartIdx;
+    array<type> Result = { };
+    Result.Ptr = Ptr;
+    Result.Count = EndIdx-StartIdx;
+    return Result;
+}
+
+template <typename type>
+function inline void Array_Insert(array<type>* Array, const array<type>* InsertArray, size_t Cursor) {
+    Assert(Cursor <= Array->Count);
+    Assert(Array->Type == array<type>::array_type::ALLOCATOR);
+    if(Cursor == 0) {
+        array<type> OldArray = *Array;
+        *Array = Array_Combine<type>(OldArray.Allocator, {*InsertArray, *Array});
+        Array_Release(&OldArray);
+    } else if(Cursor == Array->Count) {
+        Array_Add_Range(Array, InsertArray);
+    } else {
+        array<type> OldArray = *Array;
+        *Array = Array_Combine<type>(OldArray.Allocator, {
+            Array_Splice(Array, 0, Cursor), 
+            *InsertArray, 
+            Array_Splice(Array, Cursor, Array->Count)
+        });
+        Array_Release(&OldArray);
+    }
+}
+
+template <typename type>
+function inline void Array_Remove(array<type>* Array, size_t Cursor, size_t Size) {
+    Assert(Array->Type == array<type>::array_type::ALLOCATOR);
+    if(!Array_Is_Empty(Array)) {
+        Assert(Cursor < Array->Count);
+        Assert((Cursor+Size) <= Array->Count);
+        
+        array<type> OldArray = *Array;
+        if(Cursor == 0) {
+            *Array = Array_Copy<type>(OldArray.Allocator, Array_Splice(Array, Cursor+Size, Array->Count));
+        } else if(Cursor+Size == Array->Count) {
+            *Array = Array_Copy<type>(OldArray.Allocator, Array_Splice(Array, 0, Cursor));
+        } else {
+            *Array = Array_Combine<type>(OldArray.Allocator, {
+                Array_Splice(Array, 0, Cursor),
+                Array_Splice(Array, Cursor+Size, Array->Count)
+            });
+        }
+        Array_Release(&OldArray);
+    }
+}
+
 template <typename type>
 function inline b32 Array_Is_Empty(array<type>* Array) {
     return !Array->Count || !Array->Ptr;
+}
+
+template <typename type>
+function inline type& Array_Pop(array<type>* Array) {
+    Assert(!Array_Is_Empty(Array));
+    Array->Count--;
+    return Array->Ptr[Array->Count];
+}
+
+template <typename type> 
+function inline type& Array_Last(array<type>* Array) {
+    return Array->Ptr[Array->Count-1];
+}
+
+template <typename type>
+function inline void Array_Sort(array<type>* Array, sort_callback_func* SortCallbackFunc, void* SortUserData) {
+    Array_Sort(Array->Ptr, Array->Count, sizeof(type), SortCallbackFunc, SortUserData);
 }
 
 template <typename type>
@@ -267,8 +388,7 @@ inline array<type>::array(allocator* Allocator) {
 
 template <typename type>
 inline array<type>::array(allocator* Allocator, size_t Count) {
-    Array_Init(this, Allocator);
-    Array_Resize(this, Count);
+    Array_Init(this, Count, Allocator);
 }
 
 template <typename type>

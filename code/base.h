@@ -658,6 +658,7 @@ export_function rect2 Rect2_From_Center_Dim(v2 CenterP, v2 Dim);
 export_function rect2 Rect2_Offset(rect2 Rect, v2 Offset);
 export_function b32 Rect2_Contains_V2(rect2 Rect, v2 V);
 export_function v2 Rect2_Size(rect2 Rect);
+export_function rect2 Rect2_From_Min_Dim(v2 p0, v2 Dim);
 
 typedef struct {
     v3 P0;
@@ -722,6 +723,7 @@ struct allocator {
 export_function allocator* Default_Allocator_Get();
 
 #define Allocator_Allocate_Memory(allocator, size) (allocator)->VTable->AllocateMemoryFunc(allocator, size, CLEAR_FLAG_YES)
+#define Allocator_Allocate_Memory_No_Clear(allocator, size) (allocator)->VTable->AllocateMemoryFunc(allocator, size, CLEAR_FLAG_NO)
 #define Allocator_Free_Memory(allocator, memory) (allocator)->VTable->FreeMemoryFunc(allocator, memory)
 #define Allocator_Get_Stats(allocator) (allocator)->VTable->GetStatsFunc(allocator)
 
@@ -797,6 +799,17 @@ export_function void  Heap_Free(heap* Heap, void* Memory);
 export_function void  Heap_Clear(heap* Heap);
 
 #define Heap_Alloc_Struct(heap, type) (type*)Heap_Alloc(heap, sizeof(type))
+
+struct cap_allocator {
+    allocator  Base;
+    allocator* InnerAllocator;
+    u8*        Ptr;
+    size_t     Capacity;
+};
+
+export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator);
+export_function void* Cap_Allocator_Allocate(cap_allocator* Allocator, size_t Size);
+export_function void Cap_Allocator_Delete(cap_allocator* Allocator);
 
 #define Array_Define(type) \
 typedef struct { \
@@ -929,14 +942,20 @@ typedef struct {
 
 typedef struct thread_context thread_context;
 
+#define SORT_CALLBACK_DEFINE(name) s32 name(const void* A, const void* B, void* UserData)
+typedef SORT_CALLBACK_DEFINE(sort_callback_func);
+export_function void Array_Sort(void* Ptr, size_t Count, size_t ItemSize, sort_callback_func* SortCallbackFunc, void* SortUserData);
+
 #define MAX_SCRATCH_COUNT 64
 struct thread_context {
-    random32_xor_shift Random32;
+    sort_callback_func*    SortCallbackFunc;
+    void*                  SortUserData;
+    random32_xor_shift     Random32;
     size_t 		 	   ScratchIndex;
     arena* 		 	   ScratchArenas[MAX_SCRATCH_COUNT];
-    arena_marker 	   ScratchMarkers[MAX_SCRATCH_COUNT];
-    thread_context*    Next;
-    thread_context*    Prev;
+    arena_marker 	      ScratchMarkers[MAX_SCRATCH_COUNT];
+    thread_context*        Next;
+    thread_context*        Prev;
 };
 
 export_function thread_context* Thread_Context_Get();
@@ -1065,6 +1084,7 @@ export_function string String_Insert_Text(allocator* Allocator, string String, s
 export_function string String_Remove(allocator* Allocator, string String, size_t Cursor, size_t Size);
 export_function b32 String_Ends_With(string String, string Substr);
 export_function b32 String_Contains(string String, string Substr);
+export_function void String_Free(allocator* Allocator, string String);
 export_function size_t String_Find_First(string String, string Substr);
 export_function string String_From_WString(allocator* Allocator, wstring WString);
 export_function b32 Try_Parse_Bool(string String, b32* OutBool);
@@ -1125,6 +1145,7 @@ export_function void SStream_Writer_Add_Front(sstream_writer* Writer, string Ent
 export_function void SStream_Writer_Add(sstream_writer* Writer, string Entry);
 export_function void SStream_Writer_Add_Format(sstream_writer* Writer, const char* Format, ...);
 export_function string SStream_Writer_Join(sstream_writer* Writer, allocator* Allocator, string JoinChars);
+export_function b32 SStream_Writer_Is_Empty(sstream_writer* Writer);
 
 function inline void SStream_Writer_Add_Char(sstream_writer* Writer, char Char) {
     SStream_Writer_Add(Writer, Make_String(&Char, 1));
@@ -1431,6 +1452,7 @@ typedef struct {
     os_base*  OSBase;
     allocator_vtable* ArenaVTable;
     allocator_vtable* HeapVTable;
+    allocator_vtable* CapAllocatorVTable;
     os_thread_callback_func* JobSystemThreadCallback;
     key_hash_func* HashU64Callback;
     key_comp_func* CompareU64Callback;
