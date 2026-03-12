@@ -256,3 +256,8 @@ pushd "%bin_path%"
 popd
 
 :skip_tests
+
+pushd "%bin_path%"
+	del *.obj
+	del *.exp
+popd
