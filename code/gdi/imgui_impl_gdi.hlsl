@@ -11,7 +11,8 @@ struct vs_output {
 };
 
 struct shader_global {
-    float2 InvResolution;
+    float2 Scale;
+    float2 Translate;
 };
 
 Texture2D Texture : register(t0, space0);
@@ -22,14 +23,9 @@ ConstantBuffer<shader_global> Globals : register(b0, space1);
 
 vs_output VS_Main(vs_input Vtx) {
     vs_output Result = (vs_output)0;
-
-	Result.P = float4((2.0f*Vtx.P.x*Globals.InvResolution.x)-1.0f,
-                      (2.0f*Vtx.P.y*Globals.InvResolution.y)-1.0f, 
-                      0.0f, 1.0f);    
-    
+    Result.P = float4(Vtx.P * Globals.Scale + Globals.Translate, 0.0f, 1.0f);
     Result.UV = Vtx.UV;
     Result.C = Vtx.C;
-
     return Result;
 }
 

@@ -968,6 +968,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		return false;
 	}
     
+	VkSwapchainKHR OldSwapchain = Swapchain->Swapchain;
 	VkSwapchainCreateInfoKHR SwapchainCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface = Swapchain->Surface,
@@ -981,11 +982,13 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR, 
-		.oldSwapchain = Swapchain->Swapchain
+		.oldSwapchain = OldSwapchain
 	};
-    
 	VkResult Status = vkCreateSwapchainKHR(Context->Device, &SwapchainCreateInfo, VK_Get_Allocator(), &Swapchain->Swapchain);
-    
+	if (OldSwapchain != VK_NULL_HANDLE) {
+		vkDestroySwapchainKHR(Context->Device, OldSwapchain, VK_Get_Allocator());
+	}
+
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateSwapchainKHR failed!");
 		return false;
