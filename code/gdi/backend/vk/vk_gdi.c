@@ -661,7 +661,7 @@ function vk_frame_thread_context* VK_Get_Frame_Thread_Context(vk_device_context*
 }
 
 function void VK_Delete_Texture_Resources(vk_device_context* Context, vk_texture* Texture) {
-	if (Texture->Image != VK_NULL_HANDLE) {
+	if (Texture->Image != VK_NULL_HANDLE && GDI_Is_Null(Texture->Swapchain)) {
 		vmaDestroyImage(Context->GPUAllocator, Texture->Image, Texture->Allocation);
 		Texture->Image = VK_NULL_HANDLE;
 	}
@@ -707,25 +707,25 @@ function void VK_Delete_Layout_Resources(vk_device_context* Context, vk_layout* 
 }
 
 function void VK_Delete_Bind_Group_Resources(vk_device_context* Context, vk_bind_group* BindGroup) {
-	arena* Scratch = Scratch_Get();
-    
-	u32 SetCount = 0;
-	VkDescriptorSet* Sets = Arena_Push_Array(Scratch, Context->Frames.Count, VkDescriptorSet);
-	for (size_t i = 0; i < Context->Frames.Count; i++) {
-		if (BindGroup->Sets[i]) {
-			Sets[SetCount++] = BindGroup->Sets[i];
-		}
-	}
-    
-	if (SetCount) {
-		OS_Mutex_Lock(Context->DescriptorLock);
-		vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, SetCount, Sets);
-		OS_Mutex_Unlock(Context->DescriptorLock);
-	}
-    
-	Scratch_Release();
-    
 	if (BindGroup->AllocationData) {
+        arena* Scratch = Scratch_Get();
+        
+        u32 SetCount = 0;
+        VkDescriptorSet* Sets = Arena_Push_Array(Scratch, Context->Frames.Count, VkDescriptorSet);
+        for (size_t i = 0; i < Context->Frames.Count; i++) {
+            if (BindGroup->Sets[i]) {
+                Sets[SetCount++] = BindGroup->Sets[i];
+            }
+        }
+        
+        if (SetCount) {
+            OS_Mutex_Lock(Context->DescriptorLock);
+            vkFreeDescriptorSets(Context->Device, Context->DescriptorPool, SetCount, Sets);
+            OS_Mutex_Unlock(Context->DescriptorLock);
+        }
+        
+        Scratch_Release();
+        
 		Allocator_Free_Memory(Default_Allocator_Get(), BindGroup->AllocationData);
 		BindGroup->AllocationData = NULL;
 		BindGroup->Sets = NULL;
@@ -764,9 +764,11 @@ function void VK_Delete_Semaphore_Resources(vk_device_context* Context, vk_semap
 function void VK_Delete_Swapchain_Resources(vk_device_context* Context, vk_swapchain* Swapchain) {
 	vk_gdi* GDI = (vk_gdi*)Context->Base.GDI;
     
-	for (size_t i = 0; i < Context->Frames.Count; i++) {
-		VK_Delete_Semaphore_Resources(Context, &Swapchain->Locks[i]);
-	}
+    if(Swapchain->Locks) {
+        for (size_t i = 0; i < Context->Frames.Count; i++) {
+            VK_Delete_Semaphore_Resources(Context, &Swapchain->Locks[i]);
+        }
+    }
     
 	for (size_t i = 0; i < Swapchain->ImageCount; i++) {
 		vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Swapchain->TextureViews[i]);
