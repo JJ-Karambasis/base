@@ -14,8 +14,8 @@ function GDI_LOG_DEFINE(GDI_Log_Callback) {
 }
 
 struct window {
-    SDL_Window* Window;
-    gdi_handle  Swapchain;
+    SDL_Window*   Window;
+    gdi_swapchain Swapchain;
 };
 
 function window Create_Window(string Title, v2i Dim, SDL_WindowFlags Flags) {
@@ -76,7 +76,7 @@ int main(int ArgumentCount, const char** Args) {
             }
         }
 
-        gdi_handle View = GDI_Get_Swapchain_View(Window.Swapchain);
+        gdi_texture_view View = GDI_Get_Swapchain_View(Window.Swapchain);
         if(!GDI_Is_Null(View)) {
             gdi_render_pass_begin_info BeginInfo = {
                 .RenderTargetViews = { View },

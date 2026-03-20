@@ -155,9 +155,9 @@ extern "C" {
 #define Assert(c)
     
 #ifdef __cplusplus
-#define Static_Assert_With_Message(c) static_assert((c), message)
+#define Static_Assert_With_Message(c, message) static_assert((c), message)
 #else
-#define Static_Assert_With_Message(c) _Static_assert((c), message)
+#define Static_Assert_With_Message(c, message) _Static_assert((c), message)
 #endif
     
 #endif
@@ -800,12 +800,12 @@ export_function void  Heap_Clear(heap* Heap);
 
 #define Heap_Alloc_Struct(heap, type) (type*)Heap_Alloc(heap, sizeof(type))
 
-struct cap_allocator {
+typedef struct {
     allocator  Base;
     allocator* InnerAllocator;
     u8*        Ptr;
     size_t     Capacity;
-};
+} cap_allocator;
 
 export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator);
 export_function void* Cap_Allocator_Allocate(cap_allocator* Allocator, size_t Size);

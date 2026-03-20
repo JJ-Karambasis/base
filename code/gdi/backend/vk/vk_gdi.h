@@ -153,6 +153,11 @@ typedef struct {
 #endif
 } vk_shader;
 
+typedef struct {
+	VkQueryPool QueryPool;
+	u32         Count;
+} vk_query_pool;
+
 typedef struct vk_semaphore vk_semaphore;
 typedef struct {
 	gdi_swapchain Handle;
@@ -254,6 +259,7 @@ typedef struct  {
 	vk_shader_delete_queue 			  ShaderDeleteQueue Tags(name: Shader);
 	vk_swapchain_delete_queue 		  SwapchainDeleteQueue Tags(name: Swapchain);
 	vk_semaphore_delete_queue 		  SemaphoreDeleteQueue Tags(name: Semaphore);
+	vk_query_pool_delete_queue 		  Query_PoolDeleteQueue Tags(name: Query_Pool);
 } vk_delete_queue;
 
 struct vk_frame_thread_context {

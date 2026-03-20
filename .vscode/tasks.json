@@ -7,11 +7,14 @@
             "label": "Build",
             "type": "shell",
             "command": "${workspaceFolder}/build.sh -debug -tests",
+            "windows": {
+                "command": "${workspaceFolder}/build.bat -debug -tests",
+            },
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": "$msCompile"
         }
     ]
 }

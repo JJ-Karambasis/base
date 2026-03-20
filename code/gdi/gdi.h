@@ -181,6 +181,7 @@ GDI_Resource_Define(gdi_layout);
 GDI_Resource_Define(gdi_bind_group);
 GDI_Resource_Define(gdi_shader);
 GDI_Resource_Define(gdi_swapchain);
+GDI_Resource_Define(gdi_query_pool);
 
 typedef union {
     gdi_id ID;
@@ -268,7 +269,6 @@ typedef struct {
     size_t 	   Size;
 } gdi_bind_group_buffer;
 Array_Define(gdi_bind_group_buffer);
-
 
 typedef struct {
     gdi_bind_group DstBindGroup;
@@ -387,6 +387,16 @@ typedef struct {
     v2i 	   Dim;
 } gdi_swapchain_info;
 
+typedef struct {
+    u32    Count;
+    string DebugName;
+} gdi_query_pool_create_info;
+
+typedef struct {
+    u64 Ticks;
+    b32 Available;
+} gdi_timestamp_result;
+
 typedef union {
     f32 F32[4];
     u32 U32[4];
@@ -472,7 +482,8 @@ typedef struct {
 
 typedef enum {
     GDI_PASS_TYPE_RENDER,
-    GDI_PASS_TYPE_COMPUTE
+    GDI_PASS_TYPE_COMPUTE,
+    GDI_PASS_TYPE_TIMESTAMP
 } gdi_pass_type;
 
 typedef struct {
@@ -487,6 +498,10 @@ struct gdi_pass {
     union {
         gdi_render_pass* RenderPass;
         gdi_compute_pass ComputePass;
+        struct {
+            gdi_query_pool Pool;
+            u32            Index;
+        } Timestamp;
     };
     gdi_pass* Next;
 };
@@ -536,6 +551,7 @@ typedef struct {
     arena* FrameArena;
     
     size_t ConstantBufferAlignment;
+    f64    TimestampPeriod;
     
     os_tls*    IMThreadLocalStorage;
     atomic_ptr TopIM;
@@ -579,12 +595,18 @@ typedef struct {
 #define GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(name) void name(gdi* GDI, gdi_swapchain SwapchainHandle)
 #define GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(name) gdi_swapchain_info name(gdi* GDI, gdi_swapchain SwapchainHandle)
 
+#define GDI_BACKEND_CREATE_QUERY_POOL_DEFINE(name) gdi_query_pool name(gdi* GDI, const gdi_query_pool_create_info* QueryPoolInfo)
+#define GDI_BACKEND_DELETE_QUERY_POOL_DEFINE(name) void name(gdi* GDI, gdi_query_pool QueryPoolHandle)
+#define GDI_BACKEND_GET_QUERY_RESULTS_DEFINE(name) b32 name(gdi* GDI, gdi_query_pool QueryPool, u32 FirstQuery, u32 QueryCount, gdi_timestamp_result* Results)
+
 #define GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(name) gdi_render_pass* name(gdi* GDI, const gdi_render_pass_begin_info* BeginInfo)
 #define GDI_BACKEND_END_RENDER_PASS_DEFINE(name) void name(gdi* GDI, gdi_render_pass* RenderPass)
 
 #define GDI_BACKEND_RENDER_DEFINE(name) void name(gdi* GDI, const gdi_render_params* RenderParams)
 
 #define GDI_BACKEND_SHUTDOWN_DEFINE(name) void name(gdi* GDI, gdi_shutdown_flags Flags)
+
+#define GDI_BACKEND_FLUSH_DEFINE(name) void name(gdi* GDI)
 
 typedef GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(gdi_backend_set_device_context_func);
 
@@ -621,12 +643,18 @@ typedef GDI_BACKEND_GET_SWAPCHAIN_VIEW_DEFINE(gdi_backend_get_swapchain_view_fun
 typedef GDI_BACKEND_RESIZE_SWAPCHAIN_DEFINE(gdi_backend_resize_swapchain_func);
 typedef GDI_BACKEND_GET_SWAPCHAIN_INFO_DEFINE(gdi_backend_get_swapchain_info_func);
 
+typedef GDI_BACKEND_CREATE_QUERY_POOL_DEFINE(gdi_backend_create_query_pool_func);
+typedef GDI_BACKEND_DELETE_QUERY_POOL_DEFINE(gdi_backend_delete_query_pool_func);
+typedef GDI_BACKEND_GET_QUERY_RESULTS_DEFINE(gdi_backend_get_query_results_func);
+
 typedef GDI_BACKEND_BEGIN_RENDER_PASS_DEFINE(gdi_backend_begin_render_pass_func);
 typedef GDI_BACKEND_END_RENDER_PASS_DEFINE(gdi_backend_end_render_pass_func);
 
 typedef GDI_BACKEND_RENDER_DEFINE(gdi_backend_render_func);
 
 typedef GDI_BACKEND_SHUTDOWN_DEFINE(gdi_backend_shutdown_func);
+
+typedef GDI_BACKEND_FLUSH_DEFINE(gdi_backend_flush_func);
 
 typedef struct {
     gdi_backend_set_device_context_func* SetDeviceContextFunc;
@@ -664,11 +692,16 @@ typedef struct {
     gdi_backend_resize_swapchain_func*   ResizeSwapchainFunc;
     gdi_backend_get_swapchain_info_func* GetSwapchainInfoFunc;
     
+    gdi_backend_create_query_pool_func*    CreateQueryPoolFunc;
+    gdi_backend_delete_query_pool_func*    DeleteQueryPoolFunc;
+    gdi_backend_get_query_results_func*    GetQueryResultsFunc;
+
     gdi_backend_begin_render_pass_func* BeginRenderPassFunc;
     gdi_backend_end_render_pass_func* EndRenderPassFunc;
     
     gdi_backend_render_func* RenderFunc;
     gdi_backend_shutdown_func* ShutdownFunc;
+    gdi_backend_flush_func* FlushFunc;
 } gdi_backend_vtable;
 
 struct gdi {
@@ -714,15 +747,21 @@ struct gdi {
 #define GDI_Backend_Resize_Swapchain(swapchain) GDI_Get()->Backend->ResizeSwapchainFunc(GDI_Get(), swapchain)
 #define GDI_Backend_Get_Swapchain_Info(swapchain) GDI_Get()->Backend->GetSwapchainInfoFunc(GDI_Get(), swapchain)
 
+#define GDI_Backend_Create_Query_Pool(info) GDI_Get()->Backend->CreateQueryPoolFunc(GDI_Get(), info)
+#define GDI_Backend_Delete_Query_Pool(pool) GDI_Get()->Backend->DeleteQueryPoolFunc(GDI_Get(), pool)
+#define GDI_Backend_Get_Query_Results(pool, first, count, results) GDI_Get()->Backend->GetQueryResultsFunc(GDI_Get(), pool, first, count, results)
+
 #define GDI_Backend_Begin_Render_Pass(begin_info) GDI_Get()->Backend->BeginRenderPassFunc(GDI_Get(), begin_info)
 #define GDI_Backend_End_Render_Pass(render_pass) GDI_Get()->Backend->EndRenderPassFunc(GDI_Get(), render_pass)
 
 #define GDI_Backend_Render(render_params) GDI_Get()->Backend->RenderFunc(GDI_Get(), render_params)
 
 #define GDI_Shutdown(flags) GDI_Get()->Backend->ShutdownFunc(GDI_Get(), flags)
+#define GDI_Backend_Flush() GDI_Get()->Backend->FlushFunc(GDI_Get())
 
 #define GDI_Get_Devices() GDI_Get()->Devices
 #define GDI_Constant_Buffer_Alignment() GDI_Get()->DeviceContext->ConstantBufferAlignment
+#define GDI_Get_Timestamp_Period() GDI_Get()->DeviceContext->TimestampPeriod
 #define GDI_Get_Swapchain_Dim(swapchain) GDI_Get_Swapchain_Info(swapchain).Dim
 
 /* Others */
@@ -779,6 +818,11 @@ export_function void GDI_Delete_Swapchain(gdi_swapchain Swapchain);
 export_function gdi_texture_view GDI_Get_Swapchain_View(gdi_swapchain Swapchain);
 export_function void GDI_Resize_Swapchain(gdi_swapchain Swapchain);
 export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_swapchain Swapchain);
+export_function gdi_query_pool GDI_Create_Query_Pool(const gdi_query_pool_create_info* CreateInfo);
+export_function void GDI_Delete_Query_Pool(gdi_query_pool QueryPool);
+export_function void GDI_Write_Timestamp(gdi_query_pool Pool, u32 Index);
+export_function b32 GDI_Get_Query_Results(gdi_query_pool Pool, u32 FirstQuery, u32 QueryCount, gdi_timestamp_result* Results);
+export_function void GDI_Flush(void);
 
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);

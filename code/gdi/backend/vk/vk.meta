@@ -114,6 +114,11 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkDestroyFence);
 	VK_FUNC(vkDestroyCommandPool);
 	VK_FUNC(vkDestroyDescriptorPool);
+	VK_FUNC(vkCreateQueryPool);
+	VK_FUNC(vkDestroyQueryPool);
+	VK_FUNC(vkCmdResetQueryPool);
+	VK_FUNC(vkCmdWriteTimestamp);
+	VK_FUNC(vkGetQueryPoolResults);
 });
 
 
@@ -243,6 +248,7 @@ META_STRUCT(vk_resource_pool) {
 	VK_Resource(bind_group);
 	VK_Resource(shader);
 	VK_Resource(swapchain);
+	VK_Resource(query_pool);
 }
 
 META_FUNCTION(VK_Resource_Pool_Init, vk_resource_pool* Pool, arena* Arena) -> void {

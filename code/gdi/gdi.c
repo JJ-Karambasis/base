@@ -224,6 +224,35 @@ export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_swapchain Swapchai
 	return Result;
 }
 
+export_function gdi_query_pool GDI_Create_Query_Pool(const gdi_query_pool_create_info* CreateInfo) {
+	Assert(CreateInfo->Count > 0);
+	return GDI_Backend_Create_Query_Pool(CreateInfo);
+}
+
+export_function void GDI_Delete_Query_Pool(gdi_query_pool QueryPool) {
+	if (!GDI_Is_Null(QueryPool)) {
+		GDI_Backend_Delete_Query_Pool(QueryPool);
+	}
+}
+
+export_function void GDI_Write_Timestamp(gdi_query_pool Pool, u32 Index) {
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
+	Pass->Type = GDI_PASS_TYPE_TIMESTAMP;
+	Pass->Timestamp.Pool = Pool;
+	Pass->Timestamp.Index = Index;
+	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
+}
+
+export_function b32 GDI_Get_Query_Results(gdi_query_pool Pool, u32 FirstQuery, u32 QueryCount, gdi_timestamp_result* Results) {
+	return GDI_Backend_Get_Query_Results(Pool, FirstQuery, QueryCount, Results);
+}
+
+
+export_function void GDI_Flush(void) {
+	GDI_Backend_Flush();
+}
+
 /* Frames */
 export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass) {
 	gdi_device_context* Context = GDI_Get_Device_Context();

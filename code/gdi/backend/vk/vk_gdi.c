@@ -801,6 +801,13 @@ function void VK_Delete_Swapchain_Resources(vk_device_context* Context, vk_swapc
 	}
 }
 
+function void VK_Delete_Query_Pool_Resources(vk_device_context* Context, vk_query_pool* QueryPool) {
+	if(QueryPool->QueryPool != VK_NULL_HANDLE) {
+		vkDestroyQueryPool(Context->Device, QueryPool->QueryPool, VK_Get_Allocator());
+		QueryPool->QueryPool = VK_NULL_HANDLE;
+	}
+}
+
 function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevice, VkSurfaceKHR Surface) {
 	VkPhysicalDeviceProperties DeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
@@ -1466,10 +1473,12 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	Context->ReadbackSignalSemaphore = OS_Semaphore_Create(0);
 	Context->ReadbackFinishedSemaphore = OS_Semaphore_Create((u32)Context->Frames.Count-1);
     
+	Context->Base.TimestampPeriod = (f64)TargetGPU->Properties.limits.timestampPeriod;
+
 	//Initialize the readback thread
 	Atomic_Store_B32(&Context->ReadbackIsInitialized, true);
 	Context->ReadbackThread = OS_Thread_Create(String_Lit("Vulkan Readback"), VK_Readback_Thread, Context);
-    
+
 	return Context;
 }
 
@@ -3325,6 +3334,8 @@ function vk_frame_context* VK_Begin_Next_Frame(vk_device_context* Context, u64* 
     
 	VK_CPU_Buffer_Clear(&NewFrame->ReadbackBuffer);
 	Arena_Clear(NewFrame->TempArena);
+	Memory_Clear(&NewFrame->TextureReadbacks, sizeof(vk_texture_readback_array));
+	Memory_Clear(&NewFrame->BufferReadbacks, sizeof(vk_buffer_readback_array));
     
 	VK_Update_Frame_Bind_Groups(Context, FrameIndex);
     
@@ -3730,6 +3741,14 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 					vkCmdEndRenderingKHR(FrameContext->CmdBuffer);
 					VK_Submit_Barriers(&PostPassBarriers);
 				} break;
+
+				case GDI_PASS_TYPE_TIMESTAMP: {
+					vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, Pass->Timestamp.Pool);
+					Assert(Pool);
+					Assert(Pass->Timestamp.Index < Pool->Count);
+					vkCmdResetQueryPool(FrameContext->CmdBuffer, Pool->QueryPool, Pass->Timestamp.Index, 1);
+					vkCmdWriteTimestamp(FrameContext->CmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, Pool->QueryPool, Pass->Timestamp.Index);
+				} break;
 			}
 		}
 	}
@@ -4006,6 +4025,79 @@ function GDI_BACKEND_SHUTDOWN_DEFINE(VK_Shutdown) {
 	}
 }
 
+function GDI_BACKEND_FLUSH_DEFINE(VK_Flush) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	vkDeviceWaitIdle(Context->Device);
+
+	u32 WaitCount = (u32)(Context->Frames.Count - 1);
+	for(u32 i = 0; i < WaitCount; i++) {
+		OS_Semaphore_Decrement(Context->ReadbackFinishedSemaphore);
+	}
+	for(u32 i = 0; i < WaitCount; i++) {
+		OS_Semaphore_Increment(Context->ReadbackFinishedSemaphore);
+	}
+}
+
+function GDI_BACKEND_CREATE_QUERY_POOL_DEFINE(VK_Create_Query_Pool) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+
+	VkQueryPoolCreateInfo CreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+		.queryType = VK_QUERY_TYPE_TIMESTAMP,
+		.queryCount = QueryPoolInfo->Count
+	};
+
+	VkQueryPool Handle;
+	VkResult Status = vkCreateQueryPool(Context->Device, &CreateInfo, VK_Get_Allocator(), &Handle);
+	if(Status != VK_SUCCESS) {
+		GDI_Log_Error("vkCreateQueryPool failed!");
+		return GDI_Null_Handle(gdi_query_pool);
+	}
+
+	VK_Set_Debug_Name(VK_OBJECT_TYPE_QUERY_POOL, "query pool", Handle, QueryPoolInfo->DebugName);
+
+	gdi_query_pool Result = VK_Query_Pool_Pool_Allocate(&Context->ResourcePool);
+	vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, Result);
+	Pool->QueryPool = Handle;
+	Pool->Count = QueryPoolInfo->Count;
+
+	return Result;
+}
+
+function GDI_BACKEND_DELETE_QUERY_POOL_DEFINE(VK_Delete_Query_Pool) {
+	VK_Query_Pool_Add_To_Delete_Queue((vk_device_context*)GDI->DeviceContext, QueryPoolHandle);
+}
+
+function GDI_BACKEND_GET_QUERY_RESULTS_DEFINE(VK_Get_Query_Results) {
+	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
+	vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, QueryPool);
+	if(!Pool) return false;
+
+	Assert(FirstQuery + QueryCount <= Pool->Count);
+
+	arena* Scratch = Scratch_Get();
+	u64* RawResults = Arena_Push_Array(Scratch, QueryCount * 2, u64);
+
+	VkResult Status = vkGetQueryPoolResults(
+		Context->Device, Pool->QueryPool,
+		FirstQuery, QueryCount,
+		QueryCount * 2 * sizeof(u64), RawResults,
+		2 * sizeof(u64),
+		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+	);
+
+	b32 Success = (Status == VK_SUCCESS || Status == VK_NOT_READY);
+	if(Success) {
+		for(u32 i = 0; i < QueryCount; i++) {
+			Results[i].Ticks     = RawResults[i * 2];
+			Results[i].Available = (b32)(RawResults[i * 2 + 1] != 0);
+		}
+	}
+
+	Scratch_Release();
+	return Success;
+}
+
 global gdi_backend_vtable VK_Backend_VTable = {
 	.SetDeviceContextFunc = VK_Set_Device_Context,
     
@@ -4046,7 +4138,12 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.EndRenderPassFunc = VK_End_Render_Pass,
     
 	.RenderFunc = VK_Render,
-	.ShutdownFunc = VK_Shutdown
+	.ShutdownFunc = VK_Shutdown,
+	.FlushFunc = VK_Flush,
+    
+	.CreateQueryPoolFunc = VK_Create_Query_Pool,
+	.DeleteQueryPoolFunc = VK_Delete_Query_Pool,
+	.GetQueryResultsFunc = VK_Get_Query_Results,
 };
 
 function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity, VkDebugUtilsMessageTypeFlagsEXT MessageTypes,

@@ -4,7 +4,7 @@ struct gdi_tests {
     IDxcUtils*          Utils;
     IDxcIncludeHandler* IncludeHandler;
 
-    gdi_handle BufferLayout;
+    gdi_layout BufferLayout;
 };
 
 struct vtx_p2_c4 {
@@ -19,8 +19,8 @@ struct vtx_p2_uv2_c4 {
 };
 
 struct texture {
-    gdi_handle Handle;
-    gdi_handle View;
+    gdi_texture      Handle;
+    gdi_texture_view View;
 };
 
 struct texture_create_info {
@@ -31,8 +31,8 @@ struct texture_create_info {
 };
 
 struct gpu_buffer {
-    gdi_handle Handle;
-    gdi_handle BindGroup;
+    gdi_buffer     Handle;
+    gdi_bind_group BindGroup;
 };
 
 struct gpu_buffer_create_info {
@@ -130,8 +130,8 @@ function void GDI_Delete_Tests() {
 }
 
 function b32 Texture_Create(texture* Texture, const texture_create_info& CreateInfo) {
-    gdi_handle Handle;
-    gdi_handle View;
+    gdi_texture Handle;
+    gdi_texture_view View;
 
     gdi_texture_create_info TextureInfo = {
         .Format = CreateInfo.Format,
@@ -166,7 +166,7 @@ function b32 GPU_Buffer_Create(gpu_buffer* Buffer, const gpu_buffer_create_info&
         .Usage = CreateInfo.Usage,
         .InitialData = CreateInfo.InitialData
     };
-    gdi_handle Handle = GDI_Create_Buffer(&BufferInfo);
+    gdi_buffer Handle = GDI_Create_Buffer(&BufferInfo);
     if(GDI_Is_Null(Handle)) return false;
 
     gdi_bind_group_buffer BindGroupBuffer = { .Buffer = Handle };
@@ -176,7 +176,7 @@ function b32 GPU_Buffer_Create(gpu_buffer* Buffer, const gpu_buffer_create_info&
 		.Writes = { .Ptr = &Write, .Count = 1 }
     };
 
-    gdi_handle BindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+    gdi_bind_group BindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
     if(GDI_Is_Null(BindGroup)) return false;
 
     Buffer->Handle = Handle;
@@ -248,7 +248,6 @@ struct simple_test_context {
     u8*        Texels;
     v2i        Dim;
     gdi_format Format;
-    os_event*  Event;
 };
 
 function GDI_TEXTURE_READBACK_DEFINE(Simple_Texture_Readback) {
@@ -256,14 +255,13 @@ function GDI_TEXTURE_READBACK_DEFINE(Simple_Texture_Readback) {
     Memory_Copy(SimpleTestContext->Texels, Texels, Dim.x*Dim.y*GDI_Get_Format_Size(Format));
     SimpleTestContext->Dim = Dim;
     SimpleTestContext->Format = Format;
-    OS_Event_Signal(SimpleTestContext->Event);
 }
 
 UTEST(gdi, SimpleTest) {
     scratch Scratch;
 
     //First build the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
     {
         const char* ShaderCode = R"(
 
@@ -327,16 +325,12 @@ UTEST(gdi, SimpleTest) {
         .Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK,
     }));
 
-    //Event to synchronize between the readback and test assertions
-    os_event* Event = OS_Event_Create();
-
     //Iterate, render, and test
     for(u32 i = 0; i < 10; i++) {
         gdi_texture_info TextureInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
 
         simple_test_context TestContext = {
             .Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x*TextureInfo.Dim.y*GDI_Get_Format_Size(TextureInfo.Format)),
-            .Event = Event
         };
         
         gdi_render_pass_begin_info BeginInfo = {
@@ -373,9 +367,7 @@ UTEST(gdi, SimpleTest) {
         };
 
         GDI_Render(&RenderParams);
-
-        OS_Event_Wait(TestContext.Event);
-        OS_Event_Reset(TestContext.Event);
+        GDI_Flush();
 
         ASSERT_EQ(TestContext.Format, TextureInfo.Format);
         ASSERT_EQ(TestContext.Dim.x, TextureInfo.Dim.x);
@@ -394,8 +386,6 @@ UTEST(gdi, SimpleTest) {
         }
     }
 
-    //Cleanup final resources
-    OS_Event_Delete(Event);
     Texture_Delete(&RenderTarget);
     GDI_Delete_Shader(Shader);
 }
@@ -404,7 +394,7 @@ UTEST(gdi, SimpleBindGroupTest) {
     scratch Scratch;
 
     //First create the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
     {
         gdi_tests* Tests = GDI_Get_Tests();
 
@@ -487,12 +477,9 @@ UTEST(gdi, SimpleBindGroupTest) {
         .InitialData = Make_Buffer(&Orthographic, sizeof(m4))
     }));
 
-    os_event* Event = OS_Event_Create();
-
     for(u32 i = 0; i < 10; i++) {
         simple_test_context TestContext = {
             .Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x*TextureInfo.Dim.y*GDI_Get_Format_Size(TextureInfo.Format)),
-            .Event = Event
         };
         
         gdi_render_pass_begin_info BeginInfo = {
@@ -524,9 +511,7 @@ UTEST(gdi, SimpleBindGroupTest) {
         };
 
         GDI_Render(&RenderParams);
-
-        OS_Event_Wait(TestContext.Event);
-        OS_Event_Reset(TestContext.Event);
+        GDI_Flush();
 
         ASSERT_EQ(TestContext.Format, TextureInfo.Format);
         ASSERT_EQ(TestContext.Dim.x, TextureInfo.Dim.x);
@@ -545,7 +530,6 @@ UTEST(gdi, SimpleBindGroupTest) {
         }
     }
 
-    OS_Event_Delete(Event);
     GPU_Buffer_Delete(&MatrixBuffer);
     Texture_Delete(&RenderTarget);
     GDI_Delete_Shader(Shader);
@@ -560,7 +544,7 @@ UTEST(gdi, BindlessTextureTest) {
     };
 
     //First create the layout
-    gdi_handle Layout;
+    gdi_layout Layout;
     {
         gdi_bind_group_binding Bindings[] = {
             { .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 64*5 },
@@ -576,7 +560,7 @@ UTEST(gdi, BindlessTextureTest) {
     }
 
     //Then create the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
     {
         gdi_tests* Tests = GDI_Get_Tests();
 
@@ -639,7 +623,7 @@ UTEST(gdi, BindlessTextureTest) {
             .Attributes = { .Ptr = Attributes, .Count = Array_Count(Attributes)}
         };
 
-        gdi_handle Layouts[] = {
+        gdi_layout Layouts[] = {
             Tests->BufferLayout, Layout
         };
 
@@ -681,9 +665,9 @@ UTEST(gdi, BindlessTextureTest) {
     }));
 
     //Setup the bindless texture bind group
-    gdi_handle BindlessTextureBindGroup;
+    gdi_bind_group BindlessTextureBindGroup;
     texture BindlessTextures[64];
-    gdi_handle BindlessSamplers[1];
+    gdi_sampler BindlessSamplers[1];
     u32 BindlessColors[64];
     u32 BindlessTextureIndices[64];
 
@@ -749,12 +733,9 @@ UTEST(gdi, BindlessTextureTest) {
     }
     
     //Iterate, render, and test
-    os_event* Event = OS_Event_Create();
-
     for(size_t iteration = 0; iteration < 10; iteration++) {
         simple_test_context TestContext = {
             .Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x*TextureInfo.Dim.y*GDI_Get_Format_Size(GDI_FORMAT_R8G8B8A8_UNORM)),
-            .Event = Event
         };
 
         gdi_render_pass_begin_info BeginInfo = {
@@ -765,7 +746,7 @@ UTEST(gdi, BindlessTextureTest) {
 
         Render_Set_Shader(RenderPass, Shader);
         
-        gdi_handle BindGroups[] = { MatrixBuffer.BindGroup, BindlessTextureBindGroup};
+        gdi_bind_group BindGroups[] = { MatrixBuffer.BindGroup, BindlessTextureBindGroup};
         Render_Set_Bind_Groups(RenderPass, 0, BindGroups, Array_Count(BindGroups));
 
         v2i P = V2i(0, -8);
@@ -803,9 +784,7 @@ UTEST(gdi, BindlessTextureTest) {
         };
 
         GDI_Render(&RenderParams);
-
-        OS_Event_Wait(TestContext.Event);
-        OS_Event_Reset(TestContext.Event);
+        GDI_Flush();
 
         ASSERT_EQ(TestContext.Format, TextureInfo.Format);
         ASSERT_EQ(TestContext.Dim.x, TextureInfo.Dim.x);
@@ -846,8 +825,6 @@ UTEST(gdi, BindlessTextureTest) {
             }
         }
     }
-
-    OS_Event_Delete(Event);
 
     GDI_Delete_Bind_Group(BindlessTextureBindGroup);
 
@@ -925,7 +902,7 @@ UTEST(gdi, SimpleComputeTest) {
     scratch Scratch;
 
     //First create the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
     {
         const char* ShaderCode = R"(
 		struct const_data {
@@ -981,12 +958,9 @@ UTEST(gdi, SimpleComputeTest) {
 
     gdi_texture_info TextureInfo = GDI_Get_Texture_Info(Texture.Handle);
 
-    os_event* Event = OS_Event_Create();
-
     for(u32 i = 0; i < 10; i++) {
         simple_test_context TestContext = {
             .Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x*TextureInfo.Dim.y*GDI_Get_Format_Size(TextureInfo.Format)),
-            .Event = Event
         };
 
         v2i Min = (TextureInfo.Dim/2)-4;
@@ -1015,9 +989,7 @@ UTEST(gdi, SimpleComputeTest) {
         };
 
         GDI_Render(&RenderParams);
-
-        OS_Event_Wait(TestContext.Event);
-        OS_Event_Reset(TestContext.Event);
+        GDI_Flush();
 
         ASSERT_EQ(TestContext.Format, TextureInfo.Format);
         ASSERT_EQ(TestContext.Dim.x, TextureInfo.Dim.x);
@@ -1036,7 +1008,6 @@ UTEST(gdi, SimpleComputeTest) {
         }
     }
 
-    OS_Event_Delete(Event);
     Texture_Delete(&Texture);
     GDI_Delete_Shader(Shader);
 }
@@ -1080,8 +1051,8 @@ UTEST(gdi, ComputeRenderTest) {
     
 
     //Then create the layouts
-    gdi_handle ComputeLayout;
-    gdi_handle RenderLayout;
+    gdi_layout ComputeLayout;
+    gdi_layout RenderLayout;
     {
         {
             gdi_bind_group_binding Bindings[] = {
@@ -1111,8 +1082,8 @@ UTEST(gdi, ComputeRenderTest) {
     }
 
     //Build the shaders
-    gdi_handle ComputeShader;
-    gdi_handle RenderShader;
+    gdi_shader ComputeShader;
+    gdi_shader RenderShader;
     {        
 		{
 			const char* ShaderCode = G_BoxRectShader;
@@ -1178,8 +1149,8 @@ UTEST(gdi, ComputeRenderTest) {
     }
 
     //Build the bindless buffer and bind group
-    gdi_handle BindlessBuffer;
-    gdi_handle BindlessBindGroup;
+    gdi_buffer BindlessBuffer;
+    gdi_bind_group BindlessBindGroup;
     {
         gdi_buffer_create_info BufferInfo = {
             .Size = sizeof(BoxData),
@@ -1216,8 +1187,8 @@ UTEST(gdi, ComputeRenderTest) {
         .Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK|GDI_TEXTURE_USAGE_SAMPLED
     }));
 
-    gdi_handle TextureBindGroup;
-    gdi_handle TextureBindGroupSwitch;
+    gdi_bind_group TextureBindGroup;
+    gdi_bind_group TextureBindGroupSwitch;
     {
 		gdi_bind_group_write Writes = { .TextureViews = { .Ptr = &ComputeTexture.View, .Count = 1 } };
         gdi_bind_group_create_info BindGroupInfo = {
@@ -1284,11 +1255,8 @@ UTEST(gdi, ComputeRenderTest) {
         GDI_Submit_Render_Pass(RenderPass);
     }
 
-    os_event* Event = OS_Event_Create();
-
     simple_test_context TestContext = {
         .Texels = (u8*)Arena_Push(Scratch.Arena, ComputeTextureInfo.Dim.x*ComputeTextureInfo.Dim.y*GDI_Get_Format_Size(GDI_FORMAT_R8G8B8A8_UNORM)),
-        .Event = Event
     };
 
     gdi_texture_readback TextureReadback = {
@@ -1302,10 +1270,7 @@ UTEST(gdi, ComputeRenderTest) {
     };
 
     GDI_Render(&RenderParams);
-
-    OS_Event_Wait(TestContext.Event);
-    OS_Event_Reset(TestContext.Event);
-	OS_Event_Delete(TestContext.Event);
+    GDI_Flush();
 
     ASSERT_EQ(TestContext.Format, ComputeTextureInfo.Format);
     ASSERT_EQ(TestContext.Dim.x, ComputeTextureInfo.Dim.x);
@@ -1360,11 +1325,6 @@ UTEST(gdi, ComputeRenderTest) {
 struct simple_dynamic_buffer_test_context {
 	box_data* BoxData;
 	size_t    BoxCount;
-
-	size_t FrameIndex;
-	size_t FrameCount;
-
-	os_event* Event;
 };
 
 function GDI_TEXTURE_READBACK_DEFINE(Simple_Dynamic_Buffer_Readback) {
@@ -1403,10 +1363,6 @@ function GDI_TEXTURE_READBACK_DEFINE(Simple_Dynamic_Buffer_Readback) {
             }
         }
     }
-
-	if (Context->FrameIndex == (Context->FrameCount-1)) {
-		OS_Event_Signal(Context->Event);
-	}
 }
 
 UTEST(gdi, DynamicBufferTest) {
@@ -1417,7 +1373,7 @@ UTEST(gdi, DynamicBufferTest) {
 	scratch Scratch;
 
 	//First create the layout
-	gdi_handle Layout;
+	gdi_layout Layout;
 	{
 		gdi_bind_group_binding Bindings[] = {
 			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1}
@@ -1432,7 +1388,7 @@ UTEST(gdi, DynamicBufferTest) {
 	}
 
     //Then create the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
 	{
 		const char* ShaderCode = G_BoxRectShader;
 
@@ -1470,8 +1426,8 @@ UTEST(gdi, DynamicBufferTest) {
 
 	//Build the bindless buffer and bind group
 	u32 BoxDataCount = 64;
-    gdi_handle BindlessBuffer;
-    gdi_handle BindlessBindGroup;
+    gdi_buffer BindlessBuffer;
+    gdi_bind_group BindlessBindGroup;
     {
         gdi_buffer_create_info BufferInfo = {
             .Size = BoxDataCount*sizeof(box_data),
@@ -1493,7 +1449,6 @@ UTEST(gdi, DynamicBufferTest) {
     }
 
 	size_t FrameCount = 10;
-	os_event* Event = OS_Event_Create();
 
 	for (size_t i = 0; i < FrameCount; i++) {
 
@@ -1538,9 +1493,6 @@ UTEST(gdi, DynamicBufferTest) {
 		simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
 		TestContext->BoxData = BoxData;
 		TestContext->BoxCount = BoxDataCount;
-		TestContext->FrameIndex = i;
-		TestContext->FrameCount = FrameCount;
-		TestContext->Event = Event;
 
 		gdi_texture_readback TextureReadback = {
 			.Texture = Texture.Handle,
@@ -1555,8 +1507,7 @@ UTEST(gdi, DynamicBufferTest) {
 		GDI_Render(&RenderParams);
 	}
 
-	OS_Event_Wait(Event);
-	OS_Event_Delete(Event);
+	GDI_Flush();
 
 	GDI_Delete_Buffer(BindlessBuffer);
 	GDI_Delete_Bind_Group(BindlessBindGroup);
@@ -1573,7 +1524,7 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 	scratch Scratch;
 
 	//First create the layout
-	gdi_handle Layout;
+	gdi_layout Layout;
 	{
 		gdi_bind_group_binding Bindings[] = {
 			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1}
@@ -1588,7 +1539,7 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 	}
 
     //Then create the shader
-    gdi_handle Shader;
+    gdi_shader Shader;
 	{
 		const char* ShaderCode = G_BoxRectShader;
 
@@ -1632,9 +1583,9 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 	u32    BoxDataCount = 64;
 	size_t BufferSize = BoxDataCount * sizeof(box_data);
 
-	gdi_handle Buffer;
-	gdi_handle BufferBindGroup[BufferCount];
-	gdi_handle ShaderBindGroup;
+	gdi_buffer Buffer;
+	gdi_bind_group BufferBindGroup[BufferCount];
+	gdi_bind_group ShaderBindGroup;
 	{
 		gdi_buffer_create_info BufferInfo = {
 			.Size = BufferSize*BufferCount,
@@ -1667,8 +1618,6 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 		ShaderBindGroup = GDI_Create_Bind_Group(&ShaderGroupInfo);
 		ASSERT_FALSE(GDI_Is_Null(ShaderBindGroup));
 	}
-
-	os_event* Event = OS_Event_Create();
 
 	//First check writes
 	for (size_t i = 0; i < FrameCount; i++) {
@@ -1728,9 +1677,6 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 				simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
 				TestContext->BoxData = BoxData;
 				TestContext->BoxCount = BoxDataCount;
-				TestContext->FrameIndex = j*BufferCount+k;
-				TestContext->FrameCount = BufferCount*BufferIterations;
-				TestContext->Event = Event;
 
 				gdi_texture_readback TextureReadback = {
 					.Texture = Texture.Handle,
@@ -1746,8 +1692,7 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 			}
 		}
 		
-		OS_Event_Wait(Event);
-		OS_Event_Reset(Event);
+		GDI_Flush();
 	}
 
 	//Then check copies
@@ -1803,9 +1748,6 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 				simple_dynamic_buffer_test_context* TestContext = Arena_Push_Struct(Scratch.Arena, simple_dynamic_buffer_test_context);
 				TestContext->BoxData = BoxData;
 				TestContext->BoxCount = BoxDataCount;
-				TestContext->FrameIndex = j*BufferCount+k;
-				TestContext->FrameCount = BufferCount*BufferIterations;
-				TestContext->Event = Event;
 
 				gdi_texture_readback TextureReadback = {
 					.Texture = Texture.Handle,
@@ -1821,11 +1763,8 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 			}
 		}
 		
-		OS_Event_Wait(Event);
-		OS_Event_Reset(Event);
+		GDI_Flush();
 	}
-
-	OS_Event_Delete(Event);
 
 	for (size_t i = 0; i < Array_Count(BufferBindGroup); i++) {
 		GDI_Delete_Bind_Group(BufferBindGroup[i]);
@@ -1835,4 +1774,189 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 	Texture_Delete(&Texture);
 	GDI_Delete_Shader(Shader);
 	GDI_Delete_Bind_Group_Layout(Layout);
+}
+
+UTEST(gdi, AsyncComputeOverlapTest) {
+	scratch Scratch;
+
+	enum {
+		QUERY_COMPUTE_BEGIN = 0,
+		QUERY_COMPUTE_END   = 1,
+		QUERY_RENDER_BEGIN  = 2,
+		QUERY_RENDER_END    = 3,
+		QUERY_COUNT         = 4
+	};
+
+	gdi_query_pool_create_info QueryPoolInfo = {
+		.Count = QUERY_COUNT,
+		.DebugName = String_Lit("Async Overlap Query Pool")
+	};
+	gdi_query_pool QueryPool = GDI_Create_Query_Pool(&QueryPoolInfo);
+	ASSERT_FALSE(GDI_Is_Null(QueryPool));
+
+	//
+	// Heavy compute shader: tight loop per thread to burn GPU time
+	//
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			float4 Accum = float4(0, 0, 0, 0);
+			for (int i = 0; i < 100000; i++) {
+				Accum += float4(sin((float)i * 0.001f), cos((float)i * 0.001f), 0, 0);
+			}
+			Output[ThreadID.xy] = Accum * 0.00001f;
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+
+		gdi_bind_group_binding Binding = {
+			.Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
+			.Count = 1
+		};
+
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Heavy Compute Shader")
+		};
+
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	//
+	// Heavy render shader: fullscreen quad with expensive fragment shader
+	//
+	gdi_shader RenderShader;
+	{
+		const char* ShaderCode = R"(
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			float4 Accum = float4(0, 0, 0, 0);
+			for (int i = 0; i < 100000; i++) {
+				Accum += float4(sin((float)i * 0.001f), cos((float)i * 0.001f), 0, 0);
+			}
+			return Accum * 0.00001f;
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Heavy Render Shader")
+		};
+
+		RenderShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	// Compute output texture (storage)
+	texture ComputeTexture;
+	ASSERT_TRUE(Texture_Create(&ComputeTexture, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE
+	}));
+
+	// Render target
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET
+	}));
+
+	gdi_texture_info ComputeTextureInfo = GDI_Get_Texture_Info(ComputeTexture.Handle);
+
+	//
+	// Submit: timestamp -> compute -> timestamp -> timestamp -> render -> timestamp -> execute
+	//
+	GDI_Write_Timestamp(QueryPool, QUERY_COMPUTE_BEGIN);
+
+	{
+		gdi_dispatch Dispatch = {
+			.Shader = ComputeShader,
+			.ThreadGroupCount = V3i(ComputeTextureInfo.Dim.x / 8, ComputeTextureInfo.Dim.y / 8, 1)
+		};
+		GDI_Submit_Compute_Pass({ .Ptr = &ComputeTexture.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+	}
+
+	GDI_Write_Timestamp(QueryPool, QUERY_COMPUTE_END);
+	GDI_Write_Timestamp(QueryPool, QUERY_RENDER_BEGIN);
+
+	{
+		gdi_render_pass_begin_info BeginInfo = {
+			.RenderTargetViews = { RenderTarget.View },
+			.ClearColors = { { .ShouldClear = true, .F32 = { 0, 0, 0, 1 } } }
+		};
+
+		gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RenderPass, RenderShader);
+		Render_Draw(RenderPass, 3, 0);
+		GDI_End_Render_Pass(RenderPass);
+		GDI_Submit_Render_Pass(RenderPass);
+	}
+
+	GDI_Write_Timestamp(QueryPool, QUERY_RENDER_END);
+
+	gdi_render_params RenderParams = {};
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	//
+	// Read timestamps and validate overlap
+	//
+	gdi_timestamp_result Results[QUERY_COUNT];
+	b32 GotResults = GDI_Get_Query_Results(QueryPool, 0, QUERY_COUNT, Results);
+	ASSERT_TRUE(GotResults);
+
+	for (u32 i = 0; i < QUERY_COUNT; i++) {
+		ASSERT_TRUE(Results[i].Available);
+	}
+
+	f64 Period = GDI_Get_Timestamp_Period();
+	ASSERT_GT(Period, 0.0);
+
+	f64 ComputeMs = (f64)(Results[QUERY_COMPUTE_END].Ticks - Results[QUERY_COMPUTE_BEGIN].Ticks) * Period / 1000000.0;
+	f64 RenderMs  = (f64)(Results[QUERY_RENDER_END].Ticks - Results[QUERY_RENDER_BEGIN].Ticks) * Period / 1000000.0;
+
+	// Both workloads must be heavy enough to measure (> 0.1ms)
+	ASSERT_GT(ComputeMs, 0.1);
+	ASSERT_GT(RenderMs, 0.1);
+
+	// Overlap check: compute and render time ranges must overlap.
+	// On a single queue (no async compute), these will be serial:
+	//   COMPUTE_BEGIN < COMPUTE_END <= RENDER_BEGIN < RENDER_END
+	// With async compute, they overlap:
+	//   COMPUTE_BEGIN < RENDER_END AND RENDER_BEGIN < COMPUTE_END
+	b32 HasOverlap = Results[QUERY_COMPUTE_END].Ticks > Results[QUERY_RENDER_BEGIN].Ticks &&
+					 Results[QUERY_COMPUTE_BEGIN].Ticks < Results[QUERY_RENDER_END].Ticks;
+
+	ASSERT_TRUE(HasOverlap);
+
+	// Cleanup
+	Texture_Delete(&RenderTarget);
+	Texture_Delete(&ComputeTexture);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Query_Pool(QueryPool);
 }
