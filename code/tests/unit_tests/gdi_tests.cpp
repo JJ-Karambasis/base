@@ -1777,7 +1777,8 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 }
 
 UTEST(gdi, AsyncComputeOverlapTest) {
-    if(!GDI_Is_Async_Compute_Supported()) return;
+	// Overlap uses timestamps on both graphics and async compute; only valid when Vulkan reports one time domain.
+	if(!GDI_Is_Async_Compute_Supported() || !GDI_Are_Graphics_And_Compute_Timestamps_Comparable()) return;
 
 	scratch Scratch;
 
@@ -1892,7 +1893,7 @@ UTEST(gdi, AsyncComputeOverlapTest) {
 	//
 	// Submit: timestamp -> compute -> timestamp -> timestamp -> render -> timestamp -> execute
 	//
-	GDI_Write_Timestamp(QueryPool, QUERY_COMPUTE_BEGIN);
+	GDI_Write_Timestamp_Async(QueryPool, QUERY_COMPUTE_BEGIN);
 
 	{
 		gdi_dispatch Dispatch = {
@@ -1902,7 +1903,7 @@ UTEST(gdi, AsyncComputeOverlapTest) {
 		GDI_Submit_Async_Compute_Pass({ .Ptr = &ComputeTexture.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
 	}
 
-	GDI_Write_Timestamp(QueryPool, QUERY_COMPUTE_END);
+	GDI_Write_Timestamp_Async(QueryPool, QUERY_COMPUTE_END);
 	GDI_Write_Timestamp(QueryPool, QUERY_RENDER_BEGIN);
 
 	{
@@ -2240,6 +2241,8 @@ UTEST(gdi, GraphicsToAsyncComputeWaitTest) {
 	};
 	gdi_signal ComputeSignal = GDI_Submit_Async_Compute_Pass(
 		{ .Ptr = &ComputeOutput.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+
+	GDI_Wait_Signal(ComputeSignal);
 
 	simple_test_context TestContext = {
 		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
@@ -3148,6 +3151,8 @@ UTEST(gdi, AsyncComputeBufferOwnershipTest) {
 		{ .Ptr = &OutputTexture.View, .Count = 1 }, { .Ptr = &Buffer, .Count = 1 },
 		{ .Ptr = &Dispatch, .Count = 1 });
 
+	GDI_Wait_Signal(Signal);
+
 	gdi_texture_info TexInfo = GDI_Get_Texture_Info(OutputTexture.Handle);
 	simple_test_context TestContext = {
 		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
@@ -3215,7 +3220,7 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 	v2i TexDim = V2i(64, 64);
 	v3i TGC = V3i(TexDim.x/8, TexDim.y/8, 1);
 
-	// --- Shaders ---
+	// --- Shaders (heavy sin/cos loops by default; waste is folded into alpha only so RGB matches CPU) ---
 
 	gdi_shader RedShader;
 	{
@@ -3227,7 +3232,12 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		ConstantBuffer<push_data> PushData : register(b0, space1);
 		[numthreads(8, 8, 1)]
 		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
-			Output[ThreadID.xy] = float4(PushData.Intensity, 0, 0, 1);
+			float Waste = 0;
+			for (int i = 0; i < 100000; i++) {
+				Waste += sin((float)i * 0.001f) + cos((float)i * 0.001f);
+			}
+			// Burn time only: do not add Waste to RGB or tests drift (float4 sin/cos pollutes G/B).
+			Output[ThreadID.xy] = float4(PushData.Intensity, 0, 0, 1 + Waste * 1e-15f);
 		}
 		)";
 		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
@@ -3254,7 +3264,11 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		ConstantBuffer<push_data> PushData : register(b0, space1);
 		[numthreads(8, 8, 1)]
 		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
-			Output[ThreadID.xy] = float4(0, 0, PushData.Intensity, 1);
+			float Waste = 0;
+			for (int i = 0; i < 100000; i++) {
+				Waste += sin((float)i * 0.001f) + cos((float)i * 0.001f);
+			}
+			Output[ThreadID.xy] = float4(0, 0, PushData.Intensity, 1 + Waste * 1e-15f);
 		}
 		)";
 		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
@@ -3287,7 +3301,12 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		RWTexture2D<float4> Output : register(u0, space0);
 		[numthreads(8, 8, 1)]
 		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
-			Output[ThreadID.xy] = InputTexture.Load(int3(ThreadID.xy, 0));
+			float4 Load = InputTexture.Load(int3(ThreadID.xy, 0));
+			float Waste = 0;
+			for (int i = 0; i < 100000; i++) {
+				Waste += sin((float)i * 0.001f) + cos((float)i * 0.001f);
+			}
+			Output[ThreadID.xy] = float4(Load.rgb, Load.a + Waste * 1e-15f);
 		}
 		)";
 		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
@@ -3314,7 +3333,11 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
 		}
 		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
-			return float4(0, PushData.Intensity, 0, 1);
+			float Waste = 0;
+			for (int i = 0; i < 100000; i++) {
+				Waste += sin((float)i * 0.001f) + cos((float)i * 0.001f);
+			}
+			return float4(0, PushData.Intensity, 0, 1 + Waste * 1e-15f);
 		}
 		)";
 		IDxcBlob* VBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
@@ -3358,7 +3381,11 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 			float R = RedTex.Load(Coord).r;
 			float G = GreenTex.Load(Coord).g;
 			float B = BlueTex.Load(Coord).b;
-			return float4(R, G, B, 1);
+			float Waste = 0;
+			for (int i = 0; i < 100000; i++) {
+				Waste += sin((float)i * 0.001f) + cos((float)i * 0.001f);
+			}
+			return float4(R, G, B, 1 + Waste * 1e-15f);
 		}
 		)";
 		IDxcBlob* VBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
@@ -3421,45 +3448,15 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		ASSERT_FALSE(GDI_Is_Null(CompositeBindGroup));
 	}
 
-	// --- Overlap timing (only verified when async compute is supported) ---
-
-	enum {
-		QUERY_ASYNC_BEGIN  = 0,
-		QUERY_ASYNC_END    = 1,
-		QUERY_RENDER_BEGIN = 2,
-		QUERY_RENDER_END   = 3,
-		QUERY_SLOT_COUNT   = 4
-	};
-
-	gdi_query_pool QueryPool = {};
-	if(GDI_Is_Async_Compute_Supported()) {
-		gdi_query_pool_create_info QPI = {
-			.Count = QUERY_SLOT_COUNT,
-			.DebugName = String_Lit("Stress Overlap Query Pool")
-		};
-		QueryPool = GDI_Create_Query_Pool(&QPI);
-		ASSERT_FALSE(GDI_Is_Null(QueryPool));
-	}
-
-	u32 OverlapCount = 0;
-
-	// --- Frame loop ---
-
 	static const u32 FrameCount = 10;
+
+	// --- Frame loop: pixel correctness (readback). No overlap queries — see AsyncComputeMultiStepOverlapStressTest. ---
+
 	for(u32 Frame = 0; Frame < FrameCount; Frame++) {
 		f32 T = (f32)Frame / (f32)(FrameCount - 1);
 		f32 RedIntensity   = T;
 		f32 BlueIntensity  = 1.0f - T;
 		f32 GreenIntensity = 0.5f + 0.5f * T;
-
-		//
-		// 1) Two async computes fire in parallel: Red and Blue
-		//    These have no dependencies and should overlap with each other
-		//    AND with the green render pass below.
-		//
-		if(GDI_Is_Async_Compute_Supported()) {
-			GDI_Write_Timestamp(QueryPool, QUERY_ASYNC_BEGIN);
-		}
 
 		gdi_dispatch RedDispatch = { .Shader = RedShader, .PushConstantCount = 1, .ThreadGroupCount = TGC };
 		Memory_Copy(RedDispatch.PushConstants, &RedIntensity, sizeof(f32));
@@ -3470,17 +3467,6 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		Memory_Copy(BlueDispatch.PushConstants, &BlueIntensity, sizeof(f32));
 		gdi_signal BlueSignal = GDI_Submit_Async_Compute_Pass(
 			{ .Ptr = &TexBlue.View, .Count = 1 }, {}, { .Ptr = &BlueDispatch, .Count = 1 });
-
-		if(GDI_Is_Async_Compute_Supported()) {
-			GDI_Write_Timestamp(QueryPool, QUERY_ASYNC_END);
-		}
-
-		//
-		// 2) Graphics: render green to GreenRT (runs in parallel with Red/Blue async)
-		//
-		if(GDI_Is_Async_Compute_Supported()) {
-			GDI_Write_Timestamp(QueryPool, QUERY_RENDER_BEGIN);
-		}
 
 		gdi_signal GreenSignal;
 		{
@@ -3496,14 +3482,6 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 			GreenSignal = GDI_Submit_Render_Pass(RP);
 		}
 
-		if(GDI_Is_Async_Compute_Supported()) {
-			GDI_Write_Timestamp(QueryPool, QUERY_RENDER_END);
-		}
-
-		//
-		// 3) Async compute copies GreenRT -> TexGreen.
-		//    Must wait on the green render pass first (graphics -> compute dependency).
-		//
 		GDI_Wait_Signal(GreenSignal);
 
 		gdi_dispatch CopyDispatch = {
@@ -3514,10 +3492,6 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 		gdi_signal CopySignal = GDI_Submit_Async_Compute_Pass(
 			{ .Ptr = &TexGreen.View, .Count = 1 }, {}, { .Ptr = &CopyDispatch, .Count = 1 });
 
-		//
-		// 4) Composite render: reads TexRed, TexBlue, TexGreen -> FinalTarget.
-		//    Must wait on ALL three producers: Red, Blue, and Copy.
-		//
 		GDI_Wait_Signal(RedSignal);
 		GDI_Wait_Signal(BlueSignal);
 		GDI_Wait_Signal(CopySignal);
@@ -3532,9 +3506,6 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 			GDI_Submit_Render_Pass(RP);
 		}
 
-		//
-		// 5) Readback and validate
-		//
 		gdi_texture_info TexInfo = GDI_Get_Texture_Info(FinalTarget.Handle);
 		simple_test_context TestContext = {
 			.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
@@ -3569,36 +3540,9 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 				Texels++;
 			}
 		}
-
-		//
-		// 6) Check overlap when async compute is supported
-		//
-		if(GDI_Is_Async_Compute_Supported()) {
-			gdi_timestamp_result Results[QUERY_SLOT_COUNT];
-			if(GDI_Get_Query_Results(QueryPool, 0, QUERY_SLOT_COUNT, Results)) {
-				b32 AllAvailable = true;
-				for(u32 i = 0; i < QUERY_SLOT_COUNT; i++) {
-					AllAvailable = AllAvailable && Results[i].Available;
-				}
-
-				if(AllAvailable) {
-					b32 HasOverlap =
-						Results[QUERY_ASYNC_END].Ticks > Results[QUERY_RENDER_BEGIN].Ticks &&
-						Results[QUERY_ASYNC_BEGIN].Ticks < Results[QUERY_RENDER_END].Ticks;
-
-					if(HasOverlap) OverlapCount++;
-				}
-			}
-		}
-	}
-
-	// When async compute is supported, at least some frames should show overlap
-	if(GDI_Is_Async_Compute_Supported()) {
-		ASSERT_GT(OverlapCount, (u32)0);
 	}
 
 	// Cleanup
-	if(!GDI_Is_Null(QueryPool)) GDI_Delete_Query_Pool(QueryPool);
 	GDI_Delete_Bind_Group(CompositeBindGroup);
 	GDI_Delete_Bind_Group(CopyBindGroup);
 	Texture_Delete(&FinalTarget);
@@ -3613,4 +3557,408 @@ UTEST(gdi, AsyncComputeMultiFrameStressTest) {
 	GDI_Delete_Shader(RedShader);
 	GDI_Delete_Bind_Group_Layout(CompositeLayout);
 	GDI_Delete_Bind_Group_Layout(CopyLayout);
+}
+
+// Stress: many back-to-back (async compute -> graphics) steps with no waits in between.
+// Each step must be its own GDI_Render: one VK_Render batches *all* async work into one compute submit and
+// all graphics into one graphics submit (vk_gdi.c), so per-step timestamps from a single render never
+// interleave on the GPU — overlap only matches AsyncComputeOverlapTest when each step is submitted separately.
+UTEST(gdi, AsyncComputeMultiStepOverlapStressTest) {
+	if(!GDI_Is_Async_Compute_Supported() || !GDI_Are_Graphics_And_Compute_Timestamps_Comparable()) return;
+
+	scratch Scratch;
+
+	static const u32 StepCount = 8;
+	enum {
+		Q_COMPUTE_BEGIN = 0,
+		Q_COMPUTE_END   = 1,
+		Q_RENDER_BEGIN  = 2,
+		Q_RENDER_END    = 3,
+		Q_PER_STEP      = 4
+	};
+
+	gdi_query_pool_create_info QueryPoolInfo = {
+		.Count = StepCount * Q_PER_STEP,
+		.DebugName = String_Lit("Multi-step Async Overlap Query Pool")
+	};
+	gdi_query_pool QueryPool = GDI_Create_Query_Pool(&QueryPoolInfo);
+	ASSERT_FALSE(GDI_Is_Null(QueryPool));
+
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			float4 Accum = float4(0, 0, 0, 0);
+			for (int i = 0; i < 100000; i++) {
+				Accum += float4(sin((float)i * 0.001f), cos((float)i * 0.001f), 0, 0);
+			}
+			Output[ThreadID.xy] = Accum * 0.00001f;
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+
+		gdi_bind_group_binding Binding = {
+			.Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE,
+			.Count = 1
+		};
+
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Multi-step Heavy Compute Shader")
+		};
+
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	gdi_shader RenderShader;
+	{
+		const char* ShaderCode = R"(
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			float4 Accum = float4(0, 0, 0, 0);
+			for (int i = 0; i < 100000; i++) {
+				Accum += float4(sin((float)i * 0.001f), cos((float)i * 0.001f), 0, 0);
+			}
+			return Accum * 0.00001f;
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Multi-step Heavy Render Shader")
+		};
+
+		RenderShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	v2i Dim = V2i(64, 64);
+	v3i TGC = V3i(Dim.x / 8, Dim.y / 8, 1);
+
+	texture ComputeTex[2];
+	texture RenderTex[2];
+	for(u32 i = 0; i < 2; i++) {
+		ASSERT_TRUE(Texture_Create(&ComputeTex[i], {
+			.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+			.Dim = Dim,
+			.Usage = GDI_TEXTURE_USAGE_STORAGE
+		}));
+		ASSERT_TRUE(Texture_Create(&RenderTex[i], {
+			.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+			.Dim = Dim,
+			.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET
+		}));
+	}
+
+	f64 Period = GDI_Get_Timestamp_Period();
+	ASSERT_GT(Period, 0.0);
+
+	for(u32 Step = 0; Step < StepCount; Step++) {
+		u32 Base = Step * Q_PER_STEP;
+		u32 Ping = Step & 1u;
+
+		GDI_Write_Timestamp_Async(QueryPool, Base + Q_COMPUTE_BEGIN);
+
+		{
+			gdi_dispatch Dispatch = {
+				.Shader = ComputeShader,
+				.ThreadGroupCount = TGC
+			};
+			GDI_Submit_Async_Compute_Pass(
+				{ .Ptr = &ComputeTex[Ping].View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+		}
+
+		GDI_Write_Timestamp_Async(QueryPool, Base + Q_COMPUTE_END);
+		GDI_Write_Timestamp(QueryPool, Base + Q_RENDER_BEGIN);
+
+		{
+			gdi_render_pass_begin_info BeginInfo = {
+				.RenderTargetViews = { RenderTex[Ping].View },
+				.ClearColors = { { .ShouldClear = true, .F32 = { 0, 0, 0, 1 } } }
+			};
+
+			gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RenderPass, RenderShader);
+			Render_Draw(RenderPass, 3, 0);
+			GDI_End_Render_Pass(RenderPass);
+			GDI_Submit_Render_Pass(RenderPass);
+		}
+
+		GDI_Write_Timestamp(QueryPool, Base + Q_RENDER_END);
+
+		gdi_render_params EmptyRender = {};
+		GDI_Render(&EmptyRender);
+		GDI_Flush();
+
+		gdi_timestamp_result StepResults[Q_PER_STEP];
+		b32 Got = GDI_Get_Query_Results(QueryPool, Base, Q_PER_STEP, StepResults);
+		ASSERT_TRUE(Got);
+
+		for(u32 i = 0; i < Q_PER_STEP; i++) {
+			ASSERT_TRUE(StepResults[i].Available);
+		}
+
+		if(Step == 0) {
+			f64 ComputeMs = (f64)(StepResults[Q_COMPUTE_END].Ticks - StepResults[Q_COMPUTE_BEGIN].Ticks) * Period / 1000000.0;
+			f64 RenderMs  = (f64)(StepResults[Q_RENDER_END].Ticks - StepResults[Q_RENDER_BEGIN].Ticks) * Period / 1000000.0;
+			ASSERT_GT(ComputeMs, 0.1);
+			ASSERT_GT(RenderMs, 0.1);
+		}
+
+		b32 HasOverlap =
+			StepResults[Q_COMPUTE_END].Ticks > StepResults[Q_RENDER_BEGIN].Ticks &&
+			StepResults[Q_COMPUTE_BEGIN].Ticks < StepResults[Q_RENDER_END].Ticks;
+
+		ASSERT_TRUE(HasOverlap);
+	}
+
+	for(u32 i = 0; i < 2; i++) {
+		Texture_Delete(&RenderTex[i]);
+		Texture_Delete(&ComputeTex[i]);
+	}
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Query_Pool(QueryPool);
+}
+
+// CPU upload -> compute copy -> fullscreen draw -> readback. Always run: GDI_Submit_Async_Compute_Pass falls
+// back to graphics-queue compute when async is unavailable, and GDI_Wait_Signal is a no-op there; transfer
+// uses the graphics queue when there is no dedicated transfer queue. With dedicated queues, this also
+// exercises transfer timeline -> compute and async compute vs graphics (vk_gdi.c).
+UTEST(gdi, DedicatedTransferQueueAsyncComputeGraphicsTest) {
+	scratch Scratch;
+
+	v2i Dim = V2i(64, 64);
+	v3i TGC = V3i(Dim.x / 8, Dim.y / 8, 1);
+
+	texture SourceTex;
+	ASSERT_TRUE(Texture_Create(&SourceTex, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = Dim,
+		.Usage = GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture StorageTex;
+	ASSERT_TRUE(Texture_Create(&StorageTex, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = Dim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE | GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = Dim,
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_layout ComputeLayout;
+	gdi_shader ComputeShader;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		ComputeLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D<float4> InputTexture : register(t0, space1);
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			float4 Color = InputTexture.Load(int3(ThreadID.xy, 0));
+			Output[ThreadID.xy] = Color;
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+
+		gdi_bind_group_binding WBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &ComputeLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WBinding, .Count = 1 },
+			.DebugName = String_Lit("Transfer Chain Copy CS")
+		};
+
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	gdi_layout RenderLayout;
+	gdi_shader RenderShader;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		RenderLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D<float4> Tex : register(t0, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			int3 Coord = int3(Position.xy, 0);
+			return Tex.Load(Coord);
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &RenderLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Transfer Chain Present PS")
+		};
+
+		RenderShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	gdi_bind_group ComputeInputBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &SourceTex.View, .Count = 1 } };
+		gdi_bind_group_create_info BGInfo = {
+			.Layout = ComputeLayout,
+			.Writes = { .Ptr = &Write, .Count = 1 }
+		};
+		ComputeInputBindGroup = GDI_Create_Bind_Group(&BGInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeInputBindGroup));
+	}
+
+	gdi_bind_group RenderTexBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &StorageTex.View, .Count = 1 } };
+		gdi_bind_group_create_info BGInfo = {
+			.Layout = RenderLayout,
+			.Writes = { .Ptr = &Write, .Count = 1 }
+		};
+		RenderTexBindGroup = GDI_Create_Bind_Group(&BGInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderTexBindGroup));
+	}
+
+	size_t MipPixelBytes = (size_t)Dim.x * (size_t)Dim.y * GDI_Get_Format_Size(GDI_FORMAT_R8G8B8A8_UNORM);
+	u8* UploadPixels = (u8*)Arena_Push(Scratch.Arena, MipPixelBytes);
+	// Per-texel u32: byte0=R, byte1=G, byte2=B, byte3=A (same unpacking as MultiFrame stress below).
+	const u32 Fill = 0xFF4070E0; /* R=0xE0, G=0x70, B=0x40, A=0xFF */
+	for(size_t i = 0; i < (size_t)Dim.x * (size_t)Dim.y; i++) {
+		((u32*)UploadPixels)[i] = Fill;
+	}
+
+	buffer MipBuffers[1] = { { .Ptr = UploadPixels, .Size = MipPixelBytes } };
+	gdi_texture_update TexUpdate = {
+		.Texture = SourceTex.Handle,
+		.MipOffset = 0,
+		.MipCount = 1,
+		.Offset = V2i(0, 0),
+		.Dim = Dim,
+		.UpdateData = MipBuffers
+	};
+	GDI_Update_Textures({ .Ptr = &TexUpdate, .Count = 1 });
+
+	gdi_dispatch Dispatch = {
+		.Shader = ComputeShader,
+		.BindGroups = { ComputeInputBindGroup },
+		.ThreadGroupCount = TGC
+	};
+	gdi_signal ComputeSignal = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &StorageTex.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+
+	GDI_Wait_Signal(ComputeSignal);
+
+	{
+		gdi_render_pass_begin_info BeginInfo = {
+			.RenderTargetViews = { RenderTarget.View },
+			.ClearColors = { { .ShouldClear = true, .F32 = { 0, 0, 0, 1 } } }
+		};
+		gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RP, RenderShader);
+		Render_Set_Bind_Group(RP, 0, RenderTexBindGroup);
+		Render_Draw(RP, 3, 0);
+		GDI_End_Render_Pass(RP);
+		GDI_Submit_Render_Pass(RP);
+	}
+
+	gdi_texture_info RTInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, MipPixelBytes),
+	};
+	gdi_texture_readback TextureReadback = {
+		.Texture = RenderTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	ASSERT_EQ(TestContext.Dim.x, RTInfo.Dim.x);
+	ASSERT_EQ(TestContext.Dim.y, RTInfo.Dim.y);
+
+	const u8 ExpR = 0xE0;
+	const u8 ExpG = 0x70;
+	const u8 ExpB = 0x40;
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			u8 TexR = (*Texels >> 0)  & 0xFF;
+			u8 TexG = (*Texels >> 8)  & 0xFF;
+			u8 TexB = (*Texels >> 16) & 0xFF;
+			ASSERT_NEAR((f32)TexR, (f32)ExpR, 2.0f);
+			ASSERT_NEAR((f32)TexG, (f32)ExpG, 2.0f);
+			ASSERT_NEAR((f32)TexB, (f32)ExpB, 2.0f);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(RenderTexBindGroup);
+	GDI_Delete_Bind_Group(ComputeInputBindGroup);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(RenderLayout);
+	GDI_Delete_Bind_Group_Layout(ComputeLayout);
+	Texture_Delete(&RenderTarget);
+	Texture_Delete(&StorageTex);
+	Texture_Delete(&SourceTex);
 }

@@ -1,5 +1,6 @@
 // raddbg 0.9.25 project file
 
+recent_file: path: "C:/Program Files (x86)/Windows Kits/10/include/10.0.22621.0/ucrt/stdio.h"
 recent_file: path: "c:/Users/akara/Projects/base/code/gdi/backend/vk/vk_gdi.c"
 recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/tran/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/tran/fpexcept.cpp"
 recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/gdi_tests.cpp"
@@ -70,11 +71,10 @@ breakpoint:
 debug_info:
 {
   path: "C:/Users/akara/Projects/base/bin/unit_tests.pdb"
-  timestamp: 66209926794765
+  timestamp: 66209990875176
 }
-target:
+breakpoint:
 {
-  executable: "C:/Users/akara/Projects/base/bin/unit_tests.exe"
-  working_directory: "C:/Users/akara/Projects/base/bin/"
-  enabled: 1
+  source_location: "C:/Users/akara/Projects/base/code/tests/unit_tests/unit_tests.cpp:17:6"
+  hit_count: 0
 }

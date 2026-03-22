@@ -241,6 +241,18 @@ export_function void GDI_Write_Timestamp(gdi_query_pool Pool, u32 Index) {
 	Pass->Type = GDI_PASS_TYPE_TIMESTAMP;
 	Pass->Timestamp.Pool = Pool;
 	Pass->Timestamp.Index = Index;
+	Pass->Timestamp.Async = false;
+	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
+}
+
+export_function void GDI_Write_Timestamp_Async(gdi_query_pool Pool, u32 Index) {
+	gdi_device_context* Context = GDI_Get_Device_Context();
+	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
+	Pass->Type = GDI_PASS_TYPE_TIMESTAMP;
+	Pass->Timestamp.Pool = Pool;
+	Pass->Timestamp.Index = Index;
+	// If async compute is unavailable, timestamps are recorded on the graphics queue (same as sync compute).
+	Pass->Timestamp.Async = Context->Device->IsAsyncComputeSupported;
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 }
 
@@ -258,12 +270,11 @@ export_function gdi_signal GDI_Submit_Render_Pass(gdi_render_pass* RenderPass) {
 	gdi_device_context* Context = GDI_Get_Device_Context();
 	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
 	Pass->Type = GDI_PASS_TYPE_RENDER;
+	Pass->SignalValue = ++Context->NextGraphicsSignalValue;
 	Pass->RenderPass = RenderPass;
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 	
-	gdi_signal Signal;
-	Signal.Type  = GDI_SIGNAL_TYPE_GRAPHICS;
-	Signal.Value = ++Context->NextGraphicsSignalValue;
+	gdi_signal Signal = { .Type = GDI_SIGNAL_TYPE_GRAPHICS, .Value = Pass->SignalValue };
 	return Signal;
 }
 
@@ -271,12 +282,13 @@ export_function gdi_signal GDI_Submit_Compute_Pass(gdi_texture_view_array Textur
 	gdi_device_context* Context = GDI_Get_Device_Context();
 	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass);
 	Pass->Type = GDI_PASS_TYPE_COMPUTE;
+	Pass->SignalValue = ++Context->NextGraphicsSignalValue;
 	Pass->ComputePass.TextureWrites = GDI_Texture_View_Array_Copy((allocator*)Context->FrameArena, TextureWrites.Ptr, TextureWrites.Count);
 	Pass->ComputePass.BufferWrites  = GDI_Buffer_Array_Copy((allocator*)Context->FrameArena, BufferWrites.Ptr, BufferWrites.Count);
 	Pass->ComputePass.Dispatches    = GDI_Dispatch_Array_Copy((allocator*)Context->FrameArena, Dispatches.Ptr, Dispatches.Count);
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 	
-	gdi_signal Signal = { .Type = GDI_SIGNAL_TYPE_GRAPHICS, .Value = ++Context->NextGraphicsSignalValue };
+	gdi_signal Signal = { .Type = GDI_SIGNAL_TYPE_GRAPHICS, .Value = Pass->SignalValue };
 	return Signal;
 }
 
@@ -288,13 +300,14 @@ export_function gdi_signal GDI_Submit_Async_Compute_Pass(gdi_texture_view_array 
 
 	gdi_pass* Pass = Arena_Push_Struct(Context->FrameArena, gdi_pass); 
 	Pass->Type = GDI_PASS_TYPE_ASYNC_COMPUTE;
+	Pass->SignalValue = ++Context->NextComputeSignalValue;
 	
 	Pass->ComputePass.TextureWrites = GDI_Texture_View_Array_Copy((allocator*)Context->FrameArena, TextureWrites.Ptr, TextureWrites.Count);
 	Pass->ComputePass.BufferWrites  = GDI_Buffer_Array_Copy((allocator*)Context->FrameArena, BufferWrites.Ptr, BufferWrites.Count);
 	Pass->ComputePass.Dispatches    = GDI_Dispatch_Array_Copy((allocator*)Context->FrameArena, Dispatches.Ptr, Dispatches.Count);
 	SLL_Push_Back(Context->FirstPass, Context->LastPass, Pass);
 	
-	gdi_signal Signal = { .Type = GDI_SIGNAL_TYPE_ASYNC_COMPUTE, .Value = ++Context->NextComputeSignalValue };
+	gdi_signal Signal = { .Type = GDI_SIGNAL_TYPE_ASYNC_COMPUTE, .Value = Pass->SignalValue };
 	return Signal;
 }
 

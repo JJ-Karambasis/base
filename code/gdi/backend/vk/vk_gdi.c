@@ -27,6 +27,7 @@ Dynamic_Array_Implement(vk_image_memory_barrier, VkImageMemoryBarrier, VK_Image_
 Dynamic_Array_Implement(vk_image_memory_barrier2, VkImageMemoryBarrier2KHR, VK_Image_Memory_Barrier2);
 Dynamic_Array_Implement(vk_write_descriptor_set, VkWriteDescriptorSet, VK_Write_Descriptor_Set);
 Dynamic_Array_Implement(vk_copy_descriptor_set, VkCopyDescriptorSet, VK_Copy_Descriptor_Set);
+Dynamic_Array_Implement(vk_semaphore_submit_info, VkSemaphoreSubmitInfoKHR, VK_Semaphore_Submit_Info);
 Array_Implement(vk_texture_readback, VK_Texture_Readback);
 Array_Implement(vk_buffer_readback, VK_Buffer_Readback);
 Array_Implement(gdi_bind_group_buffer, GDI_Bind_Group_Buffer);
@@ -369,10 +370,12 @@ function void VK_Delete_Tmp_Surface(vk_gdi* GDI, vk_tmp_surface* Surface) {
 #error "Not Implemented!"
 #endif
 
-function inline vk_barriers VK_Barriers_Init(arena* Arena, VkCommandBuffer CmdBuffer) {
+function inline vk_barriers VK_Barriers_Init(vk_device_context* Context, arena* Arena, VkCommandBuffer CmdBuffer, b32 IsAsyncCompute) {
 	vk_barriers Result = {
+		.Context = Context,
 		.Barriers = Dynamic_VK_Image_Memory_Barrier2_Array_Init((allocator*)Arena),
-		.CmdBuffer = CmdBuffer
+		.CmdBuffer = CmdBuffer,
+		.IsAsyncCompute = IsAsyncCompute
 	};
 	return Result;
 }
@@ -390,6 +393,49 @@ function void VK_Add_Texture_Barrier(vk_barriers* Barriers, vk_texture* Texture,
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
+function void VK_Add_Texture_Post_Transfer_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState, vk_resource_state NewState) {
+	if(!Barriers->Context->HasDedicatedTransferQueue) {
+		VK_Add_Texture_Barrier(Barriers, Texture, OldState, NewState);
+		return;
+	}
+    
+	VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldState),
+		.srcAccessMask = VK_Get_Access_Mask(OldState),
+		.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+		.dstAccessMask = VK_Get_Access_Mask(NewState),
+		.oldLayout = VK_Get_Image_Layout(OldState),
+		.newLayout = VK_Get_Image_Layout(NewState),
+		.image = Texture->Image,
+		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
+	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
+function void VK_Add_Texture_Compute_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState, vk_resource_state NewState) {
+	VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldState),
+		.srcAccessMask = VK_Get_Access_Mask(OldState),
+		.dstStageMask = VK_Get_Stage_Mask(NewState),
+		.dstAccessMask = VK_Get_Access_Mask(NewState),
+		.oldLayout = VK_Get_Image_Layout(OldState),
+		.newLayout = VK_Get_Image_Layout(NewState),
+		.image = Texture->Image,
+		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
+	};
+
+	if(Barriers->IsAsyncCompute) {
+		Barrier.srcStageMask &= ~(VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR);
+		Barrier.dstStageMask &= ~(VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR);
+	}
+
 	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
 }
 
@@ -612,7 +658,7 @@ function vk_frame_thread_context* VK_Get_Frame_Thread_Context(vk_device_context*
 			GDI_Log_Error("vkAllocateCommandBuffers failed!");
 			return NULL;
 		}
-
+        
 		if(Context->HasDedicatedTransferQueue) {
 			CommandPoolCreateInfo.queueFamilyIndex = Context->GPU->GraphicsQueueFamilyIndex;
 			Status = vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &ThreadContext->RenderCmdPool);
@@ -940,7 +986,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				//Look for a compute queue family for async compute
 				//First prioritize a queue family that is not the graphics queue family
 				u32 ComputeQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
+                
 #ifndef VK_GDI_DISABLE_ASYNC_COMPUTE
 				for (u32 j = 0; j < QueueFamilyPropertyCount; j++) {
 					if (QueueFamilyProperties[j].queueFlags & VK_QUEUE_COMPUTE_BIT && 
@@ -949,7 +995,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 						break;
 					}
 				}
-
+                
 				//Otherwise check for a compute queue family that is not the graphics queue family
 				if (ComputeQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED) {
 					for (u32 j = 0; j < QueueFamilyPropertyCount; j++) {
@@ -961,16 +1007,16 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 					}
 				}
 #endif
-
+                
 				//Fallback if async compute is not supported
 				if(ComputeQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED) {
 					ComputeQueueFamilyIndex = GraphicsQueueFamilyIndex;
 				}
-
+                
 				//Look for a transfer queue family for dedicated dma transfers
 				//First prioritize a queue family that is not the graphics queue family and compute queue family
 				u32 TransferQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
+                
 #ifndef VK_GDI_DISABLE_DEDICATED_TRANSFER_QUEUE
 				for (u32 j = 0; j < QueueFamilyPropertyCount; j++) {
 					if (QueueFamilyProperties[j].queueFlags & VK_QUEUE_TRANSFER_BIT && 
@@ -980,7 +1026,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 						break;
 					}
 				}
-
+                
 				// Otherwise check for a transfer queue family that is not the graphics queue family 
 				// and compute queue family
 				if (TransferQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED) {
@@ -994,12 +1040,12 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 					}
 				}
 #endif
-
+                
 				//Fallback if dedicated transfer queue is not supported
 				if(TransferQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED) {
 					TransferQueueFamilyIndex = GraphicsQueueFamilyIndex;
 				}
-
+                
 				VkPhysicalDeviceMemoryProperties MemoryProperties;
 				vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemoryProperties);
                 
@@ -1083,7 +1129,7 @@ function b32 VK_Recreate_Swapchain(vk_device_context* Context, vk_swapchain* Swa
 	if (OldSwapchain != VK_NULL_HANDLE) {
 		vkDestroySwapchainKHR(Context->Device, OldSwapchain, VK_Get_Allocator());
 	}
-
+    
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateSwapchainKHR failed!");
 		return false;
@@ -1269,7 +1315,7 @@ function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context, 
 				vkDestroyCommandPool(Context->Device, ThreadContextToDelete->TransferCmdPool, VK_Get_Allocator());
 				ThreadContextToDelete->TransferCmdPool = VK_NULL_HANDLE;
 			}
-
+            
 			if(Context->HasDedicatedTransferQueue) {
 				if (ThreadContextToDelete->RenderCmdPool != VK_NULL_HANDLE) {
 					vkDestroyCommandPool(Context->Device, ThreadContextToDelete->RenderCmdPool, VK_Get_Allocator());
@@ -1403,9 +1449,9 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	vk_gpu* TargetGPU = GDI->GPUs + Device->DeviceIndex;
 	
 	Context->IsAsyncComputeSupported = Device->IsAsyncComputeSupported;
-	Context->HasDedicatedTransferQueue = 
-	(TargetGPU->TransferQueueFamilyIndex != TargetGPU->GraphicsQueueFamilyIndex) && 
-	(TargetGPU->TransferQueueFamilyIndex != TargetGPU->ComputeQueueFamilyIndex);
+	Context->HasDedicatedTransferQueue =
+		(TargetGPU->TransferQueueFamilyIndex != TargetGPU->GraphicsQueueFamilyIndex) &&
+		(TargetGPU->TransferQueueFamilyIndex != TargetGPU->ComputeQueueFamilyIndex);
 	
 	//Create the device
 	f32 QueuePriority = 1.0f;
@@ -1418,7 +1464,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			.pQueuePriorities = &QueuePriority
 		}
 	};
-
+    
 	if(Context->IsAsyncComputeSupported) {
 		VkDeviceQueueCreateInfo QueueCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -1428,7 +1474,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		};
 		QueueCreateInfos[QueueCreateInfoCount++] = QueueCreateInfo;
 	}
-
+    
 	if(Context->HasDedicatedTransferQueue) {
 		VkDeviceQueueCreateInfo QueueCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -1527,11 +1573,11 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	} else {
 		Context->PresentQueue = Context->GraphicsQueue;
 	}
-
+    
 	if(Context->IsAsyncComputeSupported) {	
 		vkGetDeviceQueue(Context->Device, TargetGPU->ComputeQueueFamilyIndex, 0, &Context->ComputeQueue);
 	}
-
+    
 	if(Context->HasDedicatedTransferQueue) {
 		vkGetDeviceQueue(Context->Device, TargetGPU->TransferQueueFamilyIndex, 0, &Context->TransferQueue);
 	} else {
@@ -1579,10 +1625,10 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		string FrameArenaName = String_Format((allocator*)Scratch, "VK Frame Temp %u", i);
 		Frame->TempArena = Arena_Create(FrameArenaName);
 		Scratch_Release();
-
+        
 		Frame->ThreadContextTLS = OS_TLS_Create();
         
-		        
+        
 		VkFenceCreateInfo FenceCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 			.flags = VK_FENCE_CREATE_SIGNALED_BIT
@@ -1604,7 +1650,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			GDI_Log_Error("vkCreateSemaphore failed!");
 			return NULL;
 		}
-
+        
 		VkCommandPoolCreateInfo CommandPoolCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 			.queueFamilyIndex = TargetGPU->GraphicsQueueFamilyIndex
@@ -1615,17 +1661,17 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 			CommandPoolCreateInfo.queueFamilyIndex = TargetGPU->ComputeQueueFamilyIndex;
 			vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &Frame->ComputeCmdPool);
 		}
-
+        
 		if(Context->HasDedicatedTransferQueue) {
 			CommandPoolCreateInfo.queueFamilyIndex = TargetGPU->TransferQueueFamilyIndex;
 			vkCreateCommandPool(Context->Device, &CommandPoolCreateInfo, VK_Get_Allocator(), &Frame->TransferCmdPool);
 		}
-
+        
 		Frame->ReadbackBuffer = VK_CPU_Buffer_Init(Context, GDI->Base.Arena, VK_CPU_BUFFER_TYPE_READBACK);
 		Frame->Index = i;
 	}
 	Context->Frames = Frames;
-
+    
 	if(Context->IsAsyncComputeSupported) {
 		//Create the timeline semaphores for async compute
 		VkSemaphoreTypeCreateInfo TimelineSemaphoreCreateInfo = {
@@ -1639,7 +1685,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->ComputeTimelineSemaphore);
 		vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->GraphicsTimelineSemaphore);
 	}
-
+    
 	//Create the timeline semaphores for dedicated transfer queue. If we don't have
 	//a dedicated transfer queue, we will still need the semaphore to sync transfers
 	//with the async compute queue.
@@ -1652,15 +1698,15 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		.pNext = &TimelineSemaphoreCreateInfo
 	};
 	vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->TransferTimelineSemaphore);
-
+    
 	Context->Base.TimestampPeriod = (f64)TargetGPU->Properties.limits.timestampPeriod;
-
+    
 	//Initialize the readback thread
 	Atomic_Store_B32(&Context->ReadbackIsInitialized, true);
 	Context->ReadbackSignalSemaphore = OS_Semaphore_Create(0);
 	Context->ReadbackFinishedSemaphore = OS_Semaphore_Create((u32)Context->Frames.Count-1);
 	Context->ReadbackThread = OS_Thread_Create(String_Lit("Vulkan Readback"), VK_Readback_Thread, Context);
-
+    
 	return Context;
 }
 
@@ -1691,20 +1737,20 @@ typedef struct {
 
 function vk_resource_queue_family_info VK_Get_Queue_Family_Info(vk_device_context* Context) {
 	vk_gpu* GPU = Context->GPU;
-
+    
 	vk_resource_queue_family_info Result = {
 		.Count = 0,
 		.SharingMode = VK_SHARING_MODE_EXCLUSIVE
 	};
-
+    
 	if(Context->HasDedicatedTransferQueue) {
 		Result.Indices[Result.Count++] = GPU->TransferQueueFamilyIndex;
 	}
-
+    
 	if(Context->IsAsyncComputeSupported) {
 		Result.Indices[Result.Count++] = GPU->ComputeQueueFamilyIndex;
 	}
-
+    
 	if(Result.Count > 0) {
 		Result.SharingMode = VK_SHARING_MODE_CONCURRENT;
 		Result.Indices[Result.Count++] = GPU->GraphicsQueueFamilyIndex;
@@ -1736,7 +1782,7 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 	if (TextureInfo->Usage & GDI_TEXTURE_USAGE_READBACK) {
 		ImageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	}
-
+    
 	vk_resource_queue_family_info QueueFamilyInfo = VK_Get_Queue_Family_Info(Context);
     
 	VkImageCreateInfo ImageCreateInfo = {
@@ -1749,9 +1795,9 @@ function GDI_BACKEND_CREATE_TEXTURE_DEFINE(VK_Create_Texture) {
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
 		.usage = ImageUsage,
+		.sharingMode = QueueFamilyInfo.SharingMode,
 		.queueFamilyIndexCount = QueueFamilyInfo.Count,
 		.pQueueFamilyIndices = QueueFamilyInfo.Indices,
-		.sharingMode = QueueFamilyInfo.SharingMode,
 	};
     
 	VmaAllocationCreateInfo AllocateInfo = {
@@ -2025,7 +2071,7 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 		TotalSize *= Context->Frames.Count;
 		AllocationFlags = VMA_ALLOCATION_CREATE_MAPPED_BIT|VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 	}
-
+    
 	vk_resource_queue_family_info QueueFamilyInfo = VK_Get_Queue_Family_Info(Context);
     
 	VkBufferCreateInfo BufferCreateInfo = {
@@ -3226,6 +3272,73 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	SLL_Push_Front(ThreadContext->RenderPassesToDelete, VkRenderPass);
 }
 
+typedef struct {
+	b32 IsNotFirstRenderSubmit;
+	b32 IsNotFirstComputeSubmit;
+	u32 SwapchainCount;
+	VkSemaphoreSubmitInfoKHR* SwapchainWaitSemaphores;
+} vk_submit_context;
+
+function b32 VK_Submit_Command_Buffer(vk_device_context* Context, vk_submit_context* SubmitContext, vk_cmd_buffer* CmdBuffer, dynamic_vk_semaphore_submit_info_array* Waits, dynamic_vk_semaphore_submit_info_array* Signals, VkFence Fence) {
+	VkQueue Queue = CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER ? Context->GraphicsQueue : Context->ComputeQueue;
+	
+	vkEndCommandBuffer(CmdBuffer->Handle);
+    
+	b32 ShouldWaitForTransfer = CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE || Context->HasDedicatedTransferQueue;
+	if(ShouldWaitForTransfer) {
+		b32 IsFirstSubmit = false;
+        
+		if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER) {
+			IsFirstSubmit = !SubmitContext->IsNotFirstRenderSubmit;
+			SubmitContext->IsNotFirstRenderSubmit = true;
+		}
+        
+		if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE) {
+			IsFirstSubmit = !SubmitContext->IsNotFirstComputeSubmit;
+			SubmitContext->IsNotFirstComputeSubmit = true;
+		}
+        
+		if(IsFirstSubmit) {
+			VkSemaphoreSubmitInfoKHR TransferSemaphoreInfo = {
+				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+				.semaphore = Context->TransferTimelineSemaphore,
+				.value = Context->TransferTimelineValue,
+				.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+			};
+			Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, TransferSemaphoreInfo);
+            
+			if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER) {
+				for (size_t i = 0; i < SubmitContext->SwapchainCount; i++) {
+					Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, SubmitContext->SwapchainWaitSemaphores[i]);
+				}
+			}
+		}
+	}
+    
+	VkCommandBufferSubmitInfoKHR CommandBufferSubmitInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR,
+		.commandBuffer = CmdBuffer->Handle,
+	};
+    
+	VkSubmitInfo2KHR SubmitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
+		.waitSemaphoreInfoCount = (u32)Waits->Count,
+		.pWaitSemaphoreInfos = Waits->Ptr,
+		.commandBufferInfoCount = 1,
+		.pCommandBufferInfos = &CommandBufferSubmitInfo,
+		.signalSemaphoreInfoCount = (u32)Signals->Count,
+		.pSignalSemaphoreInfos = Signals->Ptr,
+	};
+    
+	VkResult Status = vkQueueSubmit2KHR(Queue, 1, &SubmitInfo, Fence);
+	if(Status != VK_SUCCESS) {
+		Assert(false);
+		GDI_Log_Error("vkQueueSubmit2KHR failed");
+	}
+    
+	return Status == VK_SUCCESS;
+}
+
 function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFrameIndex) {
 	arena* Scratch = Scratch_Get();
     
@@ -3600,7 +3713,7 @@ function void VK_Free_All_Cmd_Buffers(vk_frame_context* FrameContext) {
 
 function vk_cmd_buffer* VK_Begin_Cmd_Buffer(vk_device_context* Context, vk_frame_context* FrameContext, vk_cmd_buffer_type Type) {
 	vk_cmd_buffer* Result = NULL;
-
+    
 	if(Type == VK_CMD_BUFFER_TYPE_TRANSFER && Context->HasDedicatedTransferQueue) {
 		Result = FrameContext->FreeTransferCmdBuffers;
 		if(Result) SLL_Pop_Front(FrameContext->FreeTransferCmdBuffers);
@@ -3644,21 +3757,21 @@ function vk_cmd_buffer* VK_Begin_Cmd_Buffer(vk_device_context* Context, vk_frame
 		}
 		Result->Type = VK_CMD_BUFFER_TYPE_COMPUTE;
 	} Invalid_Else;
-
+    
 	VkCommandBufferBeginInfo BeginInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
 	};
-
+    
 	VkResult Status = vkBeginCommandBuffer(Result->Handle, &BeginInfo);
 	if (Status != VK_SUCCESS) {
 		GDI_Log_Error("vkBeginCommandBuffer failed");
 		return NULL;
 	}
-
+    
 	Result->Next = NULL;
 	SLL_Push_Front(FrameContext->RecordedCmdBuffers, Result);
-
+    
 	return Result;
 }
 
@@ -3676,7 +3789,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 		}
         
 	}
-
+    
 	//Rest the command pools
 	{
 		VkResult Status = vkResetCommandPool(Context->Device, FrameContext->CmdPool, 0);
@@ -3684,7 +3797,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 			GDI_Log_Error("vkResetCommandPool failed for graphics command pool");
 			return false;
 		}
-
+        
 		if(Context->IsAsyncComputeSupported) {
 			Status = vkResetCommandPool(Context->Device, FrameContext->ComputeCmdPool, 0);
 			if (Status != VK_SUCCESS) {
@@ -3703,23 +3816,18 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 	}
     
 	//Execute transfer commands
-
-	vk_cmd_buffer* RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
-	if(!RenderCmdBuffer) {
-		return false;
-	}
-
+    
 	{
 		vk_cmd_buffer* TransferCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_TRANSFER);
 		if(!TransferCmdBuffer) {
 			return false;
 		}
-
+        
 		arena* Scratch = Scratch_Get();
 		
 		//Accumulate barriers
-		vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, TransferCmdBuffer->Handle);
-		vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
+		vk_barriers PrePassBarriers = VK_Barriers_Init(Context, Scratch, TransferCmdBuffer->Handle, false);
+		vk_barriers PostPassBarriers = VK_Barriers_Init(Context, Scratch, TransferCmdBuffer->Handle, false);
 		for (vk_frame_thread_context* Thread = (vk_frame_thread_context*)Atomic_Load_Ptr(&FrameContext->TopThread); 
 			 Thread; Thread = Thread->Next) {
 			
@@ -3739,22 +3847,22 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 				if (Are_Bits_Set(Texture->QueueFlags, VK_GDI_QUEUE_FLAG_TRANSFER|VK_GDI_QUEUE_FLAG_CREATION)) {
 					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
 						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 					} Invalid_Else;
 				} else if(Texture->QueueFlags == VK_GDI_QUEUE_FLAG_CREATION) {
 					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_SHADER_READ);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_SHADER_READ);
 					} else if (Texture->Usage & GDI_TEXTURE_USAGE_DEPTH) {
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_DEPTH);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_DEPTH);
 					} else if(Texture->Usage & GDI_TEXTURE_USAGE_RENDER_TARGET) {
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_RENDER_TARGET);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_RENDER_TARGET);
 					} else if(Texture->Usage & GDI_TEXTURE_USAGE_STORAGE) {
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 					} Invalid_Else;
 				} else if (Texture->QueueFlags == VK_GDI_QUEUE_FLAG_TRANSFER) {
 					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
 						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_WRITE);
-						VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
+						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 					} Invalid_Else;
 				} Invalid_Else;
                 
@@ -3772,7 +3880,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 		}
 		VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_MEMORY_READ);
 		Scratch_Release();
-
+        
 		//End and submit the transfer command buffer with signaling the transfer semaphore
 		vkEndCommandBuffer(TransferCmdBuffer->Handle);
 		VkSemaphoreSubmitInfoKHR TransferSemaphoreSubmitInfo = {
@@ -3781,18 +3889,18 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 			.value = ++Context->TransferTimelineValue,
 			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
 		};
-
+        
 		VkCommandBufferSubmitInfoKHR CommandBufferSubmitInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR,
 			.commandBuffer = TransferCmdBuffer->Handle
 		};
-
+        
 		VkSubmitInfo2KHR SubmitInfo = {
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
+			.commandBufferInfoCount = 1,
+			.pCommandBufferInfos = &CommandBufferSubmitInfo,
 			.signalSemaphoreInfoCount = 1,
 			.pSignalSemaphoreInfos = &TransferSemaphoreSubmitInfo,
-			.commandBufferInfoCount = 1,
-			.pCommandBufferInfos = &CommandBufferSubmitInfo
 		};
 		VkResult Status = vkQueueSubmit2KHR(Context->TransferQueue, 1, &SubmitInfo, VK_NULL_HANDLE);
 		if (Status != VK_SUCCESS) {
@@ -3805,38 +3913,118 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
     
 	arena* Scratch = Scratch_Get();
     
-	u32 WaitSemaphoreCount = 0;
-	VkPipelineStageFlags* WaitStageFlags = VK_NULL_HANDLE;
-	VkSemaphore* WaitSemaphores = VK_NULL_HANDLE;
-	{
-		WaitStageFlags = Arena_Push_Array(Scratch, Swapchains->Count, VkPipelineStageFlags);
-		WaitSemaphores = Arena_Push_Array(Scratch, Swapchains->Count, VkSemaphore);
-        
-		for (size_t i = 0; i < Swapchains->Count; i++) {
-			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
-			WaitSemaphores[WaitSemaphoreCount] = Swapchain->Locks[FrameContext->Index].Handle;
-			WaitStageFlags[WaitSemaphoreCount] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-			WaitSemaphoreCount++;
-		}
-	}
-    
 	//Execute compute and render commands
 	{
-		//Execcute the passes
+		VkSemaphoreSubmitInfoKHR* SwapchainWaitSemaphores = Arena_Push_Array(Scratch, Swapchains->Count, VkSemaphoreSubmitInfoKHR);
+		for (size_t i = 0; i < Swapchains->Count; i++) {
+			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
+			VkSemaphoreSubmitInfoKHR WaitInfo = {
+				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+				.semaphore = Swapchain->Locks[FrameContext->Index].Handle,
+				.stageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+			};
+            
+			SwapchainWaitSemaphores[i] = WaitInfo;
+		}
+        
+		vk_cmd_buffer* ComputeCmdBuffer = NULL;
+		vk_cmd_buffer* RenderCmdBuffer = NULL;
+        
+		dynamic_vk_semaphore_submit_info_array RenderWaits = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+		dynamic_vk_semaphore_submit_info_array ComputeWaits = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+        
+		vk_submit_context SubmitContext = {
+			.IsNotFirstRenderSubmit = false,
+			.IsNotFirstComputeSubmit = false,
+			.SwapchainCount = (u32)Swapchains->Count,
+			.SwapchainWaitSemaphores = SwapchainWaitSemaphores
+		};
+        
+		//Execute the passes
 		{
-			vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
-			vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
-			
 			for (gdi_pass* Pass = Context->Base.FirstPass; Pass; Pass = Pass->Next) {
-				VK_Barriers_Clear(&PrePassBarriers);
-				VK_Barriers_Clear(&PostPassBarriers);
-				
 				switch (Pass->Type) {
-					case GDI_PASS_TYPE_COMPUTE: {
-						
+					case GDI_PASS_TYPE_WAIT: {
+						gdi_signal* Signal = &Pass->Wait;
+                        
+						VkSemaphoreSubmitInfoKHR WaitInfo = {
+							.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+							.value = Signal->Value,
+							.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+						};
+                        
+						if(Signal->Type == GDI_SIGNAL_TYPE_GRAPHICS) {
+							WaitInfo.semaphore = Context->GraphicsTimelineSemaphore;
+							Dynamic_VK_Semaphore_Submit_Info_Array_Add(&RenderWaits, WaitInfo);
+						} else {
+							WaitInfo.semaphore = Context->ComputeTimelineSemaphore;
+							Dynamic_VK_Semaphore_Submit_Info_Array_Add(&ComputeWaits, WaitInfo);
+						}
+                        
+					} break;
+                    
+					case GDI_PASS_TYPE_COMPUTE: 
+					case GDI_PASS_TYPE_ASYNC_COMPUTE:
+					{
 						gdi_compute_pass* ComputePass = &Pass->ComputePass;
+						b32 IsAsyncCompute = Pass->Type == GDI_PASS_TYPE_ASYNC_COMPUTE;
 						
-						
+						vk_cmd_buffer* CmdBuffer = NULL;
+						if(IsAsyncCompute) {
+							if(!ComputeCmdBuffer) {
+								ComputeCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_COMPUTE);
+							}
+							CmdBuffer = ComputeCmdBuffer;
+						} else {
+							if(!RenderCmdBuffer) {
+								RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
+							}
+							CmdBuffer = RenderCmdBuffer;
+						}
+                        
+						vk_barriers PrePassBarriers = VK_Barriers_Init(Context, Scratch, CmdBuffer->Handle, IsAsyncCompute);
+						vk_barriers PostPassBarriers = VK_Barriers_Init(Context, Scratch, CmdBuffer->Handle, IsAsyncCompute);
+                        
+						// Flush the render and compute waits if we are in an async compute or 
+						// non async compute pass respectively
+						if(IsAsyncCompute && RenderCmdBuffer && RenderWaits.Count) {
+							VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+								.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+								.semaphore = Context->GraphicsTimelineSemaphore,
+								.value = Context->GraphicsTimelineValue,
+								.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+							};
+                            
+							dynamic_vk_semaphore_submit_info_array Signals = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
+                            
+							VK_Submit_Command_Buffer(Context, &SubmitContext, RenderCmdBuffer, &ComputeWaits, &Signals, VK_NULL_HANDLE);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Clear(&ComputeWaits);
+							RenderCmdBuffer = NULL;
+						}
+                        
+						if(!IsAsyncCompute && ComputeCmdBuffer && ComputeWaits.Count) {
+							VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+								.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+								.semaphore = Context->ComputeTimelineSemaphore,
+								.value = Context->ComputeTimelineValue,
+								.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+							};
+                            
+							dynamic_vk_semaphore_submit_info_array Signals = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
+                            
+							VK_Submit_Command_Buffer(Context, &SubmitContext, ComputeCmdBuffer, &RenderWaits, &Signals, VK_NULL_HANDLE);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Clear(&RenderWaits);
+							ComputeCmdBuffer = NULL;
+						}
+                        
+						if(IsAsyncCompute) {
+							Context->ComputeTimelineValue = Pass->SignalValue;
+						} else {
+							Context->GraphicsTimelineValue = Pass->SignalValue;
+						}
+                        
 						//Image memory barriers
 						for (size_t i = 0; i < ComputePass->TextureWrites.Count; i++) {
 							vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, ComputePass->TextureWrites.Ptr[i]);
@@ -3853,11 +4041,11 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 								}
 								
 								if (Index != (size_t)-1) {
-									if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-										WaitStageFlags[Index] = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+									if (SwapchainWaitSemaphores[Index].stageMask == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+										SwapchainWaitSemaphores[Index].stageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 										VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 									} else {
-										VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+										VK_Add_Texture_Compute_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 									}
 								} else {
 									//todo: Need to figure out what to do in this case
@@ -3865,11 +4053,11 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 								}
 							} else {
 								if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-									VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
-									VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
+									VK_Add_Texture_Compute_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+									VK_Add_Texture_Compute_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 								} else if (Texture->Usage & GDI_TEXTURE_USAGE_STORAGE) {
-									VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
-									VK_Add_Texture_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+									VK_Add_Texture_Compute_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
+									VK_Add_Texture_Compute_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 								}
 								Invalid_Else;
 							}
@@ -3947,9 +4135,9 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 									DescriptorWrites[i] = WriteDescriptorSet;
 								}
 								
-								vkCmdBindPipeline(RenderCmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, Shader->Pipeline);
+								vkCmdBindPipeline(CmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, Shader->Pipeline);
 								//Outputs of compute shaders are always the first descriptor set
-								vkCmdPushDescriptorSetKHR(RenderCmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, Shader->Layout, 0, (u32)Shader->WritableBindings.Count, DescriptorWrites);
+								vkCmdPushDescriptorSetKHR(CmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, Shader->Layout, 0, (u32)Shader->WritableBindings.Count, DescriptorWrites);
 							}
 							
 							u32 DescriptorSetCount = 0;
@@ -3963,15 +4151,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 							}
 							
 							if (DescriptorSetCount) {
-								vkCmdBindDescriptorSets(RenderCmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, 0, NULL);
+								vkCmdBindDescriptorSets(CmdBuffer->Handle, VK_PIPELINE_BIND_POINT_COMPUTE, CurrentShader->Layout, 1, DescriptorSetCount, DescriptorSets, 0, NULL);
 							}
 							
 							if (Dispatch->PushConstantCount) {
-								vkCmdPushConstants(RenderCmdBuffer->Handle, CurrentShader->Layout, VK_SHADER_STAGE_COMPUTE_BIT,
-												0, Dispatch->PushConstantCount * sizeof(u32), Dispatch->PushConstants);
+								vkCmdPushConstants(CmdBuffer->Handle, CurrentShader->Layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                   0, Dispatch->PushConstantCount * sizeof(u32), Dispatch->PushConstants);
 							}
 							
-							vkCmdDispatch(RenderCmdBuffer->Handle, Dispatch->ThreadGroupCount.x, Dispatch->ThreadGroupCount.y, Dispatch->ThreadGroupCount.z);
+							vkCmdDispatch(CmdBuffer->Handle, Dispatch->ThreadGroupCount.x, Dispatch->ThreadGroupCount.y, Dispatch->ThreadGroupCount.z);
 						}
 						
 						if (ComputePass->BufferWrites.Count) {
@@ -3984,6 +4172,31 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 					case GDI_PASS_TYPE_RENDER: {
 						VkCommandBuffer PassCmdBuffer = VK_NULL_HANDLE;
 						Assert(Pass->Type == GDI_PASS_TYPE_RENDER);
+                        
+						if(!RenderCmdBuffer) {
+							RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
+						}
+                        
+						if(ComputeCmdBuffer && ComputeWaits.Count) {
+							VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+								.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+								.semaphore = Context->ComputeTimelineSemaphore,
+								.value = Context->ComputeTimelineValue,
+								.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+							};
+                            
+							dynamic_vk_semaphore_submit_info_array Signals = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
+                            
+							VK_Submit_Command_Buffer(Context, &SubmitContext, ComputeCmdBuffer, &RenderWaits, &Signals, VK_NULL_HANDLE);
+							Dynamic_VK_Semaphore_Submit_Info_Array_Clear(&RenderWaits);
+							ComputeCmdBuffer = NULL;
+						}
+                        
+						Context->GraphicsTimelineValue = Pass->SignalValue;
+                        
+						vk_barriers PrePassBarriers = VK_Barriers_Init(Context, Scratch, RenderCmdBuffer->Handle, false);
+						vk_barriers PostPassBarriers = VK_Barriers_Init(Context, Scratch, RenderCmdBuffer->Handle, false);
 						
 						vk_render_pass* RenderPass = (vk_render_pass*)Pass->RenderPass;
 						PassCmdBuffer = RenderPass->CmdBuffer;
@@ -4011,8 +4224,8 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 									}
 									
 									if (Index != (size_t)-1) {
-										if (WaitStageFlags[Index] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
-											WaitStageFlags[Index] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+										if (SwapchainWaitSemaphores[Index].stageMask == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+											SwapchainWaitSemaphores[Index].stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 											VK_Add_Pre_Swapchain_Barrier(&PrePassBarriers, Texture, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_RESOURCE_STATE_RENDER_TARGET);
 										} else {
 											VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET, VK_RESOURCE_STATE_RENDER_TARGET);
@@ -4092,27 +4305,68 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 						vkCmdEndRenderingKHR(RenderCmdBuffer->Handle);
 						VK_Submit_Barriers(&PostPassBarriers);
 					} break;
-
+                    
 					case GDI_PASS_TYPE_TIMESTAMP: {
 						vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, Pass->Timestamp.Pool);
 						Assert(Pool);
 						Assert(Pass->Timestamp.Index < Pool->Count);
-						vkCmdResetQueryPool(RenderCmdBuffer->Handle, Pool->QueryPool, Pass->Timestamp.Index, 1);
-						vkCmdWriteTimestamp(RenderCmdBuffer->Handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, Pool->QueryPool, Pass->Timestamp.Index);
+                        
+						VkCommandBuffer TimestampCmd = VK_NULL_HANDLE;
+						if(Pass->Timestamp.Async) { 
+							Assert(Context->IsAsyncComputeSupported);
+							if(!ComputeCmdBuffer) {
+								ComputeCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_COMPUTE);
+							}
+							TimestampCmd = ComputeCmdBuffer->Handle;
+						} else {
+							if(!RenderCmdBuffer) {
+								RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
+							}
+							TimestampCmd = RenderCmdBuffer->Handle;
+						}
+                        
+						vkCmdResetQueryPool(TimestampCmd, Pool->QueryPool, Pass->Timestamp.Index, 1);
+						vkCmdWriteTimestamp(TimestampCmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, Pool->QueryPool, Pass->Timestamp.Index);
 					} break;
-
+                    
 					Invalid_Default_Case;
 				}
 			}
 		}
+        
+		if(ComputeCmdBuffer) {
+			VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+				.semaphore = Context->ComputeTimelineSemaphore,
+				.value = Context->ComputeTimelineValue,
+				.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+			};
+            
+			dynamic_vk_semaphore_submit_info_array Signals = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+			Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
+			VK_Submit_Command_Buffer(Context, &SubmitContext, ComputeCmdBuffer, &RenderWaits, &Signals, VK_NULL_HANDLE);
+		}
 		
 		//Submit the buffer and texture readbacks
+        
 		if (TextureReadbacks->Count || BufferReadbacks->Count) {
+			// Readback runs on the graphics queue; async compute uses the compute queue. You need a
+			// queue-level dependency before readback if that resource was used by async compute in this
+			// frame — including when the shader only *read* the resource: two unsynchronized readers on
+			// different queues are still invalid without an execution/memory dependency. Use
+			// GDI_Wait_Signal(compute_pass_signal) after the async pass(es) that must complete first.
+            
+			if(!RenderCmdBuffer) {
+				RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
+				Context->GraphicsTimelineValue++;
+				Context->Base.NextGraphicsSignalValue++;
+			}
+            
 			FrameContext->TextureReadbacks = VK_Texture_Readback_Array_Alloc((allocator*)FrameContext->TempArena, TextureReadbacks->Count);
 			FrameContext->BufferReadbacks = VK_Buffer_Readback_Array_Alloc((allocator*)FrameContext->TempArena, BufferReadbacks->Count);
 			
-			vk_barriers PrePassBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
-			vk_barriers PostPassBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
+			vk_barriers PrePassBarriers = VK_Barriers_Init(Context, Scratch, RenderCmdBuffer->Handle, false);
+			vk_barriers PostPassBarriers = VK_Barriers_Init(Context, Scratch, RenderCmdBuffer->Handle, false);
 			
 			for (size_t i = 0; i < TextureReadbacks->Count; i++) {
 				const gdi_texture_readback* Readback = TextureReadbacks->Ptr + i;
@@ -4174,7 +4428,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 				}
 				
 				vkCmdCopyImageToBuffer(RenderCmdBuffer->Handle, Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-									CpuReadback.Buffer, Texture->MipCount, Regions);
+                                       CpuReadback.Buffer, Texture->MipCount, Regions);
 				
 				vk_texture_readback VkReadback = {
 					.Texture = Readback->Texture,
@@ -4216,93 +4470,46 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 				VK_Submit_Barriers(&PostPassBarriers);
 			}
 		}
-
+        
 		//Final barriers for the swapchain and submit command buffer
-		vk_barriers FinalBarriers = VK_Barriers_Init(Scratch, RenderCmdBuffer->Handle);
+        
+		if(!RenderCmdBuffer) {
+			RenderCmdBuffer = VK_Begin_Cmd_Buffer(Context, FrameContext, VK_CMD_BUFFER_TYPE_RENDER);
+			Context->GraphicsTimelineValue++;
+			Context->Base.NextGraphicsSignalValue++;
+		}
+        
+		vk_barriers FinalBarriers = VK_Barriers_Init(Context, Scratch, RenderCmdBuffer->Handle, false);
 		for (size_t i = 0; i < Swapchains->Count; i++) {
 			vk_swapchain* Swapchain = VK_Swapchain_Pool_Get(&Context->ResourcePool, Swapchains->Ptr[i]);
 			vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, Swapchain->Textures[Swapchain->ImageIndex]);
-			if (WaitStageFlags[i] == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
+			if (SwapchainWaitSemaphores[i].stageMask == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT) {
 				VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_NONE);
-			} else if (WaitStageFlags[i] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT) {
+			} else if (SwapchainWaitSemaphores[i].stageMask == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT) {
 				VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_RENDER_TARGET);
-			} else if(WaitStageFlags[i] == VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) {
+			} else if(SwapchainWaitSemaphores[i].stageMask == VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) {
 				VK_Add_Post_Swapchain_Barrier(&FinalBarriers, Texture, VK_RESOURCE_STATE_COMPUTE_SHADER_WRITE);
 			} Invalid_Else;
 		}
 		VK_Submit_Barriers(&FinalBarriers);
-		vkEndCommandBuffer(RenderCmdBuffer->Handle);
-
-		VkCommandBuffer CmdBuffer = RenderCmdBuffer->Handle;
+        
+		VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+			.semaphore = Context->GraphicsTimelineSemaphore,
+			.value = Context->GraphicsTimelineValue,
+			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
+		};
+		dynamic_vk_semaphore_submit_info_array Signals = Dynamic_VK_Semaphore_Submit_Info_Array_Init((allocator*)Scratch);
+		Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
 		
-		//Submit the render command buffer. If there is async transfer queue, we need to wait for the transfer semaphore to be signaled.
-		if(Context->HasDedicatedTransferQueue) {
-
-			VkSemaphoreSubmitInfoKHR* WaitSemaphoreInfos = Arena_Push_Array(Scratch, WaitSemaphoreCount+1, VkSemaphoreSubmitInfoKHR);
-			for(size_t i = 0; i < WaitSemaphoreCount; i++) {
-				VkSemaphoreSubmitInfoKHR WaitSemaphoreInfo = {
-					.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-					.semaphore = WaitSemaphores[i],
-					.stageMask = WaitStageFlags[i]
-				};
-				WaitSemaphoreInfos[i] = WaitSemaphoreInfo;
-			}
-
-			//Wait on the transfer semaphore
-			VkSemaphoreSubmitInfoKHR TransferSemaphoreInfo = {
-				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-				.semaphore = Context->TransferTimelineSemaphore,
-				.value = Context->TransferTimelineValue,
-				.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-			};
-			WaitSemaphoreInfos[WaitSemaphoreCount] = TransferSemaphoreInfo;
-
-			VkSemaphoreSubmitInfoKHR SignalSemaphoreInfo = {
+		if(Swapchains->Count > 0) {
+			VkSemaphoreSubmitInfo RenderLockSemaphoreInfo = {
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
 				.semaphore = FrameContext->RenderLock
 			};
-
-			VkCommandBufferSubmitInfoKHR CommandBufferSubmitInfo = {
-				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR,
-				.commandBuffer = CmdBuffer,
-			};
-
-			VkSubmitInfo2KHR SubmitInfo = {
-				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
-				.waitSemaphoreInfoCount = WaitSemaphoreCount+1,
-				.pWaitSemaphoreInfos = WaitSemaphoreInfos,
-				.commandBufferInfoCount = 1,
-				.pCommandBufferInfos = &CommandBufferSubmitInfo,
-				.signalSemaphoreInfoCount = Swapchains->Count ? 1u : 0u,
-				.pSignalSemaphoreInfos = Swapchains->Count ? &SignalSemaphoreInfo : VK_NULL_HANDLE
-			};
-			VkResult Status = vkQueueSubmit2KHR(Context->GraphicsQueue, 1, &SubmitInfo, FrameContext->Fence);
-			if (Status != VK_SUCCESS) {
-				Assert(false);
-				GDI_Log_Error("vkQueueSubmit2 failed");
-				Scratch_Release();
-				return false;
-			}
-		} else {
-			VkCommandBuffer CmdBuffers[] = { CmdBuffer };	
-			VkSubmitInfo SubmitInfo = {
-				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				.waitSemaphoreCount = WaitSemaphoreCount,
-				.pWaitSemaphores = WaitSemaphores,
-				.pWaitDstStageMask = WaitStageFlags,
-				.commandBufferCount = Array_Count(CmdBuffers),
-				.pCommandBuffers = CmdBuffers,
-				.signalSemaphoreCount = Swapchains->Count ? 1u : 0u,
-				.pSignalSemaphores = Swapchains->Count ? &FrameContext->RenderLock : VK_NULL_HANDLE
-			};
-			VkResult Status = vkQueueSubmit(Context->GraphicsQueue, 1, &SubmitInfo, FrameContext->Fence);
-			if (Status != VK_SUCCESS) {
-				Assert(false);
-				GDI_Log_Error("vkQueueSubmit failed");
-				Scratch_Release();
-				return false;
-			}
+			Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, RenderLockSemaphoreInfo);
 		}
+		VK_Submit_Command_Buffer(Context, &SubmitContext, RenderCmdBuffer, &ComputeWaits, &Signals, FrameContext->Fence);
 	}
     
 	OS_Semaphore_Increment(Context->ReadbackSignalSemaphore);
@@ -4364,7 +4571,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 		}
 		Thread->RenderPassesToDelete = NULL;
 	}
-
+    
 	VK_Free_All_Cmd_Buffers(FrameContext);
     
 	return true;
@@ -4426,7 +4633,7 @@ function GDI_BACKEND_SHUTDOWN_DEFINE(VK_Shutdown) {
 function GDI_BACKEND_FLUSH_DEFINE(VK_Flush) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vkDeviceWaitIdle(Context->Device);
-
+    
 	u32 WaitCount = (u32)(Context->Frames.Count - 1);
 	for(u32 i = 0; i < WaitCount; i++) {
 		OS_Semaphore_Decrement(Context->ReadbackFinishedSemaphore);
@@ -4438,27 +4645,27 @@ function GDI_BACKEND_FLUSH_DEFINE(VK_Flush) {
 
 function GDI_BACKEND_CREATE_QUERY_POOL_DEFINE(VK_Create_Query_Pool) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
-
+    
 	VkQueryPoolCreateInfo CreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
 		.queryType = VK_QUERY_TYPE_TIMESTAMP,
 		.queryCount = QueryPoolInfo->Count
 	};
-
+    
 	VkQueryPool Handle;
 	VkResult Status = vkCreateQueryPool(Context->Device, &CreateInfo, VK_Get_Allocator(), &Handle);
 	if(Status != VK_SUCCESS) {
 		GDI_Log_Error("vkCreateQueryPool failed!");
 		return GDI_Null_Handle(gdi_query_pool);
 	}
-
+    
 	VK_Set_Debug_Name(VK_OBJECT_TYPE_QUERY_POOL, "query pool", Handle, QueryPoolInfo->DebugName);
-
+    
 	gdi_query_pool Result = VK_Query_Pool_Pool_Allocate(&Context->ResourcePool);
 	vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, Result);
 	Pool->QueryPool = Handle;
 	Pool->Count = QueryPoolInfo->Count;
-
+    
 	return Result;
 }
 
@@ -4470,20 +4677,20 @@ function GDI_BACKEND_GET_QUERY_RESULTS_DEFINE(VK_Get_Query_Results) {
 	vk_device_context* Context = (vk_device_context*)GDI->DeviceContext;
 	vk_query_pool* Pool = VK_Query_Pool_Pool_Get(&Context->ResourcePool, QueryPool);
 	if(!Pool) return false;
-
+    
 	Assert(FirstQuery + QueryCount <= Pool->Count);
-
+    
 	arena* Scratch = Scratch_Get();
 	u64* RawResults = Arena_Push_Array(Scratch, QueryCount * 2, u64);
-
+    
 	VkResult Status = vkGetQueryPoolResults(
-		Context->Device, Pool->QueryPool,
-		FirstQuery, QueryCount,
-		QueryCount * 2 * sizeof(u64), RawResults,
-		2 * sizeof(u64),
-		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
-	);
-
+                                            Context->Device, Pool->QueryPool,
+                                            FirstQuery, QueryCount,
+                                            QueryCount * 2 * sizeof(u64), RawResults,
+                                            2 * sizeof(u64),
+                                            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
+                                            );
+    
 	b32 Success = (Status == VK_SUCCESS || Status == VK_NOT_READY);
 	if(Success) {
 		for(u32 i = 0; i < QueryCount; i++) {
@@ -4491,7 +4698,7 @@ function GDI_BACKEND_GET_QUERY_RESULTS_DEFINE(VK_Get_Query_Results) {
 			Results[i].Available = (b32)(RawResults[i * 2 + 1] != 0);
 		}
 	}
-
+    
 	Scratch_Release();
 	return Success;
 }
@@ -4532,16 +4739,16 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.ResizeSwapchainFunc = VK_Resize_Swapchain,
 	.GetSwapchainInfoFunc = VK_Get_Swapchain_Info,
     
+	.CreateQueryPoolFunc = VK_Create_Query_Pool,
+	.DeleteQueryPoolFunc = VK_Delete_Query_Pool,
+	.GetQueryResultsFunc = VK_Get_Query_Results,
+
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,
 	.EndRenderPassFunc = VK_End_Render_Pass,
     
 	.RenderFunc = VK_Render,
 	.ShutdownFunc = VK_Shutdown,
 	.FlushFunc = VK_Flush,
-    
-	.CreateQueryPoolFunc = VK_Create_Query_Pool,
-	.DeleteQueryPoolFunc = VK_Delete_Query_Pool,
-	.GetQueryResultsFunc = VK_Get_Query_Results,
 };
 
 function VkBool32 VK_Debug_Callback(VkDebugUtilsMessageSeverityFlagBitsEXT MessageSeverity, VkDebugUtilsMessageTypeFlagsEXT MessageTypes,
@@ -4754,6 +4961,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 		gdi_device Device = {
 			.Type = VK_Get_Physical_Device_Type(GDI->GPUs[i].Properties.deviceType),
 			.IsAsyncComputeSupported = GDI->GPUs[i].ComputeQueueFamilyIndex != GDI->GPUs[i].GraphicsQueueFamilyIndex,
+			.GraphicsAndComputeTimestampsComparable = GDI->GPUs[i].Properties.limits.timestampComputeAndGraphics != 0,
 			.DeviceIndex = (u32)i,
 			.DeviceName = String_Copy((allocator*)GDI->Base.Arena, String_Null_Term(GDI->GPUs[i].Properties.deviceName))
 		};

@@ -199,6 +199,8 @@ typedef struct {
 typedef struct {
     gdi_device_type Type;
     b32             IsAsyncComputeSupported;
+    /* True when VkPhysicalDeviceLimits::timestampComputeAndGraphics: GPU timestamp queries on graphics and compute use the same time domain (required to compare them). */
+    b32             GraphicsAndComputeTimestampsComparable;
     u32 			DeviceIndex;
     string 			DeviceName;
 } gdi_device;
@@ -515,8 +517,10 @@ struct gdi_pass {
         struct {
             gdi_query_pool Pool;
             u32            Index;
+            b32            Async; /* true: compute queue (GDI_Write_Timestamp_Async); false: graphics */
         } Timestamp;
     };
+    u64 SignalValue;
     gdi_pass* Next;
 };
 
@@ -781,6 +785,7 @@ struct gdi {
 #define GDI_Get_Timestamp_Period() GDI_Get()->DeviceContext->TimestampPeriod
 #define GDI_Get_Swapchain_Dim(swapchain) GDI_Get_Swapchain_Info(swapchain).Dim
 #define GDI_Is_Async_Compute_Supported() GDI_Get_Device_Context()->Device->IsAsyncComputeSupported
+#define GDI_Are_Graphics_And_Compute_Timestamps_Comparable() GDI_Get_Device_Context()->Device->GraphicsAndComputeTimestampsComparable
 
 /* Others */
 
@@ -839,6 +844,7 @@ export_function gdi_swapchain_info GDI_Get_Swapchain_Info(gdi_swapchain Swapchai
 export_function gdi_query_pool GDI_Create_Query_Pool(const gdi_query_pool_create_info* CreateInfo);
 export_function void GDI_Delete_Query_Pool(gdi_query_pool QueryPool);
 export_function void GDI_Write_Timestamp(gdi_query_pool Pool, u32 Index);
+export_function void GDI_Write_Timestamp_Async(gdi_query_pool Pool, u32 Index);
 export_function b32 GDI_Get_Query_Results(gdi_query_pool Pool, u32 FirstQuery, u32 QueryCount, gdi_timestamp_result* Results);
 export_function void GDI_Flush(void);
 
