@@ -200,7 +200,7 @@ if %build_gdi% == 0 (
 pushd "%bin_path%"
 	meta_program.exe -d "%code_path%\gdi"
 	%compiler_cpp% %compile_flags% %compile_warnings% %compile_only% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" %obj_out% vk_mem_alloc.obj "%code_path%\gdi\backend\vk\vk_vma_usage.cpp"
-	%compiler% %compile_flags% %compile_warnings% %compile_only% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" -I"%code_path%" %obj_out% gdi.obj "%code_path%\gdi\backend\vk\vk_gdi.%c_ext%"
+	%compiler% %compile_flags% %compile_warnings% %compile_only% %app_defines% -DVK_USE_PLATFORM_WIN32_KHR -DVK_GDI_DISABLE_ASYNC_COMPUTE %app_includes% -I"%code_path%\third_party\Vulkan-Headers" -I"%code_path%\third_party\VulkanMemoryAllocator" -I"%code_path%" %obj_out% gdi.obj "%code_path%\gdi\backend\vk\vk_gdi.%c_ext%"
 popd
 
 :skip_gdi

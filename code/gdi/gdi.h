@@ -198,6 +198,7 @@ typedef struct {
 
 typedef struct {
     gdi_device_type Type;
+    b32             IsAsyncComputeSupported;
     u32 			DeviceIndex;
     string 			DeviceName;
 } gdi_device;
@@ -481,8 +482,20 @@ typedef struct {
 } gdi_render_pass;
 
 typedef enum {
+    GDI_SIGNAL_TYPE_GRAPHICS,
+    GDI_SIGNAL_TYPE_ASYNC_COMPUTE
+} gdi_signal_type;
+
+typedef struct {
+    gdi_signal_type Type;
+    u64             Value;
+} gdi_signal;
+
+typedef enum {
     GDI_PASS_TYPE_RENDER,
     GDI_PASS_TYPE_COMPUTE,
+    GDI_PASS_TYPE_ASYNC_COMPUTE,
+    GDI_PASS_TYPE_WAIT,
     GDI_PASS_TYPE_TIMESTAMP
 } gdi_pass_type;
 
@@ -498,6 +511,7 @@ struct gdi_pass {
     union {
         gdi_render_pass* RenderPass;
         gdi_compute_pass ComputePass;
+        gdi_signal       Wait;
         struct {
             gdi_query_pool Pool;
             u32            Index;
@@ -558,6 +572,9 @@ typedef struct {
     
     gdi_pass* FirstPass;
     gdi_pass* LastPass;
+    
+    u64 NextGraphicsSignalValue;
+    u64 NextComputeSignalValue;
 } gdi_device_context;
 
 #define GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(name) b32 name(gdi* GDI, gdi_device* Device)
@@ -763,6 +780,7 @@ struct gdi {
 #define GDI_Constant_Buffer_Alignment() GDI_Get()->DeviceContext->ConstantBufferAlignment
 #define GDI_Get_Timestamp_Period() GDI_Get()->DeviceContext->TimestampPeriod
 #define GDI_Get_Swapchain_Dim(swapchain) GDI_Get_Swapchain_Info(swapchain).Dim
+#define GDI_Is_Async_Compute_Supported() GDI_Get_Device_Context()->Device->IsAsyncComputeSupported
 
 /* Others */
 
@@ -825,8 +843,10 @@ export_function b32 GDI_Get_Query_Results(gdi_query_pool Pool, u32 FirstQuery, u
 export_function void GDI_Flush(void);
 
 /* Frames */
-export_function void GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);
-export_function void GDI_Submit_Compute_Pass(gdi_texture_view_array TextureWrites, gdi_buffer_array BufferWrites, gdi_dispatch_array Dispatches);
+export_function gdi_signal GDI_Submit_Render_Pass(gdi_render_pass* RenderPass);
+export_function gdi_signal GDI_Submit_Compute_Pass(gdi_texture_view_array TextureWrites, gdi_buffer_array BufferWrites, gdi_dispatch_array Dispatches);
+export_function gdi_signal GDI_Submit_Async_Compute_Pass(gdi_texture_view_array TextureWrites, gdi_buffer_array BufferWrites, gdi_dispatch_array Dispatches);
+export_function void GDI_Wait_Signal(gdi_signal Signal);
 export_function void GDI_Render(const gdi_render_params* RenderParams);
 
 /* Render Pass */

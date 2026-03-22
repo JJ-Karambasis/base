@@ -1,8 +1,12 @@
 // raddbg 0.9.25 project file
 
 recent_file: path: "c:/Users/akara/Projects/base/code/gdi/backend/vk/vk_gdi.c"
-recent_file: path: "c:/Users/akara/Projects/base/code/third_party/VulkanMemoryAllocator/vk_mem_alloc.h"
+recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/tran/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/tran/fpexcept.cpp"
 recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/gdi_tests.cpp"
+recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/unit_tests.cpp"
+recent_file: path: "C:/Users/akara/Projects/base/code/third_party/DirectXShaderCompiler/include/dxc/dxcapi.h"
+recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/geometry_tests.cpp"
+recent_file: path: "c:/Users/akara/Projects/base/code/third_party/VulkanMemoryAllocator/vk_mem_alloc.h"
 recent_file: path: "c:/Users/akara/Projects/base/code/base.c"
 recent_file: path: "code/geometry/gjk_epa.c"
 recent_file: path: "code/base.c"
@@ -66,7 +70,7 @@ breakpoint:
 debug_info:
 {
   path: "C:/Users/akara/Projects/base/bin/unit_tests.pdb"
-  timestamp: 66209778239894
+  timestamp: 66209926794765
 }
 target:
 {

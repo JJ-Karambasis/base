@@ -266,8 +266,9 @@ struct vk_frame_thread_context {
 	arena* 			Arena;
 	arena* 			TempArena;
 	b32    			NeedsReset;
-	VkCommandPool   CmdPool;
-	VkCommandBuffer CmdBuffer;
+	VkCommandPool   RenderCmdPool;
+	VkCommandPool   TransferCmdPool;
+	VkCommandBuffer TransferCmdBuffer;
 	vk_cpu_buffer   UploadBuffer;
     
 	vk_render_pass* FreeRenderPasses;
@@ -287,6 +288,19 @@ struct vk_frame_thread_context {
 	vk_frame_thread_context* Next;
 };
 
+typedef enum {
+	VK_CMD_BUFFER_TYPE_RENDER,
+	VK_CMD_BUFFER_TYPE_COMPUTE,
+	VK_CMD_BUFFER_TYPE_TRANSFER
+} vk_cmd_buffer_type;
+
+typedef struct vk_cmd_buffer vk_cmd_buffer;
+struct vk_cmd_buffer {
+	vk_cmd_buffer_type Type;
+	VkCommandBuffer Handle;
+	vk_cmd_buffer* Next;
+};
+
 struct vk_frame_context {
 	arena* 			TempArena;
 	os_tls* 	    ThreadContextTLS;
@@ -295,9 +309,16 @@ struct vk_frame_context {
 	os_mutex*       FenceLock;
 	VkSemaphore     RenderLock;
 	VkCommandPool   CmdPool;
-	VkCommandBuffer CmdBuffer;
+	VkCommandPool   ComputeCmdPool;
+	VkCommandPool   TransferCmdPool;
 	vk_cpu_buffer 	ReadbackBuffer;
 	u32 			Index;
+
+	vk_cmd_buffer* FreeCmdBuffers;
+	vk_cmd_buffer* FreeComputeCmdBuffers;
+	vk_cmd_buffer* FreeTransferCmdBuffers;
+
+	vk_cmd_buffer* RecordedCmdBuffers;
     
 	vk_texture_readback_array TextureReadbacks;
 	vk_buffer_readback_array BufferReadbacks;
@@ -314,6 +335,8 @@ typedef struct {
 	VkPhysicalDeviceMemoryProperties Memory;
 	u32 							 GraphicsQueueFamilyIndex;
 	u32 							 PresentQueueFamilyIndex;
+	u32 							 ComputeQueueFamilyIndex;
+	u32 							 TransferQueueFamilyIndex;
 	dynamic_char_ptr_array 			 Extensions;
 	VkPhysicalDeviceFeatures2KHR* 	 Features;
 } vk_gpu;
@@ -325,10 +348,13 @@ struct vk_device_context {
 	arena* FrameArena;
     
 	vk_gpu* 	GPU;
+	b32 IsAsyncComputeSupported;
+	b32 HasDedicatedTransferQueue;
     
 	VkDevice Device;
     
 	VkQueue  GraphicsQueue;
+	VkQueue  ComputeQueue;
 	VkQueue  PresentQueue;
 	VkQueue  TransferQueue;
     
@@ -340,6 +366,13 @@ struct vk_device_context {
 	os_thread* 	  ReadbackThread;
 	os_semaphore* ReadbackSignalSemaphore;
 	os_semaphore* ReadbackFinishedSemaphore;
+
+	VkSemaphore ComputeTimelineSemaphore;
+	u64 		ComputeTimelineValue;
+	VkSemaphore GraphicsTimelineSemaphore;
+	u64 		GraphicsTimelineValue;
+	VkSemaphore TransferTimelineSemaphore;
+	u64 		TransferTimelineValue;
     
 	//Resources
 	VmaAllocator 	 GPUAllocator;

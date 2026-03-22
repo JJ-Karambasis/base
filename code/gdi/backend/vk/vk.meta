@@ -146,6 +146,7 @@ VK_DEVICE_FUNCS(VK_KHR_swapchain, {
 
 VK_DEVICE_FUNCS(VK_KHR_synchronization2, {
 	VK_FUNC(vkCmdPipelineBarrier2KHR);
+	VK_FUNC(vkQueueSubmit2KHR);
 });
 
 VK_DEVICE_FUNCS(VK_KHR_dynamic_rendering, {

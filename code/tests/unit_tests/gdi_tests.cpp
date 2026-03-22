@@ -1777,6 +1777,8 @@ UTEST(gdi, DynamicBindGroupCopyTest) {
 }
 
 UTEST(gdi, AsyncComputeOverlapTest) {
+    if(!GDI_Is_Async_Compute_Supported()) return;
+
 	scratch Scratch;
 
 	enum {
@@ -1897,7 +1899,7 @@ UTEST(gdi, AsyncComputeOverlapTest) {
 			.Shader = ComputeShader,
 			.ThreadGroupCount = V3i(ComputeTextureInfo.Dim.x / 8, ComputeTextureInfo.Dim.y / 8, 1)
 		};
-		GDI_Submit_Compute_Pass({ .Ptr = &ComputeTexture.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+		GDI_Submit_Async_Compute_Pass({ .Ptr = &ComputeTexture.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
 	}
 
 	GDI_Write_Timestamp(QueryPool, QUERY_COMPUTE_END);
@@ -1959,4 +1961,1656 @@ UTEST(gdi, AsyncComputeOverlapTest) {
 	GDI_Delete_Shader(RenderShader);
 	GDI_Delete_Shader(ComputeShader);
 	GDI_Delete_Query_Pool(QueryPool);
+}
+
+UTEST(gdi, AsyncComputeSignalWaitTest) {
+	scratch Scratch;
+
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(0, 0, 1, 1);
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Async Write Blue Shader")
+		};
+
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	gdi_shader RenderShader;
+	gdi_layout RenderLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		RenderLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D InputTexture : register(t0, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return InputTexture.Load(int3(Position.xy, 0));
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &RenderLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Async Blit Shader")
+		};
+
+		RenderShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	texture ComputeTexture;
+	ASSERT_TRUE(Texture_Create(&ComputeTexture, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group TextureBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &ComputeTexture.View, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = {
+			.Layout = RenderLayout,
+			.Writes = { .Ptr = &Write, .Count = 1 }
+		};
+		TextureBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(TextureBindGroup));
+	}
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
+
+	// Async compute writes blue to ComputeTexture
+	gdi_dispatch Dispatch = {
+		.Shader = ComputeShader,
+		.ThreadGroupCount = V3i(64/8, 64/8, 1)
+	};
+	gdi_signal ComputeSignal = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &ComputeTexture.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+
+	// Wait for async compute to finish before reading its output
+	GDI_Wait_Signal(ComputeSignal);
+
+	// Render pass blits compute result into render target
+	{
+		gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { RenderTarget.View } };
+		gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RenderPass, RenderShader);
+		Render_Set_Bind_Group(RenderPass, 0, TextureBindGroup);
+		Render_Draw(RenderPass, 3, 0);
+		GDI_End_Render_Pass(RenderPass);
+		GDI_Submit_Render_Pass(RenderPass);
+	}
+
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = RenderTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	ASSERT_EQ(TestContext.Dim.x, TexInfo.Dim.x);
+	ASSERT_EQ(TestContext.Dim.y, TexInfo.Dim.y);
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFFFF0000);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(TextureBindGroup);
+	Texture_Delete(&RenderTarget);
+	Texture_Delete(&ComputeTexture);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(RenderLayout);
+}
+
+UTEST(gdi, GraphicsToAsyncComputeWaitTest) {
+	scratch Scratch;
+
+	gdi_shader RenderShader;
+	{
+		const char* ShaderCode = R"(
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return float4(0, 1, 0, 1);
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("G2C Green Shader")
+		};
+
+		RenderShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	gdi_shader ComputeShader;
+	gdi_layout ComputeLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		ComputeLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D<float4> InputTexture : register(t0, space1);
+
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			float4 Color = InputTexture.Load(int3(ThreadID.xy, 0));
+			Output[ThreadID.xy] = Color;
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+
+		gdi_bind_group_binding WBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &ComputeLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WBinding, .Count = 1 },
+			.DebugName = String_Lit("G2C Copy Compute Shader")
+		};
+
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture ComputeOutput;
+	ASSERT_TRUE(Texture_Create(&ComputeOutput, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group InputBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &RenderTarget.View, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = {
+			.Layout = ComputeLayout,
+			.Writes = { .Ptr = &Write, .Count = 1 }
+		};
+		InputBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(InputBindGroup));
+	}
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(ComputeOutput.Handle);
+
+	// Step 1: Render pass fills render target with green
+	gdi_render_pass_begin_info BeginInfo = {
+		.RenderTargetViews = { RenderTarget.View },
+		.ClearColors = { { .ShouldClear = true, .F32 = { 0, 0, 0, 1 } } }
+	};
+	gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+	Render_Set_Shader(RenderPass, RenderShader);
+	Render_Draw(RenderPass, 3, 0);
+	GDI_End_Render_Pass(RenderPass);
+	gdi_signal GraphicsSignal = GDI_Submit_Render_Pass(RenderPass);
+
+	// Step 2: Async compute waits on render pass, then copies render target to compute output
+	GDI_Wait_Signal(GraphicsSignal);
+
+	gdi_dispatch Dispatch = {
+		.Shader = ComputeShader,
+		.BindGroups = { InputBindGroup },
+		.ThreadGroupCount = V3i(64/8, 64/8, 1)
+	};
+	gdi_signal ComputeSignal = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &ComputeOutput.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = ComputeOutput.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	ASSERT_EQ(TestContext.Dim.x, TexInfo.Dim.x);
+	ASSERT_EQ(TestContext.Dim.y, TexInfo.Dim.y);
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFF00FF00);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(InputBindGroup);
+	Texture_Delete(&ComputeOutput);
+	Texture_Delete(&RenderTarget);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Bind_Group_Layout(ComputeLayout);
+}
+
+UTEST(gdi, MultipleAsyncComputeSignalTest) {
+	scratch Scratch;
+
+	gdi_shader RedShader;
+	gdi_shader BlueShader;
+	{
+		auto MakeColorShader = [](const char* ShaderCode) -> gdi_shader {
+			IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+			if(!CSBlob) return GDI_Null_Handle(gdi_shader);
+
+			gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+			gdi_shader_create_info CreateInfo = {
+				.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+				.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			};
+			gdi_shader Result = GDI_Create_Shader(&CreateInfo);
+			CSBlob->Release();
+			return Result;
+		};
+
+		const char* RedCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) { Output[ThreadID.xy] = float4(1, 0, 0, 1); }
+		)";
+
+		const char* BlueCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) { Output[ThreadID.xy] = float4(0, 0, 1, 1); }
+		)";
+
+		RedShader = MakeColorShader(RedCode);
+		ASSERT_FALSE(GDI_Is_Null(RedShader));
+		BlueShader = MakeColorShader(BlueCode);
+		ASSERT_FALSE(GDI_Is_Null(BlueShader));
+	}
+
+	gdi_shader BlitShader;
+	gdi_layout BlitLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		BlitLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(BlitLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D InputTexture : register(t0, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return InputTexture.Load(int3(Position.xy, 0));
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &BlitLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+		};
+
+		BlitShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(BlitShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	texture TexA, TexB;
+	ASSERT_TRUE(Texture_Create(&TexA, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&TexB, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture FinalTarget;
+	ASSERT_TRUE(Texture_Create(&FinalTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group BindGroupB;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &TexB.View, .Count = 1 } };
+		gdi_bind_group_create_info Info = { .Layout = BlitLayout, .Writes = { .Ptr = &Write, .Count = 1 } };
+		BindGroupB = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(BindGroupB));
+	}
+
+	v3i TGC = V3i(64/8, 64/8, 1);
+
+	// Two independent async compute passes writing different textures
+	gdi_dispatch DispatchA = { .Shader = RedShader, .ThreadGroupCount = TGC };
+	gdi_signal SignalA = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &TexA.View, .Count = 1 }, {}, { .Ptr = &DispatchA, .Count = 1 });
+
+	gdi_dispatch DispatchB = { .Shader = BlueShader, .ThreadGroupCount = TGC };
+	gdi_signal SignalB = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &TexB.View, .Count = 1 }, {}, { .Ptr = &DispatchB, .Count = 1 });
+
+	// Wait on both before rendering
+	GDI_Wait_Signal(SignalA);
+	GDI_Wait_Signal(SignalB);
+
+	// Blit TexB (blue) to final target to verify it completed
+	{
+		gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { FinalTarget.View } };
+		gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RP, BlitShader);
+		Render_Set_Bind_Group(RP, 0, BindGroupB);
+		Render_Draw(RP, 3, 0);
+		GDI_End_Render_Pass(RP);
+		GDI_Submit_Render_Pass(RP);
+	}
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(FinalTarget.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = FinalTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFFFF0000);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(BindGroupB);
+	Texture_Delete(&FinalTarget);
+	Texture_Delete(&TexB);
+	Texture_Delete(&TexA);
+	GDI_Delete_Shader(BlitShader);
+	GDI_Delete_Shader(BlueShader);
+	GDI_Delete_Shader(RedShader);
+	GDI_Delete_Bind_Group_Layout(BlitLayout);
+}
+
+UTEST(gdi, ChainedAsyncComputeTest) {
+	scratch Scratch;
+
+	gdi_shader WriteRedShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(1, 0, 0, 1);
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Chain Stage A")
+		};
+		WriteRedShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(WriteRedShader));
+		CSBlob->Release();
+	}
+
+	gdi_shader CopyShader;
+	gdi_layout CopyLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		CopyLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(CopyLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D<float4> InputTexture : register(t0, space1);
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = InputTexture.Load(int3(ThreadID.xy, 0));
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+		gdi_bind_group_binding WBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &CopyLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WBinding, .Count = 1 },
+			.DebugName = String_Lit("Chain Stage B")
+		};
+		CopyShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(CopyShader));
+		CSBlob->Release();
+	}
+
+	texture TexA;
+	ASSERT_TRUE(Texture_Create(&TexA, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture TexB;
+	ASSERT_TRUE(Texture_Create(&TexB, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group InputBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &TexA.View, .Count = 1 } };
+		gdi_bind_group_create_info Info = { .Layout = CopyLayout, .Writes = { .Ptr = &Write, .Count = 1 } };
+		InputBindGroup = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(InputBindGroup));
+	}
+
+	v3i TGC = V3i(64/8, 64/8, 1);
+
+	// Stage A: async compute writes red to TexA
+	gdi_dispatch DispatchA = { .Shader = WriteRedShader, .ThreadGroupCount = TGC };
+	gdi_signal SignalA = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &TexA.View, .Count = 1 }, {}, { .Ptr = &DispatchA, .Count = 1 });
+
+	// Stage B must wait on Stage A, then copy TexA -> TexB
+	GDI_Wait_Signal(SignalA);
+
+	gdi_dispatch DispatchB = {
+		.Shader = CopyShader,
+		.BindGroups = { InputBindGroup },
+		.ThreadGroupCount = TGC
+	};
+	gdi_signal SignalB = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &TexB.View, .Count = 1 }, {}, { .Ptr = &DispatchB, .Count = 1 });
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(TexB.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = TexB.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFF0000FF);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(InputBindGroup);
+	Texture_Delete(&TexB);
+	Texture_Delete(&TexA);
+	GDI_Delete_Shader(CopyShader);
+	GDI_Delete_Shader(WriteRedShader);
+	GDI_Delete_Bind_Group_Layout(CopyLayout);
+}
+
+UTEST(gdi, MultipleWaitsSameSignalTest) {
+	scratch Scratch;
+
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(1, 0, 1, 1);
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Multi Wait Shader")
+		};
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	texture Tex;
+	ASSERT_TRUE(Texture_Create(&Tex, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	v3i TGC = V3i(64/8, 64/8, 1);
+	gdi_dispatch Dispatch = { .Shader = ComputeShader, .ThreadGroupCount = TGC };
+
+	gdi_signal Signal = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &Tex.View, .Count = 1 }, {}, { .Ptr = &Dispatch, .Count = 1 });
+
+	// Backend must handle redundant waits on the same signal gracefully
+	GDI_Wait_Signal(Signal);
+	GDI_Wait_Signal(Signal);
+	GDI_Wait_Signal(Signal);
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(Tex.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = Tex.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFFFF00FF);
+			Texels++;
+		}
+	}
+
+	Texture_Delete(&Tex);
+	GDI_Delete_Shader(ComputeShader);
+}
+
+UTEST(gdi, InterleavedAsyncAndGraphicsTest) {
+	scratch Scratch;
+
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(0, 1, 1, 1);
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.DebugName = String_Lit("Interleaved Compute Shader")
+		};
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	gdi_shader BlitShader;
+	gdi_layout BlitLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		BlitLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(BlitLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D InputTexture : register(t0, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return InputTexture.Load(int3(Position.xy, 0));
+		}
+		)";
+
+		IDxcBlob* VtxBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PxlBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxBlob && PxlBlob);
+
+		gdi_shader_create_info CreateInfo = {
+			.VS = { .Ptr = (u8*)VtxBlob->GetBufferPointer(), .Size = VtxBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlBlob->GetBufferPointer(), .Size = PxlBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &BlitLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+		};
+		BlitShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(BlitShader));
+		VtxBlob->Release();
+		PxlBlob->Release();
+	}
+
+	texture ComputeTexA, ComputeTexB, RenderTargetA, FinalTarget;
+	ASSERT_TRUE(Texture_Create(&ComputeTexA, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&ComputeTexB, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&RenderTargetA, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET
+	}));
+	ASSERT_TRUE(Texture_Create(&FinalTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group BindGroupB;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &ComputeTexB.View, .Count = 1 } };
+		gdi_bind_group_create_info Info = { .Layout = BlitLayout, .Writes = { .Ptr = &Write, .Count = 1 } };
+		BindGroupB = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(BindGroupB));
+	}
+
+	v3i TGC = V3i(64/8, 64/8, 1);
+
+	// Pattern: Async Compute A -> Render A -> Wait A -> Async Compute B -> Wait B -> Final Render
+	gdi_dispatch DispatchA = { .Shader = ComputeShader, .ThreadGroupCount = TGC };
+	gdi_signal SignalA = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &ComputeTexA.View, .Count = 1 }, {}, { .Ptr = &DispatchA, .Count = 1 });
+
+	// Unrelated render work while async compute A is in flight
+	{
+		gdi_render_pass_begin_info BeginInfo = {
+			.RenderTargetViews = { RenderTargetA.View },
+			.ClearColors = { { .ShouldClear = true, .F32 = { 1, 0, 0, 1 } } }
+		};
+		gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+		GDI_End_Render_Pass(RP);
+		GDI_Submit_Render_Pass(RP);
+	}
+
+	GDI_Wait_Signal(SignalA);
+
+	// Second async compute after the first completed
+	gdi_dispatch DispatchB = { .Shader = ComputeShader, .ThreadGroupCount = TGC };
+	gdi_signal SignalB = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &ComputeTexB.View, .Count = 1 }, {}, { .Ptr = &DispatchB, .Count = 1 });
+
+	GDI_Wait_Signal(SignalB);
+
+	// Final render: blit ComputeTexB (cyan) to final target
+	{
+		gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { FinalTarget.View } };
+		gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RP, BlitShader);
+		Render_Set_Bind_Group(RP, 0, BindGroupB);
+		Render_Draw(RP, 3, 0);
+		GDI_End_Render_Pass(RP);
+		GDI_Submit_Render_Pass(RP);
+	}
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(FinalTarget.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = FinalTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFFFFFF00);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(BindGroupB);
+	Texture_Delete(&FinalTarget);
+	Texture_Delete(&RenderTargetA);
+	Texture_Delete(&ComputeTexB);
+	Texture_Delete(&ComputeTexA);
+	GDI_Delete_Shader(BlitShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(BlitLayout);
+}
+
+UTEST(gdi, AsyncComputePipelinedFrameTest) {
+	scratch Scratch;
+
+	//
+	// Pipelined frame pattern:
+	//
+	// Frame 0:  AsyncCompute(TexA, color0)
+	// Frame 1:  Wait(compute0) -> Render(TexA -> FinalTarget) + AsyncCompute(TexB, color1)
+	// Frame 2:  Wait(compute1) -> Render(TexB -> FinalTarget) + AsyncCompute(TexA, color2)
+	// Frame 3:  Wait(compute2) -> Render(TexA -> FinalTarget) + AsyncCompute(TexB, color3)
+	// ...
+	// Frame N (final): Wait(computeN-1) -> Render(Tex -> FinalTarget), no new compute
+	//
+	// Each frame renders last frame's compute result while kicking off new compute.
+	// Textures ping-pong between A and B. The render pass consumes the "old" texture
+	// while async compute writes the "new" one, so they can truly run in parallel.
+	//
+	// Then we do the same thing again in reverse order (descending colors).
+	//
+
+	gdi_shader ComputeShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		struct push_data { float R; float G; float B; };
+		[[vk::push_constant]]
+		ConstantBuffer<push_data> PushData : register(b0, space1);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(PushData.R, PushData.G, PushData.B, 1);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CI = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.PushConstantCount = 3,
+			.DebugName = String_Lit("Pipelined Compute Shader")
+		};
+		ComputeShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		Blob->Release();
+	}
+
+	gdi_layout BlitLayout;
+	gdi_shader BlitShader;
+	{
+		gdi_bind_group_binding Bindings[] = { { .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 } };
+		gdi_bind_group_layout_create_info LI = { .Bindings = { .Ptr = Bindings, .Count = 1 } };
+		BlitLayout = GDI_Create_Bind_Group_Layout(&LI);
+		ASSERT_FALSE(GDI_Is_Null(BlitLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D InputTexture : register(t0, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return InputTexture.Load(int3(Position.xy, 0));
+		}
+		)";
+		IDxcBlob* VBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VBlob && PBlob);
+		gdi_shader_create_info CI = {
+			.VS = { .Ptr = (u8*)VBlob->GetBufferPointer(), .Size = VBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PBlob->GetBufferPointer(), .Size = PBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &BlitLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Pipelined Blit Shader")
+		};
+		BlitShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(BlitShader));
+		VBlob->Release();
+		PBlob->Release();
+	}
+
+	v2i TexDim = V2i(64, 64);
+	v3i TGC = V3i(TexDim.x/8, TexDim.y/8, 1);
+
+	texture TexA, TexB;
+	ASSERT_TRUE(Texture_Create(&TexA, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&TexB, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+
+	texture FinalTarget;
+	ASSERT_TRUE(Texture_Create(&FinalTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group BindGroupA, BindGroupB;
+	{
+		gdi_bind_group_write WA = { .TextureViews = { .Ptr = &TexA.View, .Count = 1 } };
+		gdi_bind_group_create_info IA = { .Layout = BlitLayout, .Writes = { .Ptr = &WA, .Count = 1 } };
+		BindGroupA = GDI_Create_Bind_Group(&IA);
+		ASSERT_FALSE(GDI_Is_Null(BindGroupA));
+
+		gdi_bind_group_write WB = { .TextureViews = { .Ptr = &TexB.View, .Count = 1 } };
+		gdi_bind_group_create_info IB = { .Layout = BlitLayout, .Writes = { .Ptr = &WB, .Count = 1 } };
+		BindGroupB = GDI_Create_Bind_Group(&IB);
+		ASSERT_FALSE(GDI_Is_Null(BindGroupB));
+	}
+
+	struct color3 { f32 R, G, B; };
+
+	auto RunPipelinedSequence = [&](color3* Colors, u32 Count) {
+		texture* PingPong[2] = { &TexA, &TexB };
+		gdi_bind_group PingPongBG[2] = { BindGroupA, BindGroupB };
+
+		gdi_signal PrevComputeSignal = {};
+		u32 PrevIdx = 0;
+		b32 HasPrevCompute = false;
+
+		for(u32 i = 0; i < Count; i++) {
+			u32 CurIdx = i % 2;
+
+			if(HasPrevCompute) {
+				GDI_Wait_Signal(PrevComputeSignal);
+
+				gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { FinalTarget.View } };
+				gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+				Render_Set_Shader(RP, BlitShader);
+				Render_Set_Bind_Group(RP, 0, PingPongBG[PrevIdx]);
+				Render_Draw(RP, 3, 0);
+				GDI_End_Render_Pass(RP);
+				GDI_Submit_Render_Pass(RP);
+			}
+
+			color3 C = Colors[i];
+			gdi_dispatch Dispatch = { .Shader = ComputeShader, .PushConstantCount = 3, .ThreadGroupCount = TGC };
+			Memory_Copy(Dispatch.PushConstants, &C, sizeof(color3));
+			PrevComputeSignal = GDI_Submit_Async_Compute_Pass(
+				{ .Ptr = &PingPong[CurIdx]->View, .Count = 1 }, {},
+				{ .Ptr = &Dispatch, .Count = 1 });
+
+			HasPrevCompute = true;
+			PrevIdx = CurIdx;
+
+			gdi_render_params Params = {};
+			GDI_Render(&Params);
+		}
+
+		// Drain frame: wait on last compute, render its result, readback and validate
+		GDI_Wait_Signal(PrevComputeSignal);
+		{
+			gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { FinalTarget.View } };
+			gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RP, BlitShader);
+			Render_Set_Bind_Group(RP, 0, PingPongBG[PrevIdx]);
+			Render_Draw(RP, 3, 0);
+			GDI_End_Render_Pass(RP);
+			GDI_Submit_Render_Pass(RP);
+		}
+
+		gdi_texture_info TexInfo = GDI_Get_Texture_Info(FinalTarget.Handle);
+		simple_test_context TestContext = {
+			.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+		};
+
+		gdi_texture_readback Readback = {
+			.Texture = FinalTarget.Handle,
+			.UserData = &TestContext,
+			.ReadbackFunc = Simple_Texture_Readback
+		};
+
+		gdi_render_params Params = { .TextureReadbacks = { .Ptr = &Readback, .Count = 1 } };
+		GDI_Render(&Params);
+		GDI_Flush();
+
+		color3 Last = Colors[Count - 1];
+		u8 ExpR = (u8)(Last.R * 255.0f + 0.5f);
+		u8 ExpG = (u8)(Last.G * 255.0f + 0.5f);
+		u8 ExpB = (u8)(Last.B * 255.0f + 0.5f);
+
+		u32* Texels = (u32*)TestContext.Texels;
+		for(s32 y = 0; y < TestContext.Dim.y; y++) {
+			for(s32 x = 0; x < TestContext.Dim.x; x++) {
+				u8 TexelR = (*Texels >> 0)  & 0xFF;
+				u8 TexelG = (*Texels >> 8)  & 0xFF;
+				u8 TexelB = (*Texels >> 16) & 0xFF;
+				ASSERT_NEAR((f32)TexelR, (f32)ExpR, 2.0f);
+				ASSERT_NEAR((f32)TexelG, (f32)ExpG, 2.0f);
+				ASSERT_NEAR((f32)TexelB, (f32)ExpB, 2.0f);
+				Texels++;
+			}
+		}
+	};
+
+	// Forward pass: 10 frames with ascending colors
+	{
+		color3 Colors[10];
+		for(u32 i = 0; i < 10; i++) {
+			f32 T = (f32)i / 9.0f;
+			Colors[i] = { T, 0.0f, 1.0f - T };
+		}
+		RunPipelinedSequence(Colors, 10);
+	}
+
+	// Reverse pass: 10 frames with descending colors
+	{
+		color3 Colors[10];
+		for(u32 i = 0; i < 10; i++) {
+			f32 T = 1.0f - (f32)i / 9.0f;
+			Colors[i] = { T, 0.0f, 1.0f - T };
+		}
+		RunPipelinedSequence(Colors, 10);
+	}
+
+	GDI_Delete_Bind_Group(BindGroupB);
+	GDI_Delete_Bind_Group(BindGroupA);
+	Texture_Delete(&FinalTarget);
+	Texture_Delete(&TexB);
+	Texture_Delete(&TexA);
+	GDI_Delete_Shader(BlitShader);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(BlitLayout);
+}
+
+UTEST(gdi, AsyncComputeBufferOwnershipTest) {
+	gdi_tests* Tests = GDI_Get_Tests();
+	ASSERT_TRUE(Tests);
+
+	scratch Scratch;
+
+	struct buf_data {
+		v4 Values[16];
+	};
+
+	gdi_shader ComputeShader;
+	gdi_layout ComputeBufferLayout;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LayoutInfo = {
+			.Bindings = { .Ptr = Bindings, .Count = Array_Count(Bindings) }
+		};
+		ComputeBufferLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeBufferLayout));
+
+		const char* ShaderCode = R"(
+		struct buf_data {
+			float4 Values[16];
+		};
+
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		StructuredBuffer<buf_data> InputBuffer : register(t0, space1);
+
+		[numthreads(4, 4, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			uint Idx = ThreadID.y * 4 + ThreadID.x;
+			if(Idx < 16) {
+				float4 Color = InputBuffer[0].Values[Idx];
+				uint2 Base = ThreadID.xy * 4;
+				for(uint y = 0; y < 4; y++) {
+					for(uint x = 0; x < 4; x++) {
+						Output[Base + uint2(x, y)] = Color;
+					}
+				}
+			}
+		}
+		)";
+
+		IDxcBlob* CSBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(CSBlob);
+		gdi_bind_group_binding WBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CreateInfo = {
+			.CS = { .Ptr = (u8*)CSBlob->GetBufferPointer(), .Size = CSBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &ComputeBufferLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WBinding, .Count = 1 },
+			.DebugName = String_Lit("Buffer Ownership Compute Shader")
+		};
+		ComputeShader = GDI_Create_Shader(&CreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeShader));
+		CSBlob->Release();
+	}
+
+	buf_data BufferData;
+	for(u32 i = 0; i < 16; i++) {
+		BufferData.Values[i] = V4(1.0f, 0.0f, 0.0f, 1.0f);
+	}
+
+	gdi_buffer Buffer;
+	gdi_bind_group BufferBindGroup;
+	{
+		gdi_buffer_create_info BufferInfo = {
+			.Size = sizeof(buf_data),
+			.Usage = GDI_BUFFER_USAGE_STORAGE,
+			.InitialData = Make_Buffer(&BufferData, sizeof(BufferData))
+		};
+		Buffer = GDI_Create_Buffer(&BufferInfo);
+		ASSERT_FALSE(GDI_Is_Null(Buffer));
+
+		gdi_bind_group_buffer BGBuffer = { .Buffer = Buffer };
+		gdi_bind_group_write Write = { .Buffers = { .Ptr = &BGBuffer, .Count = 1 } };
+		gdi_bind_group_create_info Info = {
+			.Layout = ComputeBufferLayout,
+			.Writes = { .Ptr = &Write, .Count = 1 }
+		};
+		BufferBindGroup = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(BufferBindGroup));
+	}
+
+	texture OutputTexture;
+	ASSERT_TRUE(Texture_Create(&OutputTexture, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = V2i(16, 16),
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_dispatch Dispatch = {
+		.Shader = ComputeShader,
+		.BindGroups = { BufferBindGroup },
+		.ThreadGroupCount = V3i(1, 1, 1)
+	};
+
+	gdi_signal Signal = GDI_Submit_Async_Compute_Pass(
+		{ .Ptr = &OutputTexture.View, .Count = 1 }, { .Ptr = &Buffer, .Count = 1 },
+		{ .Ptr = &Dispatch, .Count = 1 });
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(OutputTexture.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+
+	gdi_texture_readback TextureReadback = {
+		.Texture = OutputTexture.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback
+	};
+
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+	};
+
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	u32* Texels = (u32*)TestContext.Texels;
+	for(s32 y = 0; y < TestContext.Dim.y; y++) {
+		for(s32 x = 0; x < TestContext.Dim.x; x++) {
+			ASSERT_EQ(*Texels, 0xFF0000FF);
+			Texels++;
+		}
+	}
+
+	GDI_Delete_Bind_Group(BufferBindGroup);
+	GDI_Delete_Buffer(Buffer);
+	Texture_Delete(&OutputTexture);
+	GDI_Delete_Shader(ComputeShader);
+	GDI_Delete_Bind_Group_Layout(ComputeBufferLayout);
+}
+
+UTEST(gdi, AsyncComputeMultiFrameStressTest) {
+	//
+	// Per-frame dependency graph (repeated over multiple frames):
+	//
+	//   AsyncCompute_Red  (writes TexRed)  ----+
+	//                                          |
+	//   AsyncCompute_Blue (writes TexBlue) -+  |
+	//                                       |  |
+	//   Render_GreenBG (writes GreenRT) -+  |  |
+	//                                    |  |  |
+	//                          wait(Green)  |  |
+	//                                    |  |  |
+	//   AsyncCompute_Copy (reads GreenRT, writes TexGreen)
+	//                                       |  |
+	//                           wait(Blue) -+  |
+	//                            wait(Red) ----+
+	//                          wait(Copy)
+	//                                    |
+	//   Render_Composite (reads TexRed, TexBlue, TexGreen -> FinalTarget)
+	//                                    |
+	//                              readback FinalTarget
+	//
+	// This exercises:
+	// - Multiple async computes running in parallel (Red and Blue)
+	// - Graphics-to-async-compute dependency (Green render -> Copy compute)
+	// - Multiple waits converging before a single render pass
+	// - All of the above repeated across frames with changing data
+	//
+
+	scratch Scratch;
+
+	v2i TexDim = V2i(64, 64);
+	v3i TGC = V3i(TexDim.x/8, TexDim.y/8, 1);
+
+	// --- Shaders ---
+
+	gdi_shader RedShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		struct push_data { float Intensity; };
+		[[vk::push_constant]]
+		ConstantBuffer<push_data> PushData : register(b0, space1);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(PushData.Intensity, 0, 0, 1);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CI = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.PushConstantCount = 1,
+			.DebugName = String_Lit("Stress Red CS")
+		};
+		RedShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(RedShader));
+		Blob->Release();
+	}
+
+	gdi_shader BlueShader;
+	{
+		const char* ShaderCode = R"(
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		struct push_data { float Intensity; };
+		[[vk::push_constant]]
+		ConstantBuffer<push_data> PushData : register(b0, space1);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = float4(0, 0, PushData.Intensity, 1);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding Binding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CI = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.WritableBindings = { .Ptr = &Binding, .Count = 1 },
+			.PushConstantCount = 1,
+			.DebugName = String_Lit("Stress Blue CS")
+		};
+		BlueShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(BlueShader));
+		Blob->Release();
+	}
+
+	gdi_layout CopyLayout;
+	gdi_shader CopyShader;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LI = { .Bindings = { .Ptr = Bindings, .Count = 1 } };
+		CopyLayout = GDI_Create_Bind_Group_Layout(&LI);
+		ASSERT_FALSE(GDI_Is_Null(CopyLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D<float4> InputTexture : register(t0, space1);
+		[[vk::image_format("rgba8")]]
+		RWTexture2D<float4> Output : register(u0, space0);
+		[numthreads(8, 8, 1)]
+		void CS_Main(uint3 ThreadID : SV_DispatchThreadID) {
+			Output[ThreadID.xy] = InputTexture.Load(int3(ThreadID.xy, 0));
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding WBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_TEXTURE, .Count = 1 };
+		gdi_shader_create_info CI = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &CopyLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WBinding, .Count = 1 },
+			.DebugName = String_Lit("Stress Copy CS")
+		};
+		CopyShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(CopyShader));
+		Blob->Release();
+	}
+
+	gdi_shader GreenRenderShader;
+	{
+		const char* ShaderCode = R"(
+		struct push_data { float Intensity; };
+		[[vk::push_constant]] ConstantBuffer<push_data> PushData : register(b0, space1);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			return float4(0, PushData.Intensity, 0, 1);
+		}
+		)";
+		IDxcBlob* VBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VBlob && PBlob);
+		gdi_shader_create_info CI = {
+			.VS = { .Ptr = (u8*)VBlob->GetBufferPointer(), .Size = VBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PBlob->GetBufferPointer(), .Size = PBlob->GetBufferSize() },
+            .PushConstantCount = 1,
+            .RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Stress Green Render")
+		};
+		GreenRenderShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(GreenRenderShader));
+		VBlob->Release();
+		PBlob->Release();
+	}
+
+	gdi_layout CompositeLayout;
+	gdi_shader CompositeShader;
+	{
+		gdi_bind_group_binding Bindings[] = {
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 },
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 },
+			{ .Type = GDI_BIND_GROUP_TYPE_TEXTURE, .Count = 1 }
+		};
+		gdi_bind_group_layout_create_info LI = { .Bindings = { .Ptr = Bindings, .Count = 3 } };
+		CompositeLayout = GDI_Create_Bind_Group_Layout(&LI);
+		ASSERT_FALSE(GDI_Is_Null(CompositeLayout));
+
+		const char* ShaderCode = R"(
+		Texture2D RedTex   : register(t0, space0);
+		Texture2D BlueTex  : register(t1, space0);
+		Texture2D GreenTex : register(t2, space0);
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Position : SV_POSITION) : SV_TARGET0 {
+			int3 Coord = int3(Position.xy, 0);
+			float R = RedTex.Load(Coord).r;
+			float G = GreenTex.Load(Coord).g;
+			float B = BlueTex.Load(Coord).b;
+			return float4(R, G, B, 1);
+		}
+		)";
+		IDxcBlob* VBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+		IDxcBlob* PBlob = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VBlob && PBlob);
+		gdi_shader_create_info CI = {
+			.VS = { .Ptr = (u8*)VBlob->GetBufferPointer(), .Size = VBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PBlob->GetBufferPointer(), .Size = PBlob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &CompositeLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Stress Composite Render")
+		};
+		CompositeShader = GDI_Create_Shader(&CI);
+		ASSERT_FALSE(GDI_Is_Null(CompositeShader));
+		VBlob->Release();
+		PBlob->Release();
+	}
+
+	// --- Resources ---
+
+	texture TexRed, TexBlue, TexGreen, GreenRT, FinalTarget;
+	ASSERT_TRUE(Texture_Create(&TexRed, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&TexBlue, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&TexGreen, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_STORAGE|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&GreenRT, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_SAMPLED
+	}));
+	ASSERT_TRUE(Texture_Create(&FinalTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM, .Dim = TexDim,
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET|GDI_TEXTURE_USAGE_READBACK
+	}));
+
+	gdi_bind_group CopyBindGroup;
+	{
+		gdi_bind_group_write Write = { .TextureViews = { .Ptr = &GreenRT.View, .Count = 1 } };
+		gdi_bind_group_create_info Info = { .Layout = CopyLayout, .Writes = { .Ptr = &Write, .Count = 1 } };
+		CopyBindGroup = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(CopyBindGroup));
+	}
+
+	gdi_bind_group CompositeBindGroup;
+	{
+		gdi_bind_group_write Writes[] = {
+			{ .DstBinding = 0, .TextureViews = { .Ptr = &TexRed.View, .Count = 1 } },
+			{ .DstBinding = 1, .TextureViews = { .Ptr = &TexBlue.View, .Count = 1 } },
+			{ .DstBinding = 2, .TextureViews = { .Ptr = &TexGreen.View, .Count = 1 } }
+		};
+		gdi_bind_group_create_info Info = { .Layout = CompositeLayout, .Writes = { .Ptr = Writes, .Count = 3 } };
+		CompositeBindGroup = GDI_Create_Bind_Group(&Info);
+		ASSERT_FALSE(GDI_Is_Null(CompositeBindGroup));
+	}
+
+	// --- Overlap timing (only verified when async compute is supported) ---
+
+	enum {
+		QUERY_ASYNC_BEGIN  = 0,
+		QUERY_ASYNC_END    = 1,
+		QUERY_RENDER_BEGIN = 2,
+		QUERY_RENDER_END   = 3,
+		QUERY_SLOT_COUNT   = 4
+	};
+
+	gdi_query_pool QueryPool = {};
+	if(GDI_Is_Async_Compute_Supported()) {
+		gdi_query_pool_create_info QPI = {
+			.Count = QUERY_SLOT_COUNT,
+			.DebugName = String_Lit("Stress Overlap Query Pool")
+		};
+		QueryPool = GDI_Create_Query_Pool(&QPI);
+		ASSERT_FALSE(GDI_Is_Null(QueryPool));
+	}
+
+	u32 OverlapCount = 0;
+
+	// --- Frame loop ---
+
+	static const u32 FrameCount = 10;
+	for(u32 Frame = 0; Frame < FrameCount; Frame++) {
+		f32 T = (f32)Frame / (f32)(FrameCount - 1);
+		f32 RedIntensity   = T;
+		f32 BlueIntensity  = 1.0f - T;
+		f32 GreenIntensity = 0.5f + 0.5f * T;
+
+		//
+		// 1) Two async computes fire in parallel: Red and Blue
+		//    These have no dependencies and should overlap with each other
+		//    AND with the green render pass below.
+		//
+		if(GDI_Is_Async_Compute_Supported()) {
+			GDI_Write_Timestamp(QueryPool, QUERY_ASYNC_BEGIN);
+		}
+
+		gdi_dispatch RedDispatch = { .Shader = RedShader, .PushConstantCount = 1, .ThreadGroupCount = TGC };
+		Memory_Copy(RedDispatch.PushConstants, &RedIntensity, sizeof(f32));
+		gdi_signal RedSignal = GDI_Submit_Async_Compute_Pass(
+			{ .Ptr = &TexRed.View, .Count = 1 }, {}, { .Ptr = &RedDispatch, .Count = 1 });
+
+		gdi_dispatch BlueDispatch = { .Shader = BlueShader, .PushConstantCount = 1, .ThreadGroupCount = TGC };
+		Memory_Copy(BlueDispatch.PushConstants, &BlueIntensity, sizeof(f32));
+		gdi_signal BlueSignal = GDI_Submit_Async_Compute_Pass(
+			{ .Ptr = &TexBlue.View, .Count = 1 }, {}, { .Ptr = &BlueDispatch, .Count = 1 });
+
+		if(GDI_Is_Async_Compute_Supported()) {
+			GDI_Write_Timestamp(QueryPool, QUERY_ASYNC_END);
+		}
+
+		//
+		// 2) Graphics: render green to GreenRT (runs in parallel with Red/Blue async)
+		//
+		if(GDI_Is_Async_Compute_Supported()) {
+			GDI_Write_Timestamp(QueryPool, QUERY_RENDER_BEGIN);
+		}
+
+		gdi_signal GreenSignal;
+		{
+			gdi_render_pass_begin_info BeginInfo = {
+				.RenderTargetViews = { GreenRT.View },
+				.ClearColors = { { .ShouldClear = true, .F32 = { 0, 0, 0, 1 } } }
+			};
+			gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RP, GreenRenderShader);
+			Render_Set_Push_Constants(RP, &GreenIntensity, sizeof(f32));
+			Render_Draw(RP, 3, 0);
+			GDI_End_Render_Pass(RP);
+			GreenSignal = GDI_Submit_Render_Pass(RP);
+		}
+
+		if(GDI_Is_Async_Compute_Supported()) {
+			GDI_Write_Timestamp(QueryPool, QUERY_RENDER_END);
+		}
+
+		//
+		// 3) Async compute copies GreenRT -> TexGreen.
+		//    Must wait on the green render pass first (graphics -> compute dependency).
+		//
+		GDI_Wait_Signal(GreenSignal);
+
+		gdi_dispatch CopyDispatch = {
+			.Shader = CopyShader,
+			.BindGroups = { CopyBindGroup },
+			.ThreadGroupCount = TGC
+		};
+		gdi_signal CopySignal = GDI_Submit_Async_Compute_Pass(
+			{ .Ptr = &TexGreen.View, .Count = 1 }, {}, { .Ptr = &CopyDispatch, .Count = 1 });
+
+		//
+		// 4) Composite render: reads TexRed, TexBlue, TexGreen -> FinalTarget.
+		//    Must wait on ALL three producers: Red, Blue, and Copy.
+		//
+		GDI_Wait_Signal(RedSignal);
+		GDI_Wait_Signal(BlueSignal);
+		GDI_Wait_Signal(CopySignal);
+
+		{
+			gdi_render_pass_begin_info BeginInfo = { .RenderTargetViews = { FinalTarget.View } };
+			gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RP, CompositeShader);
+			Render_Set_Bind_Group(RP, 0, CompositeBindGroup);
+			Render_Draw(RP, 3, 0);
+			GDI_End_Render_Pass(RP);
+			GDI_Submit_Render_Pass(RP);
+		}
+
+		//
+		// 5) Readback and validate
+		//
+		gdi_texture_info TexInfo = GDI_Get_Texture_Info(FinalTarget.Handle);
+		simple_test_context TestContext = {
+			.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+		};
+
+		gdi_texture_readback TextureReadback = {
+			.Texture = FinalTarget.Handle,
+			.UserData = &TestContext,
+			.ReadbackFunc = Simple_Texture_Readback
+		};
+
+		gdi_render_params RenderParams = {
+			.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 }
+		};
+
+		GDI_Render(&RenderParams);
+		GDI_Flush();
+
+		u8 ExpR = (u8)(RedIntensity   * 255.0f + 0.5f);
+		u8 ExpG = (u8)(GreenIntensity * 255.0f + 0.5f);
+		u8 ExpB = (u8)(BlueIntensity  * 255.0f + 0.5f);
+
+		u32* Texels = (u32*)TestContext.Texels;
+		for(s32 y = 0; y < TestContext.Dim.y; y++) {
+			for(s32 x = 0; x < TestContext.Dim.x; x++) {
+				u8 TexR = (*Texels >> 0)  & 0xFF;
+				u8 TexG = (*Texels >> 8)  & 0xFF;
+				u8 TexB = (*Texels >> 16) & 0xFF;
+				ASSERT_NEAR((f32)TexR, (f32)ExpR, 2.0f);
+				ASSERT_NEAR((f32)TexG, (f32)ExpG, 2.0f);
+				ASSERT_NEAR((f32)TexB, (f32)ExpB, 2.0f);
+				Texels++;
+			}
+		}
+
+		//
+		// 6) Check overlap when async compute is supported
+		//
+		if(GDI_Is_Async_Compute_Supported()) {
+			gdi_timestamp_result Results[QUERY_SLOT_COUNT];
+			if(GDI_Get_Query_Results(QueryPool, 0, QUERY_SLOT_COUNT, Results)) {
+				b32 AllAvailable = true;
+				for(u32 i = 0; i < QUERY_SLOT_COUNT; i++) {
+					AllAvailable = AllAvailable && Results[i].Available;
+				}
+
+				if(AllAvailable) {
+					b32 HasOverlap =
+						Results[QUERY_ASYNC_END].Ticks > Results[QUERY_RENDER_BEGIN].Ticks &&
+						Results[QUERY_ASYNC_BEGIN].Ticks < Results[QUERY_RENDER_END].Ticks;
+
+					if(HasOverlap) OverlapCount++;
+				}
+			}
+		}
+	}
+
+	// When async compute is supported, at least some frames should show overlap
+	if(GDI_Is_Async_Compute_Supported()) {
+		ASSERT_GT(OverlapCount, (u32)0);
+	}
+
+	// Cleanup
+	if(!GDI_Is_Null(QueryPool)) GDI_Delete_Query_Pool(QueryPool);
+	GDI_Delete_Bind_Group(CompositeBindGroup);
+	GDI_Delete_Bind_Group(CopyBindGroup);
+	Texture_Delete(&FinalTarget);
+	Texture_Delete(&GreenRT);
+	Texture_Delete(&TexGreen);
+	Texture_Delete(&TexBlue);
+	Texture_Delete(&TexRed);
+	GDI_Delete_Shader(CompositeShader);
+	GDI_Delete_Shader(GreenRenderShader);
+	GDI_Delete_Shader(CopyShader);
+	GDI_Delete_Shader(BlueShader);
+	GDI_Delete_Shader(RedShader);
+	GDI_Delete_Bind_Group_Layout(CompositeLayout);
+	GDI_Delete_Bind_Group_Layout(CopyLayout);
 }
