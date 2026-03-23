@@ -516,6 +516,18 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 		Stream += sizeof(u32);
 	}
     
+	if (PrevState->InstanceCount != CurrentState->InstanceCount) {
+		*Bitfield |= GDI_RENDER_PASS_INSTANCE_COUNT_BIT;
+		Memory_Copy(Stream, &CurrentState->InstanceCount, sizeof(u32));
+		Stream += sizeof(u32);
+	}
+    
+	if (PrevState->FirstInstance != CurrentState->FirstInstance) {
+		*Bitfield |= GDI_RENDER_PASS_FIRST_INSTANCE_BIT;
+		Memory_Copy(Stream, &CurrentState->FirstInstance, sizeof(u32));
+		Stream += sizeof(u32);
+	}
+    
 	if (PrevState->PushConstantCount != CurrentState->PushConstantCount) {
 		*Bitfield |= GDI_RENDER_PASS_PUSH_CONSTANT_COUNT;
 		Memory_Copy(Stream, &CurrentState->PushConstantCount, sizeof(u32));
@@ -528,25 +540,43 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 	RenderPass->Offset += (Stream - (u8*)Bitfield);
 }
 
-export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset) {
+export_function void Render_Draw_Idx_Instanced(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance) {
+	if (!InstanceCount) {
+		return;
+	}
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
     
 	CurrentState->DrawType  = GDI_DRAW_TYPE_IDX;
 	CurrentState->PrimitiveCount  = IdxCount;
 	CurrentState->PrimitiveOffset = IdxOffset;
 	CurrentState->VtxOffset = VtxOffset;
+	CurrentState->InstanceCount = InstanceCount;
+	CurrentState->FirstInstance = FirstInstance;
     
 	Render_Draw_Common(RenderPass);
 }
 
-export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset) {
+export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset) {
+	Render_Draw_Idx_Instanced(RenderPass, IdxCount, IdxOffset, VtxOffset, 1, 0);
+}
+
+export_function void Render_Draw_Instanced(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance) {
+	if (!InstanceCount) {
+		return;
+	}
 	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
     
 	CurrentState->DrawType  = GDI_DRAW_TYPE_VTX;
 	CurrentState->PrimitiveCount  = VtxCount;
 	CurrentState->PrimitiveOffset = VtxOffset;
+	CurrentState->InstanceCount = InstanceCount;
+	CurrentState->FirstInstance = FirstInstance;
     
 	Render_Draw_Common(RenderPass);
+}
+
+export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset) {
+	Render_Draw_Instanced(RenderPass, VtxCount, VtxOffset, 1, 0);
 }
 
 function void GDI_Pool_Init_Raw(gdi_pool* Pool, u16* IndicesPtr, gdi_id* IDsPtr, u16 Capacity) {

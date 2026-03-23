@@ -106,6 +106,12 @@ typedef enum {
 
 Meta()
 typedef enum {
+    GDI_VERTEX_INPUT_RATE_VERTEX Tags(vk: VK_VERTEX_INPUT_RATE_VERTEX),
+    GDI_VERTEX_INPUT_RATE_INSTANCE Tags(vk: VK_VERTEX_INPUT_RATE_INSTANCE)
+} gdi_vertex_input_rate;
+
+Meta()
+typedef enum {
     GDI_PRIMITIVE_TRIANGLE Tags(vk: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
     GDI_PRIMITIVE_LINE Tags(vk: VK_PRIMITIVE_TOPOLOGY_LINE_LIST)
 } gdi_primitive;
@@ -318,6 +324,7 @@ Array_Define(gdi_vtx_attribute);
 
 typedef struct {
     size_t Stride;
+    gdi_vertex_input_rate InputRate;
     gdi_vtx_attribute_array Attributes;
 } gdi_vtx_binding;
 Array_Define(gdi_vtx_binding);
@@ -454,6 +461,8 @@ typedef struct {
     u32 		   PrimitiveCount;
     u32 		   PrimitiveOffset;
     u32 		   VtxOffset;
+    u32 		   InstanceCount;
+    u32 		   FirstInstance;
     u32 		   PushConstantCount;
     u32 		   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
 } gdi_draw_state;
@@ -472,7 +481,9 @@ enum {
     GDI_RENDER_PASS_PRIMITIVE_COUNT_BIT = (1 << 16),
     GDI_RENDER_PASS_PRIMITIVE_OFFSET_BIT = (1 << 17),
     GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 18),
-    GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 19)
+    GDI_RENDER_PASS_INSTANCE_COUNT_BIT = (1 << 19),
+    GDI_RENDER_PASS_FIRST_INSTANCE_BIT = (1 << 20),
+    GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 21),
 };
 #define GDI_RENDER_PASS_SCISSOR (GDI_RENDER_PASS_SCISSOR_MIN_X_BIT|GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT|GDI_RENDER_PASS_SCISSOR_MAX_X_BIT|GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT)
 
@@ -870,7 +881,9 @@ export_function void Render_Set_Vtx_Buffers(gdi_render_pass* RenderPass, u32 Cou
 export_function void Render_Set_Idx_Buffer(gdi_render_pass* RenderPass, gdi_buffer IdxBuffer, gdi_idx_format IdxFormat);
 export_function void Render_Set_Scissor(gdi_render_pass* RenderPass, s32 MinX, s32 MinY, s32 MaxX, s32 MaxY);
 export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset);
+export_function void Render_Draw_Idx_Instanced(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance);
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset);
+export_function void Render_Draw_Instanced(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance);
 
 #include "im_gdi.h"
 

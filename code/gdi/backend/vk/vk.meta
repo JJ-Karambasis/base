@@ -325,6 +325,7 @@ VK_Enum_Mapper(Address_Mode, gdi_address_mode, VkSamplerAddressMode);
 VK_Enum_Mapper(Descriptor_Type, gdi_bind_group_type, VkDescriptorType);
 VK_Enum_Mapper(Compare_Func, gdi_compare_func, VkCompareOp);
 VK_Enum_Mapper(Idx_Type, gdi_idx_format, VkIndexType);
+VK_Enum_Mapper(Vertex_Input_Rate, gdi_vertex_input_rate, VkVertexInputRate);
 VK_Enum_Mapper(Primitive, gdi_primitive, VkPrimitiveTopology);
 VK_Enum_Mapper(Blend, gdi_blend, VkBlendFactor);
 VK_Enum_Mapper(Cull_Mode, gdi_cull_mode, VkCullModeFlags);

@@ -2675,7 +2675,7 @@ function GDI_BACKEND_CREATE_SHADER_DEFINE(VK_Create_Shader) {
 				VkVertexInputBindingDescription Binding = {
 					.binding = (u32)i,
 					.stride = (u32)VtxBinding->Stride,
-					.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+					.inputRate = VK_Get_Vertex_Input_Rate(VtxBinding->InputRate)
 				};
                 
 				VtxInputBindings[BindingCount] = Binding;
@@ -3132,6 +3132,8 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	u32 CurrentPrimitiveCount = 0;
 	u32 CurrentPrimitiveOffset = 0;
 	u32 CurrentVtxOffset = 0;
+	u32 CurrentInstanceCount = 1;
+	u32 CurrentFirstInstance = 0;
 	u32 PushConstantCount = 0;
 	vk_bind_group* BindGroups[GDI_MAX_BIND_GROUP_COUNT] = {0};
     
@@ -3243,6 +3245,14 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			CurrentVtxOffset = BStream_Reader_U32(&Reader);
 		}
         
+		if (DirtyFlag & GDI_RENDER_PASS_INSTANCE_COUNT_BIT) {
+			CurrentInstanceCount = BStream_Reader_U32(&Reader);
+		}
+        
+		if (DirtyFlag & GDI_RENDER_PASS_FIRST_INSTANCE_BIT) {
+			CurrentFirstInstance = BStream_Reader_U32(&Reader);
+		}
+        
 		if (DirtyFlag & GDI_RENDER_PASS_PUSH_CONSTANT_COUNT) {
 			PushConstantCount = BStream_Reader_U32(&Reader);
 		}
@@ -3254,11 +3264,11 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
         
 		switch(CurrentDrawType) {
 			case GDI_DRAW_TYPE_IDX: {
-				vkCmdDrawIndexed(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, CurrentVtxOffset, 0);
+				vkCmdDrawIndexed(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, CurrentInstanceCount, CurrentPrimitiveOffset, CurrentVtxOffset, CurrentFirstInstance);
 			} break;
             
 			case GDI_DRAW_TYPE_VTX: {
-				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, 1, CurrentPrimitiveOffset, 0);
+				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, CurrentInstanceCount, CurrentPrimitiveOffset, CurrentFirstInstance);
 			} break;
 		}
 	}

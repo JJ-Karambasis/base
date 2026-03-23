@@ -390,6 +390,241 @@ UTEST(gdi, SimpleTest) {
     GDI_Delete_Shader(Shader);
 }
 
+struct vtx_mesh_p2 {
+    v2 P;
+};
+
+/* One float4 per instance — matches a single COLOR attribute (no multi-attribute offset drift vs DXC). */
+struct vtx_inst_color {
+    v4 Color;
+};
+
+UTEST(gdi, InstancedDrawTest) {
+    scratch Scratch;
+
+    gdi_shader Shader;
+    {
+        gdi_tests* Tests = GDI_Get_Tests();
+
+        const char* ShaderCode = R"(
+        struct mesh_vtx {
+            float2 Position : POSITION0;
+        };
+
+        struct inst_vtx {
+            float4 Color : TEXCOORD0;
+        };
+
+        struct vs_output {
+            float4 Position : SV_POSITION;
+            float4 Color : COLOR0;
+        };
+
+        struct draw_data {
+            float4x4 Projection;
+        };
+
+        ConstantBuffer<draw_data> DrawData : register(b0, space0);
+
+        vs_output VS_Main(mesh_vtx M, inst_vtx I, uint InstId : SV_InstanceID) {
+            vs_output R;
+            float ox = (InstId % 2u) * 32.0f;
+            float oy = (InstId / 2u) * 32.0f;
+            float2 world = M.Position + float2(ox, oy);
+            R.Position = mul(float4(world, 0.0f, 1.0f), DrawData.Projection);
+            R.Color = I.Color;
+            return R;
+        }
+
+        float4 PS_Main(vs_output Pxl) : SV_TARGET0 {
+            return Pxl.Color;
+        };
+
+        )";
+
+        IDxcBlob* VtxShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("vs_6_0"), String_Lit("VS_Main"), {String_Lit("-fvk-invert-y")});
+        IDxcBlob* PxlShader = Compile_Shader(String_Null_Term(ShaderCode), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+        ASSERT_TRUE(VtxShader && PxlShader);
+
+        gdi_vtx_attribute MeshAttrs[] = {
+            { String_Lit("POSITION"), GDI_FORMAT_R32G32_FLOAT },
+        };
+        gdi_vtx_binding MeshBinding = {
+            .Stride = sizeof(vtx_mesh_p2),
+            .InputRate = GDI_VERTEX_INPUT_RATE_VERTEX,
+            .Attributes = { .Ptr = MeshAttrs, .Count = Array_Count(MeshAttrs) },
+        };
+
+        gdi_vtx_attribute InstAttrs[] = {
+            { String_Lit("TEXCOORD"), GDI_FORMAT_R32G32B32A32_FLOAT },
+        };
+        gdi_vtx_binding InstBinding = {
+            .Stride = sizeof(vtx_inst_color),
+            .InputRate = GDI_VERTEX_INPUT_RATE_INSTANCE,
+            .Attributes = { .Ptr = InstAttrs, .Count = Array_Count(InstAttrs) },
+        };
+
+        gdi_vtx_binding VtxBindings[] = { MeshBinding, InstBinding };
+
+        gdi_shader_create_info CreateInfo = {
+            .VS = { .Ptr = (u8*)VtxShader->GetBufferPointer(), .Size = VtxShader->GetBufferSize() },
+            .PS = { .Ptr = (u8*)PxlShader->GetBufferPointer(), .Size = PxlShader->GetBufferSize() },
+            .BindGroupLayouts = { .Ptr = &Tests->BufferLayout, .Count = 1 },
+            .VtxBindings = { .Ptr = VtxBindings, .Count = Array_Count(VtxBindings) },
+            .RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+            .DebugName = String_Lit("Instanced draw shader"),
+        };
+
+        Shader = GDI_Create_Shader(&CreateInfo);
+        ASSERT_FALSE(GDI_Is_Null(Shader));
+
+        VtxShader->Release();
+        PxlShader->Release();
+    }
+
+    texture RenderTarget;
+    ASSERT_TRUE(Texture_Create(&RenderTarget, {
+        .Format = GDI_FORMAT_R8G8B8A8_UNORM,
+        .Dim = V2i(64, 64),
+        .Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK,
+    }));
+    gdi_texture_info TextureInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
+
+    m4 Orthographic = M4_Orthographic(0, (f32)TextureInfo.Dim.x, (f32)TextureInfo.Dim.y, 0, -10, 10);
+    Orthographic = M4_Transpose(&Orthographic);
+
+    gpu_buffer MatrixBuffer;
+    ASSERT_TRUE(GPU_Buffer_Create(&MatrixBuffer, {
+        .Size = sizeof(m4),
+        .Usage = GDI_BUFFER_USAGE_CONSTANT,
+        .InitialData = Make_Buffer(&Orthographic, sizeof(m4)),
+    }));
+
+    vtx_mesh_p2 MeshVerts[] = {
+        { V2(0, 0) },
+        { V2(0, 32) },
+        { V2(32, 32) },
+        { V2(32, 0) },
+    };
+    u32 Indices[] = { 0, 1, 2, 2, 3, 0 };
+
+    vtx_inst_color Instances[] = {
+        { V4(1, 0, 0, 1) },
+        { V4(0, 1, 0, 1) },
+        { V4(0, 0, 1, 1) },
+        { V4(1, 1, 0, 1) },
+    };
+
+    gdi_buffer_create_info MeshBufferInfo = {
+        .Size = sizeof(MeshVerts),
+        .Usage = GDI_BUFFER_USAGE_VTX,
+        .InitialData = Make_Buffer(MeshVerts, sizeof(MeshVerts)),
+        .DebugName = String_Lit("Instanced test mesh vtx"),
+    };
+    gdi_buffer MeshBuffer = GDI_Create_Buffer(&MeshBufferInfo);
+    ASSERT_FALSE(GDI_Is_Null(MeshBuffer));
+
+    gdi_buffer_create_info InstanceBufferInfo = {
+        .Size = sizeof(Instances),
+        .Usage = GDI_BUFFER_USAGE_VTX,
+        .InitialData = Make_Buffer(Instances, sizeof(Instances)),
+        .DebugName = String_Lit("Instanced test instance vtx"),
+    };
+    gdi_buffer InstanceBuffer = GDI_Create_Buffer(&InstanceBufferInfo);
+    ASSERT_FALSE(GDI_Is_Null(InstanceBuffer));
+
+    gdi_buffer_create_info IdxBufferInfo = {
+        .Size = sizeof(Indices),
+        .Usage = GDI_BUFFER_USAGE_IDX,
+        .InitialData = Make_Buffer(Indices, sizeof(Indices)),
+        .DebugName = String_Lit("Instanced test idx"),
+    };
+    gdi_buffer IdxBuffer = GDI_Create_Buffer(&IdxBufferInfo);
+    ASSERT_FALSE(GDI_Is_Null(IdxBuffer));
+
+    simple_test_context TestContext = {
+        .Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x * TextureInfo.Dim.y * GDI_Get_Format_Size(TextureInfo.Format)),
+    };
+
+    gdi_render_pass_begin_info BeginInfo = {
+        .RenderTargetViews = { RenderTarget.View },
+        .ClearColors = { { .ShouldClear = true, .F32 = { 0.2f, 0.2f, 0.2f, 1.0f } } },
+    };
+    gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+
+    Render_Set_Shader(RenderPass, Shader);
+    Render_Set_Bind_Group(RenderPass, 0, MatrixBuffer.BindGroup);
+    Render_Set_Scissor(RenderPass, 0, 0, TextureInfo.Dim.x, TextureInfo.Dim.y);
+    Render_Set_Vtx_Buffer(RenderPass, 0, MeshBuffer);
+    Render_Set_Vtx_Buffer(RenderPass, 1, InstanceBuffer);
+    Render_Set_Idx_Buffer(RenderPass, IdxBuffer, GDI_IDX_FORMAT_32_BIT);
+    Render_Draw_Idx_Instanced(RenderPass, 6, 0, 0, 4, 0);
+
+    GDI_End_Render_Pass(RenderPass);
+    GDI_Submit_Render_Pass(RenderPass);
+
+    gdi_texture_readback TextureReadback = {
+        .Texture = RenderTarget.Handle,
+        .UserData = &TestContext,
+        .ReadbackFunc = Simple_Texture_Readback,
+    };
+
+    gdi_render_params RenderParams = {
+        .TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 },
+    };
+
+    GDI_Render(&RenderParams);
+    GDI_Flush();
+
+    ASSERT_EQ(TestContext.Format, TextureInfo.Format);
+    ASSERT_EQ(TestContext.Dim.x, TextureInfo.Dim.x);
+    ASSERT_EQ(TestContext.Dim.y, TextureInfo.Dim.y);
+
+    struct inst_expected_tile {
+        v2i Min;
+        v2i Max;
+        v4 Color;
+    };
+    inst_expected_tile Tiles[] = {
+        { V2i(0, 0), V2i(32, 32), V4(1, 0, 0, 1) },
+        { V2i(32, 0), V2i(64, 32), V4(0, 1, 0, 1) },
+        { V2i(0, 32), V2i(32, 64), V4(0, 0, 1, 1) },
+        { V2i(32, 32), V2i(64, 64), V4(1, 1, 0, 1) },
+    };
+
+    u32* TexelAt = (u32*)TestContext.Texels;
+    f32 Epsilon = 1.0f / 255.0f;
+    for (s32 y = 0; y < TestContext.Dim.y; y++) {
+        for (s32 x = 0; x < TestContext.Dim.x; x++) {
+            b32 HitRect = false;
+            v4 HitColor = V4_Zero();
+            for (size_t i = 0; i < Array_Count(Tiles); i++) {
+                v2i Min = Tiles[i].Min;
+                v2i Max = Tiles[i].Max;
+                if (x >= Min.x && y >= Min.y && x < Max.x && y < Max.y) {
+                    HitRect = true;
+                    HitColor = Tiles[i].Color;
+                    break;
+                }
+            }
+            ASSERT_TRUE(HitRect);
+            v4 TexelColor = V4_Color_From_U32(*TexelAt);
+            ASSERT_NEAR(TexelColor.x, HitColor.x, Epsilon);
+            ASSERT_NEAR(TexelColor.y, HitColor.y, Epsilon);
+            ASSERT_NEAR(TexelColor.z, HitColor.z, Epsilon);
+            ASSERT_NEAR(TexelColor.w, HitColor.w, Epsilon);
+            TexelAt++;
+        }
+    }
+
+    GDI_Delete_Buffer(IdxBuffer);
+    GDI_Delete_Buffer(InstanceBuffer);
+    GDI_Delete_Buffer(MeshBuffer);
+    GPU_Buffer_Delete(&MatrixBuffer);
+    Texture_Delete(&RenderTarget);
+    GDI_Delete_Shader(Shader);
+}
+
 UTEST(gdi, SimpleBindGroupTest) {
     scratch Scratch;
 
