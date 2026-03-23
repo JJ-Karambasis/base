@@ -60,6 +60,7 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
 	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME),
 	String_Expand(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
+	String_Expand(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME),
 #ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 #endif
@@ -1527,6 +1528,7 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	Vk_Khr_Synchronization2_Funcs_Load(Context->Device);
 	Vk_Khr_Dynamic_Rendering_Funcs_Load(Context->Device);
 	Vk_Khr_Push_Descriptor_Funcs_Load(Context->Device);
+	Vk_Khr_Draw_Indirect_Count_Funcs_Load(Context->Device);
     
 	//Create a vma allocator
 	VmaVulkanFunctions VmaFunctions = {
@@ -2059,6 +2061,10 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
     
 	if (BufferInfo->Usage & GDI_BUFFER_USAGE_STORAGE) {
 		BufferUsage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	}
+
+	if(BufferInfo->Usage & GDI_BUFFER_USAGE_INDIRECT) {
+		BufferUsage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 	}
     
 	//If we have a dynamic buffer, we need to allocate space for all 
@@ -3136,6 +3142,8 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	u32 CurrentFirstInstance = 0;
 	u32 PushConstantCount = 0;
 	vk_bind_group* BindGroups[GDI_MAX_BIND_GROUP_COUNT] = {0};
+	vk_buffer* CurrentIndirectBuffer = NULL;
+	vk_buffer* CurrentIndirectCountBuffer = NULL;
     
 	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
 	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
@@ -3253,6 +3261,16 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			CurrentFirstInstance = BStream_Reader_U32(&Reader);
 		}
         
+		if (DirtyFlag & GDI_RENDER_PASS_INDIRECT_BUFFER_BIT) {
+			gdi_buffer Handle = BStream_Reader_Struct(&Reader, gdi_buffer);
+			CurrentIndirectBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
+		}
+        
+		if (DirtyFlag & GDI_RENDER_PASS_INDIRECT_COUNT_BUFFER_BIT) {
+			gdi_buffer Handle = BStream_Reader_Struct(&Reader, gdi_buffer);
+			CurrentIndirectCountBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
+		}
+        
 		if (DirtyFlag & GDI_RENDER_PASS_PUSH_CONSTANT_COUNT) {
 			PushConstantCount = BStream_Reader_U32(&Reader);
 		}
@@ -3270,6 +3288,47 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			case GDI_DRAW_TYPE_VTX: {
 				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, CurrentInstanceCount, CurrentPrimitiveOffset, CurrentFirstInstance);
 			} break;
+
+			case GDI_DRAW_TYPE_IDX_INDIRECT:
+			case GDI_DRAW_TYPE_VTX_INDIRECT: 
+			case GDI_DRAW_TYPE_IDX_INDIRECT_COUNT:
+			case GDI_DRAW_TYPE_VTX_INDIRECT_COUNT: {
+				Assert(CurrentIndirectBuffer && CurrentIndirectBuffer->Usage & GDI_BUFFER_USAGE_INDIRECT);
+				if(CurrentIndirectBuffer) {
+					VkDeviceSize IndirectOffset = CurrentPrimitiveOffset;
+					if (CurrentIndirectBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+						IndirectOffset += (Frame->Index * CurrentIndirectBuffer->Size);
+					}
+
+					switch(CurrentDrawType) {
+						case GDI_DRAW_TYPE_IDX_INDIRECT: {
+							vkCmdDrawIndexedIndirect(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentPrimitiveCount, CurrentVtxOffset);
+						} break;
+						case GDI_DRAW_TYPE_VTX_INDIRECT: {
+							vkCmdDrawIndirect(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentPrimitiveCount, CurrentVtxOffset);
+						} break;
+
+						default: {
+							Assert(CurrentIndirectCountBuffer && CurrentIndirectCountBuffer->Usage & GDI_BUFFER_USAGE_INDIRECT);
+							if(CurrentIndirectCountBuffer) {
+								VkDeviceSize CountOffset = CurrentFirstInstance;
+								if (CurrentIndirectCountBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+									CountOffset += (Frame->Index * CurrentIndirectCountBuffer->Size);
+								}
+
+								if(CurrentDrawType == GDI_DRAW_TYPE_IDX_INDIRECT_COUNT) {
+									vkCmdDrawIndexedIndirectCountKHR(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentIndirectCountBuffer->Buffer, CountOffset, CurrentPrimitiveCount, CurrentVtxOffset);
+								} else {
+									vkCmdDrawIndirectCountKHR(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentIndirectCountBuffer->Buffer, CountOffset, CurrentPrimitiveCount, CurrentVtxOffset);
+								}
+							}
+						} break;
+					}
+
+				}
+			} break;
+
+			Invalid_Default_Case;
 		}
 	}
 	Assert(Reader.At == Reader.End);
@@ -4131,9 +4190,15 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 												gdi_buffer Handle = ComputePass->BufferWrites.Ptr[BufferIndex++];
 												vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
 												Assert(Buffer);
+
+												size_t Offset = 0;
+												if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+													Offset += Buffer->Size * FrameContext->Index;
+												}
 												
 												BufferInfo[i].buffer = Buffer->Buffer;
-												BufferInfo[i].range = VK_WHOLE_SIZE;
+												BufferInfo[i].offset = Offset;
+												BufferInfo[i].range  = Buffer->Size;
 											}
 											
 											WriteDescriptorSet.pBufferInfo = BufferInfo;
@@ -4169,7 +4234,17 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
                                                    0, Dispatch->PushConstantCount * sizeof(u32), Dispatch->PushConstants);
 							}
 							
-							vkCmdDispatch(CmdBuffer->Handle, Dispatch->ThreadGroupCount.x, Dispatch->ThreadGroupCount.y, Dispatch->ThreadGroupCount.z);
+							vk_buffer* IndirectBuffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Dispatch->IndirectBuffer);
+							if (IndirectBuffer) {
+								Assert(IndirectBuffer->Usage & GDI_BUFFER_USAGE_INDIRECT);
+								VkDeviceSize Offset = Dispatch->IndirectOffset;
+								if (IndirectBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+									Offset += (FrameContext->Index * IndirectBuffer->Size);
+								}
+								vkCmdDispatchIndirect(CmdBuffer->Handle, IndirectBuffer->Buffer, Offset);
+							} else {
+								vkCmdDispatch(CmdBuffer->Handle, Dispatch->ThreadGroupCount.x, Dispatch->ThreadGroupCount.y, Dispatch->ThreadGroupCount.z);
+							}
 						}
 						
 						if (ComputePass->BufferWrites.Count) {

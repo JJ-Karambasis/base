@@ -119,6 +119,9 @@ VK_DEVICE_FUNCS(vk_device, {
 	VK_FUNC(vkCmdResetQueryPool);
 	VK_FUNC(vkCmdWriteTimestamp);
 	VK_FUNC(vkGetQueryPoolResults);
+	VK_FUNC(vkCmdDrawIndirect);
+	VK_FUNC(vkCmdDrawIndexedIndirect);
+	VK_FUNC(vkCmdDispatchIndirect);
 });
 
 
@@ -156,6 +159,11 @@ VK_DEVICE_FUNCS(VK_KHR_dynamic_rendering, {
 
 VK_DEVICE_FUNCS(VK_KHR_push_descriptor, {
 	VK_FUNC(vkCmdPushDescriptorSetKHR);
+});
+
+VK_DEVICE_FUNCS(VK_KHR_draw_indirect_count, {
+	VK_FUNC(vkCmdDrawIndirectCountKHR);
+	VK_FUNC(vkCmdDrawIndexedIndirectCountKHR);
 });
 
 META_FUNCTION(VK_Load_Library_Funcs, os_library* Library) -> void {

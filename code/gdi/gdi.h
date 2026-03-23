@@ -56,7 +56,8 @@ enum {
     GDI_BUFFER_USAGE_CONSTANT = (1 << 2),
     GDI_BUFFER_USAGE_STORAGE = (1 << 3),
     GDI_BUFFER_USAGE_READBACK = (1 << 4),
-    GDI_BUFFER_USAGE_DYNAMIC = (1 << 5)
+    GDI_BUFFER_USAGE_DYNAMIC = (1 << 5),
+    GDI_BUFFER_USAGE_INDIRECT = (1 << 6)
 };
 typedef u32 gdi_buffer_usage;
 
@@ -139,8 +140,31 @@ typedef enum {
 typedef enum {
     GDI_DRAW_TYPE_NONE,
     GDI_DRAW_TYPE_IDX,
-    GDI_DRAW_TYPE_VTX
+    GDI_DRAW_TYPE_VTX,
+    GDI_DRAW_TYPE_IDX_INDIRECT,
+    GDI_DRAW_TYPE_VTX_INDIRECT,
+    GDI_DRAW_TYPE_IDX_INDIRECT_COUNT,
+    GDI_DRAW_TYPE_VTX_INDIRECT_COUNT
 } gdi_draw_type;
+
+typedef struct {
+    u32 VtxCount;
+    u32 InstanceCount;
+    u32 VtxOffset;
+    u32 InstanceOffset;
+} gdi_indirect_draw_info;
+
+typedef struct {
+    u32 IdxCount;
+    u32 InstanceCount;
+    u32 IdxOffset;
+    u32 VtxOffset;
+    u32 InstanceOffset;
+} gdi_indexed_indirect_draw_info;
+
+typedef struct {
+    v3i GroupCount;
+} gdi_indirect_dispatch_info;
 
 Meta()
 typedef enum {
@@ -443,6 +467,9 @@ typedef struct {
     u32 	   PushConstantCount;
     u32 	   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
     v3i 	   ThreadGroupCount;
+    /* If non-null, backend issues vkCmdDispatchIndirect instead of vkCmdDispatch (offset is in bytes). */
+    gdi_buffer IndirectBuffer;
+    u64        IndirectOffset;
 } gdi_dispatch;
 Array_Define(gdi_dispatch);
 
@@ -458,14 +485,34 @@ typedef struct {
     s32 		   ScissorMaxX;
     s32 		   ScissorMaxY;
     gdi_draw_type  DrawType;
+    /* Meaning depends on DrawType — see below. */
     u32 		   PrimitiveCount;
     u32 		   PrimitiveOffset;
     u32 		   VtxOffset;
     u32 		   InstanceCount;
     u32 		   FirstInstance;
+    gdi_buffer     IndirectBuffer;
+    gdi_buffer     IndirectCountBuffer;
     u32 		   PushConstantCount;
     u32 		   PushConstants[GDI_MAX_PUSH_CONSTANT_COUNT];
 } gdi_draw_state;
+
+/*
+  gdi_draw_state field semantics by draw type:
+
+  GDI_DRAW_TYPE_IDX / VTX (direct):
+    PrimitiveCount = index or vertex count; PrimitiveOffset = first index or first vertex (u32 values stored in u64);
+    VtxOffset = base vertex for indexed draws; InstanceCount / FirstInstance = instancing.
+
+  GDI_DRAW_TYPE_*_INDIRECT (fixed drawCount):
+    IndirectBuffer = argument buffer; PrimitiveOffset = byte offset into IndirectBuffer;
+    PrimitiveCount = drawCount; VtxOffset = stride (0 = default: sizeof(gdi_indirect_draw_info) for non-indexed, sizeof(gdi_indexed_indirect_draw_info) for indexed).
+
+  GDI_DRAW_TYPE_*_INDIRECT_COUNT:
+    IndirectBuffer = argument buffer; IndirectCountBuffer = count buffer;
+    PrimitiveOffset = byte offset into IndirectBuffer; FirstInstance = byte offset into IndirectCountBuffer;
+    PrimitiveCount = maxDrawCount; VtxOffset = stride (0 = default).
+*/
 
 enum {
     GDI_RENDER_PASS_SHADER_BIT = (1 << 0),
@@ -483,7 +530,9 @@ enum {
     GDI_RENDER_PASS_VTX_OFFSET_BIT = (1 << 18),
     GDI_RENDER_PASS_INSTANCE_COUNT_BIT = (1 << 19),
     GDI_RENDER_PASS_FIRST_INSTANCE_BIT = (1 << 20),
-    GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 21),
+    GDI_RENDER_PASS_INDIRECT_BUFFER_BIT = (1 << 21),
+    GDI_RENDER_PASS_INDIRECT_COUNT_BUFFER_BIT = (1 << 22),
+    GDI_RENDER_PASS_PUSH_CONSTANT_COUNT = (1 << 23),
 };
 #define GDI_RENDER_PASS_SCISSOR (GDI_RENDER_PASS_SCISSOR_MIN_X_BIT|GDI_RENDER_PASS_SCISSOR_MIN_Y_BIT|GDI_RENDER_PASS_SCISSOR_MAX_X_BIT|GDI_RENDER_PASS_SCISSOR_MAX_Y_BIT)
 
@@ -884,6 +933,10 @@ export_function void Render_Draw_Idx(gdi_render_pass* RenderPass, u32 IdxCount, 
 export_function void Render_Draw_Idx_Instanced(gdi_render_pass* RenderPass, u32 IdxCount, u32 IdxOffset, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance);
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset);
 export_function void Render_Draw_Instanced(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset, u32 InstanceCount, u32 FirstInstance);
+export_function void Render_Draw_Indirect(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, u32 DrawCount, u32 Stride);
+export_function void Render_Draw_Idx_Indirect(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, u32 DrawCount, u32 Stride);
+export_function void Render_Draw_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride);
+export_function void Render_Draw_Idx_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride);
 
 #include "im_gdi.h"
 

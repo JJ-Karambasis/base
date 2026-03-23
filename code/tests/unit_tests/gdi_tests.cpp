@@ -257,6 +257,26 @@ function GDI_TEXTURE_READBACK_DEFINE(Simple_Texture_Readback) {
     SimpleTestContext->Format = Format;
 }
 
+struct dynamic_indirect_frame_readback_ctx {
+	v4 ExpectedColor;
+};
+
+function GDI_TEXTURE_READBACK_DEFINE(Dynamic_Indirect_Frame_Texture_Readback) {
+	(void)Texture;
+	(void)Format;
+	dynamic_indirect_frame_readback_ctx* Ctx = (dynamic_indirect_frame_readback_ctx*)UserData;
+	const u32* Pixels = (const u32*)Texels;
+	f32 Eps = 1.0f / 255.0f;
+	s32 cx = Dim.x / 2;
+	s32 cy = Dim.y / 2;
+	u32 CenterSample = Pixels[cx + cy * Dim.x];
+	v4 GotColor = V4_Color_From_U32(CenterSample);
+	Assert(Equal_Approx_F32(GotColor.x, Ctx->ExpectedColor.x, Eps));
+	Assert(Equal_Approx_F32(GotColor.y, Ctx->ExpectedColor.y, Eps));
+	Assert(Equal_Approx_F32(GotColor.z, Ctx->ExpectedColor.z, Eps));
+	Assert(Equal_Approx_F32(GotColor.w, Ctx->ExpectedColor.w, Eps));
+}
+
 UTEST(gdi, SimpleTest) {
     scratch Scratch;
 
@@ -4196,4 +4216,664 @@ UTEST(gdi, DedicatedTransferQueueAsyncComputeGraphicsTest) {
 	Texture_Delete(&RenderTarget);
 	Texture_Delete(&StorageTex);
 	Texture_Delete(&SourceTex);
+}
+
+/* Vulkan-compatible sizes: VkDrawIndirectCommand = 16 bytes, VkDrawIndexedIndirectCommand = 20 bytes, VkDispatchIndirectCommand = 12 bytes. */
+enum {
+	INDIRECT_SCRATCH_OFF_DISPATCH = 0,
+	INDIRECT_SCRATCH_OFF_DRAW_VTX = 16,
+	INDIRECT_SCRATCH_OFF_DRAW_IDX = 32,
+	INDIRECT_SCRATCH_OFF_COUNT_U32 = 52,
+	INDIRECT_SCRATCH_OFF_DRAW_VTX_COUNT_0 = 64,
+	INDIRECT_SCRATCH_OFF_DRAW_VTX_COUNT_1 = 80,
+	INDIRECT_SCRATCH_OFF_DRAW_IDX_COUNT_0 = 96,
+	INDIRECT_SCRATCH_OFF_DRAW_IDX_COUNT_1 = 116,
+	INDIRECT_SCRATCH_SIZE = 256,
+	DISPATCH_VERIFY_WORDS = 64,
+};
+
+struct indirect_buffer_readback_ctx {
+	u8*  Data;
+	size_t Size;
+};
+
+function GDI_BUFFER_READBACK_DEFINE(Simple_Buffer_Readback) {
+	indirect_buffer_readback_ctx* Ctx = (indirect_buffer_readback_ctx*)UserData;
+	Assert(Size <= Ctx->Size);
+	Memory_Copy(Ctx->Data, Data, Size);
+}
+
+UTEST(gdi, IndirectDrawAndDispatchTest) {
+	gdi_tests* Tests = GDI_Get_Tests();
+	ASSERT_TRUE(Tests);
+	scratch Scratch;
+
+	/* --- Layouts: writer (storage scratch), verify (storage out), render (CB + texture) --- */
+	gdi_layout FillLayout;
+	gdi_layout VerifyLayout;
+	{
+		gdi_bind_group_binding StorageBufferBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 };
+		gdi_bind_group_layout_create_info LayoutInfo = { .Bindings = { .Ptr = &StorageBufferBinding, .Count = 1 } };
+		FillLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(FillLayout));
+		VerifyLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(VerifyLayout));
+	}
+
+	gdi_layout MatrixLayout = Tests->BufferLayout;
+
+	/* --- Shaders --- */
+	gdi_shader FillShader;
+	gdi_shader VerifyShaderSync;
+	gdi_shader VerifyShaderAsync;
+	gdi_shader RenderShader;
+	{
+		const char* FillHlsl = R"(
+		RWByteAddressBuffer Scratch : register(u0);
+		[numthreads(1, 1, 1)]
+		void CS_Main(uint3 tid : SV_DispatchThreadID) {
+			// VkDispatchIndirectCommand @ 0: (2,2,1) groups, [numthreads(4,4,1)] -> 64 threads
+			Scratch.Store(0, 2u);
+			Scratch.Store(4, 2u);
+			Scratch.Store(8, 1u);
+			// VkDrawIndirectCommand @ 16: Q0 red — 6 verts, firstVertex 0
+			Scratch.Store(16, 6u);
+			Scratch.Store(20, 1u);
+			Scratch.Store(24, 0u);
+			Scratch.Store(28, 0u);
+			// VkDrawIndexedIndirectCommand @ 32: Q1 green
+			Scratch.Store(32, 6u);
+			Scratch.Store(36, 1u);
+			Scratch.Store(40, 6u);
+			Scratch.Store(44, asuint((int)6));
+			Scratch.Store(48, 0u);
+			// draw count buffer value @ 52
+			Scratch.Store(52, 1u);
+			// Two VkDrawIndirectCommand for count draw @ 64, 80 — only first used when count==1
+			Scratch.Store(64, 6u);
+			Scratch.Store(68, 1u);
+			Scratch.Store(72, 12u);
+			Scratch.Store(76, 0u);
+			Scratch.Store(80, 6u);
+			Scratch.Store(84, 1u);
+			Scratch.Store(88, 0u);
+			Scratch.Store(92, 0u);
+			// VkDrawIndexedIndirectCommand @ 96 — Q3 yellow (IB 18–23: relative 0,1,2,2,4,0; vertexOffset 18)
+			Scratch.Store(96, 6u);
+			Scratch.Store(100, 1u);
+			Scratch.Store(104, 18u);
+			Scratch.Store(108, asuint((int)18));
+			Scratch.Store(112, 0u);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(FillHlsl), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding WritableStorageBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 };
+		gdi_shader_create_info ShaderCreateInfo = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &FillLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WritableStorageBinding, .Count = 1 },
+			.DebugName = String_Lit("Indirect fill CS"),
+		};
+		FillShader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(FillShader));
+		Blob->Release();
+	}
+	{
+		const char* VerifyHlsl = R"(
+		RWByteAddressBuffer OutBuf : register(u0);
+		[numthreads(4, 4, 1)]
+		void CS_Main(uint3 dtid : SV_DispatchThreadID) {
+			uint idx = dtid.x + dtid.y * 8u;
+			if (idx < 64u)
+				OutBuf.Store(idx * 4, 0xABCDEF01u);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(VerifyHlsl), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding WritableStorageBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 };
+		gdi_shader_create_info ShaderCreateInfo = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &VerifyLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WritableStorageBinding, .Count = 1 },
+			.DebugName = String_Lit("Indirect dispatch verify CS"),
+		};
+		VerifyShaderSync = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(VerifyShaderSync));
+		VerifyShaderAsync = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(VerifyShaderAsync));
+		Blob->Release();
+	}
+	{
+		const char* RenderHlsl = R"(
+		struct vs_in { float2 P : POSITION0; float4 C : COLOR0; };
+		struct vs_out { float4 Pos : SV_POSITION; float4 C : COLOR0; };
+		struct cb { float4x4 M; };
+		ConstantBuffer<cb> PC : register(b0, space0);
+		vs_out VS_Main(vs_in I) {
+			vs_out O;
+			O.Pos = mul(float4(I.P, 0, 1), PC.M);
+			O.C = I.C;
+			return O;
+		}
+		float4 PS_Main(vs_out I) : SV_TARGET0 { return I.C; }
+		)";
+		IDxcBlob* VS = Compile_Shader(String_Null_Term(RenderHlsl), String_Lit("vs_6_0"), String_Lit("VS_Main"), { String_Lit("-fvk-invert-y") });
+		IDxcBlob* PS = Compile_Shader(String_Null_Term(RenderHlsl), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VS && PS);
+		gdi_vtx_attribute IndirectDrawAttributes[] = {
+			{ String_Lit("POSITION"), GDI_FORMAT_R32G32_FLOAT },
+			{ String_Lit("COLOR"), GDI_FORMAT_R32G32B32A32_FLOAT },
+		};
+		gdi_vtx_binding IndirectDrawVtxBinding = {
+			.Stride = sizeof(vtx_p2_c4),
+			.Attributes = { .Ptr = IndirectDrawAttributes, .Count = Array_Count(IndirectDrawAttributes) },
+		};
+		gdi_shader_create_info ShaderCreateInfo = {
+			.VS = { .Ptr = (u8*)VS->GetBufferPointer(), .Size = VS->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PS->GetBufferPointer(), .Size = PS->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &MatrixLayout, .Count = 1 },
+			.VtxBindings = { .Ptr = &IndirectDrawVtxBinding, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Indirect draw RT"),
+		};
+		RenderShader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VS->Release();
+		PS->Release();
+	}
+
+	gdi_buffer_create_info IndirectScratchInfo = {
+		.Size = INDIRECT_SCRATCH_SIZE,
+		.Usage = GDI_BUFFER_USAGE_STORAGE | GDI_BUFFER_USAGE_INDIRECT,
+		.DebugName = String_Lit("indirect scratch"),
+	};
+	gdi_buffer IndirectScratch = GDI_Create_Buffer(&IndirectScratchInfo);
+	ASSERT_FALSE(GDI_Is_Null(IndirectScratch));
+
+	size_t VerifyBytes = DISPATCH_VERIFY_WORDS * sizeof(u32);
+	gdi_buffer_create_info DispatchVerifyBufferInfo = {
+		.Size = VerifyBytes,
+		.Usage = GDI_BUFFER_USAGE_STORAGE | GDI_BUFFER_USAGE_READBACK,
+		.DebugName = String_Lit("dispatch verify"),
+	};
+	gdi_buffer DispatchVerifyBuffer = GDI_Create_Buffer(&DispatchVerifyBufferInfo);
+	ASSERT_FALSE(GDI_Is_Null(DispatchVerifyBuffer));
+
+	gdi_buffer_create_info DispatchVerifyBufferAsyncInfo = {
+		.Size = VerifyBytes,
+		.Usage = GDI_BUFFER_USAGE_STORAGE | GDI_BUFFER_USAGE_READBACK,
+		.DebugName = String_Lit("dispatch verify async"),
+	};
+	gdi_buffer DispatchVerifyBufferAsync = GDI_Create_Buffer(&DispatchVerifyBufferAsyncInfo);
+	ASSERT_FALSE(GDI_Is_Null(DispatchVerifyBufferAsync));
+
+	gdi_bind_group ScratchFillBindGroup;
+	{
+		gdi_bind_group_buffer IndirectScratchBindGroupBuffer = { .Buffer = IndirectScratch };
+		gdi_bind_group_write ScratchFillWrite = { .Buffers = { .Ptr = &IndirectScratchBindGroupBuffer, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = { .Layout = FillLayout, .Writes = { .Ptr = &ScratchFillWrite, .Count = 1 } };
+		ScratchFillBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(ScratchFillBindGroup));
+	}
+	gdi_bind_group DispatchVerifyBindGroup;
+	{
+		gdi_bind_group_buffer DispatchVerifyBindGroupBuffer = { .Buffer = DispatchVerifyBuffer };
+		gdi_bind_group_write DispatchVerifyWrite = { .Buffers = { .Ptr = &DispatchVerifyBindGroupBuffer, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = { .Layout = VerifyLayout, .Writes = { .Ptr = &DispatchVerifyWrite, .Count = 1 } };
+		DispatchVerifyBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(DispatchVerifyBindGroup));
+	}
+	gdi_bind_group DispatchVerifyAsyncBindGroup;
+	{
+		gdi_bind_group_buffer DispatchVerifyAsyncBindGroupBuffer = { .Buffer = DispatchVerifyBufferAsync };
+		gdi_bind_group_write DispatchVerifyAsyncWrite = { .Buffers = { .Ptr = &DispatchVerifyAsyncBindGroupBuffer, .Count = 1 } };
+		gdi_bind_group_create_info BindGroupInfo = { .Layout = VerifyLayout, .Writes = { .Ptr = &DispatchVerifyAsyncWrite, .Count = 1 } };
+		DispatchVerifyAsyncBindGroup = GDI_Create_Bind_Group(&BindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(DispatchVerifyAsyncBindGroup));
+	}
+
+	/*
+	   Per quad: 6 vtx triangle list v0,v1,v2,v2,v3,v0 with corners TL,TR,BR,BL — tris (0,1,2) and (3,4,5)=(v2,v3,v0).
+	   Indexed draws use 0,1,2,2,4,0 so the four unique corners are slots 0,1,2,4 (slot 3 repeats v2 for the non-indexed list).
+	*/
+	v4 CR = V4(1, 0, 0, 1), CG = V4(0, 1, 0, 1), CB = V4(0, 0, 1, 1), CY = V4(1, 1, 0, 1);
+	vtx_p2_c4 Verts[24] = {
+		{ V2(0, 0), CR }, { V2(32, 0), CR }, { V2(32, 32), CR }, { V2(32, 32), CR }, { V2(0, 32), CR }, { V2(0, 0), CR },
+		{ V2(64, 0), CG }, { V2(96, 0), CG }, { V2(96, 32), CG }, { V2(96, 32), CG }, { V2(64, 32), CG }, { V2(64, 0), CG },
+		{ V2(0, 64), CB }, { V2(32, 64), CB }, { V2(32, 96), CB }, { V2(32, 96), CB }, { V2(0, 96), CB }, { V2(0, 64), CB },
+		{ V2(64, 64), CY }, { V2(96, 64), CY }, { V2(96, 96), CY }, { V2(96, 96), CY }, { V2(64, 96), CY }, { V2(64, 64), CY },
+	};
+
+	u32 Indices[24];
+	for (u32 q = 0; q < 4; q++) {
+		u32 IndexOffset = q * 6;
+		Indices[IndexOffset + 0] = 0; Indices[IndexOffset + 1] = 1; Indices[IndexOffset + 2] = 2;
+		Indices[IndexOffset + 3] = 2; Indices[IndexOffset + 4] = 4; Indices[IndexOffset + 5] = 0;
+	}
+
+	gdi_buffer_create_info VertexBufferInfo = {
+		.Size = sizeof(Verts),
+		.Usage = GDI_BUFFER_USAGE_VTX,
+		.InitialData = Make_Buffer(Verts, sizeof(Verts)),
+	};
+	gdi_buffer VertexBuffer = GDI_Create_Buffer(&VertexBufferInfo);
+	gdi_buffer_create_info IndexBufferInfo = {
+		.Size = sizeof(Indices),
+		.Usage = GDI_BUFFER_USAGE_IDX,
+		.InitialData = Make_Buffer(Indices, sizeof(Indices)),
+	};
+	gdi_buffer IndexBuffer = GDI_Create_Buffer(&IndexBufferInfo);
+	ASSERT_FALSE(GDI_Is_Null(VertexBuffer));
+	ASSERT_FALSE(GDI_Is_Null(IndexBuffer));
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(128, 128),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK,
+	}));
+
+	m4 Ortho = M4_Orthographic(0, 128, 128, 0, -1, 1);
+	Ortho = M4_Transpose(&Ortho);
+	gpu_buffer MatrixBuffer;
+	ASSERT_TRUE(GPU_Buffer_Create(&MatrixBuffer, {
+		.Size = sizeof(m4),
+		.Usage = GDI_BUFFER_USAGE_CONSTANT,
+		.InitialData = Make_Buffer(&Ortho, sizeof(m4)),
+	}));
+
+	/* 1) Fill indirect buffers (direct compute dispatch) */
+	gdi_dispatch FillDispatch = {
+		.Shader = FillShader,
+		.BindGroups = { ScratchFillBindGroup },
+		.ThreadGroupCount = V3i(1, 1, 1),
+	};
+	gdi_signal FillSignal = GDI_Submit_Compute_Pass({}, { .Ptr = &IndirectScratch, .Count = 1 }, { .Ptr = &FillDispatch, .Count = 1 });
+
+	/* 2) Indirect dispatch — sync queue */
+	gdi_dispatch VerifyDispatchSync = {
+		.Shader = VerifyShaderSync,
+		.BindGroups = { DispatchVerifyBindGroup },
+		.IndirectBuffer = IndirectScratch,
+		.IndirectOffset = INDIRECT_SCRATCH_OFF_DISPATCH,
+	};
+	GDI_Submit_Compute_Pass({}, { .Ptr = &DispatchVerifyBuffer, .Count = 1 }, { .Ptr = &VerifyDispatchSync, .Count = 1 });
+
+	GDI_Wait_Signal(FillSignal);
+	/* 3) Same indirect dispatch on async compute (when supported), different output buffer */
+	gdi_dispatch VerifyDispatchAsync = {
+		.Shader = VerifyShaderAsync,
+		.BindGroups = { DispatchVerifyAsyncBindGroup },
+		.IndirectBuffer = IndirectScratch,
+		.IndirectOffset = INDIRECT_SCRATCH_OFF_DISPATCH,
+	};
+	gdi_signal AsyncComputeSignal = GDI_Submit_Async_Compute_Pass({}, { .Ptr = &DispatchVerifyBufferAsync, .Count = 1 }, { .Ptr = &VerifyDispatchAsync, .Count = 1 });
+	GDI_Wait_Signal(AsyncComputeSignal);
+
+	/* 4) Render: four indirect draw variants into quadrants */
+	gdi_render_pass_begin_info BeginInfo = {
+		.RenderTargetViews = { RenderTarget.View },
+		.ClearColors = { { .ShouldClear = true, .F32 = { 0.1f, 0.1f, 0.1f, 1 } } },
+	};
+	gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+	Render_Set_Shader(RenderPass, RenderShader);
+	Render_Set_Bind_Group(RenderPass, 0, MatrixBuffer.BindGroup);
+	Render_Set_Vtx_Buffer(RenderPass, 0, VertexBuffer);
+	Render_Set_Idx_Buffer(RenderPass, IndexBuffer, GDI_IDX_FORMAT_32_BIT);
+	Render_Set_Scissor(RenderPass, 0, 0, 128, 128);
+
+	Render_Set_Scissor(RenderPass, 0, 0, 64, 64);
+	Render_Draw_Indirect(RenderPass, IndirectScratch, INDIRECT_SCRATCH_OFF_DRAW_VTX, 1, (u32)sizeof(gdi_indirect_draw_info));
+
+	Render_Set_Scissor(RenderPass, 64, 0, 128, 64);
+	Render_Draw_Idx_Indirect(RenderPass, IndirectScratch, INDIRECT_SCRATCH_OFF_DRAW_IDX, 1, (u32)sizeof(gdi_indexed_indirect_draw_info));
+
+	Render_Set_Scissor(RenderPass, 0, 64, 64, 128);
+	Render_Draw_Indirect_Count(RenderPass, IndirectScratch, INDIRECT_SCRATCH_OFF_DRAW_VTX_COUNT_0, IndirectScratch, INDIRECT_SCRATCH_OFF_COUNT_U32, 2, (u32)sizeof(gdi_indirect_draw_info));
+
+	Render_Set_Scissor(RenderPass, 64, 64, 128, 128);
+	Render_Draw_Idx_Indirect_Count(RenderPass, IndirectScratch, INDIRECT_SCRATCH_OFF_DRAW_IDX_COUNT_0, IndirectScratch, INDIRECT_SCRATCH_OFF_COUNT_U32, 2, (u32)sizeof(gdi_indexed_indirect_draw_info));
+
+	GDI_End_Render_Pass(RenderPass);
+	GDI_Submit_Render_Pass(RenderPass);
+
+	u8* SyncDispatchVerifyBytes = (u8*)Arena_Push(Scratch.Arena, VerifyBytes);
+	u8* AsyncDispatchVerifyBytes = (u8*)Arena_Push(Scratch.Arena, VerifyBytes);
+	Memory_Clear(SyncDispatchVerifyBytes, VerifyBytes);
+	Memory_Clear(AsyncDispatchVerifyBytes, VerifyBytes);
+
+	indirect_buffer_readback_ctx SyncDispatchVerifyReadbackContext = { .Data = SyncDispatchVerifyBytes, .Size = VerifyBytes };
+	indirect_buffer_readback_ctx AsyncDispatchVerifyReadbackContext = { .Data = AsyncDispatchVerifyBytes, .Size = VerifyBytes };
+
+	gdi_texture_info TextureInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TextureInfo.Dim.x * TextureInfo.Dim.y * GDI_Get_Format_Size(TextureInfo.Format)),
+	};
+	gdi_buffer_readback BufferReadbacks[2];
+	BufferReadbacks[0] = { .Buffer = DispatchVerifyBuffer, .UserData = &SyncDispatchVerifyReadbackContext, .ReadbackFunc = Simple_Buffer_Readback };
+	BufferReadbacks[1] = { .Buffer = DispatchVerifyBufferAsync, .UserData = &AsyncDispatchVerifyReadbackContext, .ReadbackFunc = Simple_Buffer_Readback };
+	gdi_texture_readback TextureReadback = {
+		.Texture = RenderTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback,
+	};
+	gdi_render_params RenderParams = {
+		.TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 },
+		.BufferReadbacks = { .Ptr = BufferReadbacks, .Count = 2 },
+	};
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	for (size_t i = 0; i < DISPATCH_VERIFY_WORDS; i++) {
+		ASSERT_EQ(((u32*)SyncDispatchVerifyBytes)[i], 0xABCDEF01u);
+		ASSERT_EQ(((u32*)AsyncDispatchVerifyBytes)[i], 0xABCDEF01u);
+	}
+
+	f32 Eps = 1.0f / 255.0f;
+	auto ExpectColor = [&](s32 x, s32 y, v4 ExpectedColor) {
+		u32* Texels = (u32*)TestContext.Texels;
+		u32 Sample = Texels[x + y * TextureInfo.Dim.x];
+		v4 GotColor = V4_Color_From_U32(Sample);
+		ASSERT_NEAR(GotColor.x, ExpectedColor.x, Eps);
+		ASSERT_NEAR(GotColor.y, ExpectedColor.y, Eps);
+		ASSERT_NEAR(GotColor.z, ExpectedColor.z, Eps);
+		ASSERT_NEAR(GotColor.w, ExpectedColor.w, Eps);
+	};
+	ExpectColor(16, 16, CR);
+	ExpectColor(80, 16, CG);
+	ExpectColor(16, 80, CB);
+	ExpectColor(80, 80, CY);
+
+	GDI_Delete_Bind_Group(DispatchVerifyAsyncBindGroup);
+	GDI_Delete_Bind_Group(DispatchVerifyBindGroup);
+	GDI_Delete_Bind_Group(ScratchFillBindGroup);
+	GDI_Delete_Buffer(IndexBuffer);
+	GDI_Delete_Buffer(VertexBuffer);
+	GPU_Buffer_Delete(&MatrixBuffer);
+	Texture_Delete(&RenderTarget);
+	GDI_Delete_Buffer(DispatchVerifyBufferAsync);
+	GDI_Delete_Buffer(DispatchVerifyBuffer);
+	GDI_Delete_Buffer(IndirectScratch);
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(VerifyShaderAsync);
+	GDI_Delete_Shader(VerifyShaderSync);
+	GDI_Delete_Shader(FillShader);
+	GDI_Delete_Bind_Group_Layout(VerifyLayout);
+	GDI_Delete_Bind_Group_Layout(FillLayout);
+}
+
+/* Per-frame logical size for dynamic indirect ring (one gdi_indirect_draw_info per slot). */
+enum { INDIRECT_DYNAMIC_FRAME_STRIDE = 64 };
+
+UTEST(gdi, DynamicIndirectBufferMultiFrameTest) {
+	gdi_tests* Tests = GDI_Get_Tests();
+	ASSERT_TRUE(Tests);
+	scratch Scratch;
+
+	gdi_layout FillLayout;
+	{
+		gdi_bind_group_binding StorageBufferBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 };
+		gdi_bind_group_layout_create_info LayoutInfo = { .Bindings = { .Ptr = &StorageBufferBinding, .Count = 1 } };
+		FillLayout = GDI_Create_Bind_Group_Layout(&LayoutInfo);
+		ASSERT_FALSE(GDI_Is_Null(FillLayout));
+	}
+
+	gdi_shader FillShader;
+	{
+		const char* FillHlsl = R"(
+		struct push_data {
+			uint Slot;
+			uint SlotStride;
+			uint Quad;
+		};
+		[[vk::push_constant]]
+		ConstantBuffer<push_data> Push : register(b0);
+		RWByteAddressBuffer Scratch : register(u0);
+		[numthreads(1, 1, 1)]
+		void CS_Main(uint3 tid : SV_DispatchThreadID) {
+			uint b = Push.Slot * Push.SlotStride;
+			// gdi_indexed_indirect_draw_info @ b — full quad per color (IB: 6 indices / quad)
+			Scratch.Store(b + 0, 6u);
+			Scratch.Store(b + 4, 1u);
+			Scratch.Store(b + 8, Push.Quad * 6u);
+			Scratch.Store(b + 12, asuint((int)(Push.Quad * 4)));
+			Scratch.Store(b + 16, 0u);
+		}
+		)";
+		IDxcBlob* Blob = Compile_Shader(String_Null_Term(FillHlsl), String_Lit("cs_6_0"), String_Lit("CS_Main"), {});
+		ASSERT_TRUE(Blob);
+		gdi_bind_group_binding WritableStorageBinding = { .Type = GDI_BIND_GROUP_TYPE_STORAGE_BUFFER, .Count = 1 };
+		gdi_shader_create_info ShaderCreateInfo = {
+			.CS = { .Ptr = (u8*)Blob->GetBufferPointer(), .Size = Blob->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &FillLayout, .Count = 1 },
+			.WritableBindings = { .Ptr = &WritableStorageBinding, .Count = 1 },
+			.PushConstantCount = 3,
+			.DebugName = String_Lit("Dynamic indirect fill CS"),
+		};
+		FillShader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(FillShader));
+		Blob->Release();
+	}
+
+	gdi_layout MatrixLayout = Tests->BufferLayout;
+	gdi_shader RenderShader;
+	{
+		const char* RenderHlsl = R"(
+		struct vs_in { float2 P : POSITION0; float4 C : COLOR0; };
+		struct vs_out { float4 Pos : SV_POSITION; float4 C : COLOR0; };
+		struct cb { float4x4 M; };
+		ConstantBuffer<cb> PC : register(b0, space0);
+		vs_out VS_Main(vs_in I) {
+			vs_out O;
+			O.Pos = mul(float4(I.P, 0, 1), PC.M);
+			O.C = I.C;
+			return O;
+		}
+		float4 PS_Main(vs_out I) : SV_TARGET0 { return I.C; }
+		)";
+		IDxcBlob* VS = Compile_Shader(String_Null_Term(RenderHlsl), String_Lit("vs_6_0"), String_Lit("VS_Main"), { String_Lit("-fvk-invert-y") });
+		IDxcBlob* PS = Compile_Shader(String_Null_Term(RenderHlsl), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VS && PS);
+		gdi_vtx_attribute DynamicIndirectAttributes[] = {
+			{ String_Lit("POSITION"), GDI_FORMAT_R32G32_FLOAT },
+			{ String_Lit("COLOR"), GDI_FORMAT_R32G32B32A32_FLOAT },
+		};
+		gdi_vtx_binding DynamicIndirectVtxBinding = {
+			.Stride = sizeof(vtx_p2_c4),
+			.Attributes = { .Ptr = DynamicIndirectAttributes, .Count = Array_Count(DynamicIndirectAttributes) },
+		};
+		gdi_shader_create_info ShaderCreateInfo = {
+			.VS = { .Ptr = (u8*)VS->GetBufferPointer(), .Size = VS->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PS->GetBufferPointer(), .Size = PS->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &MatrixLayout, .Count = 1 },
+			.VtxBindings = { .Ptr = &DynamicIndirectVtxBinding, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Dynamic indirect MF RT"),
+		};
+		RenderShader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(RenderShader));
+		VS->Release();
+		PS->Release();
+	}
+
+	v4 QuadColors[4] = {
+		V4(1, 0, 0, 1), V4(0, 1, 0, 1), V4(0, 0, 1, 1), V4(1, 1, 0, 1),
+	};
+	/* 4 quads × 4 corners (TL, TR, BR, BL); indexed draws use 0,1,2,2,3,0 per quad. */
+	vtx_p2_c4 Verts[16];
+	for (u32 q = 0; q < 4; q++) {
+		v4 C = QuadColors[q];
+		Verts[q * 4 + 0] = { V2(0, 0), C };
+		Verts[q * 4 + 1] = { V2(64, 0), C };
+		Verts[q * 4 + 2] = { V2(64, 64), C };
+		Verts[q * 4 + 3] = { V2(0, 64), C };
+	}
+	u32 Indices[24];
+	for (u32 q = 0; q < 4; q++) {
+		u32 O = q * 6;
+		Indices[O + 0] = 0; Indices[O + 1] = 1; Indices[O + 2] = 2;
+		Indices[O + 3] = 2; Indices[O + 4] = 3; Indices[O + 5] = 0;
+	}
+
+	gdi_buffer_create_info VertexBufferInfo = {
+		.Size = sizeof(Verts),
+		.Usage = GDI_BUFFER_USAGE_VTX,
+		.InitialData = Make_Buffer(Verts, sizeof(Verts)),
+	};
+	gdi_buffer VertexBuffer = GDI_Create_Buffer(&VertexBufferInfo);
+	ASSERT_FALSE(GDI_Is_Null(VertexBuffer));
+	gdi_buffer_create_info IndexBufferInfo = {
+		.Size = sizeof(Indices),
+		.Usage = GDI_BUFFER_USAGE_IDX,
+		.InitialData = Make_Buffer(Indices, sizeof(Indices)),
+	};
+	gdi_buffer IndexBuffer = GDI_Create_Buffer(&IndexBufferInfo);
+	ASSERT_FALSE(GDI_Is_Null(IndexBuffer));
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(64, 64),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK,
+	}));
+
+	m4 Ortho = M4_Orthographic(0, 64, 64, 0, -1, 1);
+	Ortho = M4_Transpose(&Ortho);
+	gpu_buffer MatrixBuffer;
+	ASSERT_TRUE(GPU_Buffer_Create(&MatrixBuffer, {
+		.Size = sizeof(m4),
+		.Usage = GDI_BUFFER_USAGE_CONSTANT,
+		.InitialData = Make_Buffer(&Ortho, sizeof(m4)),
+	}));
+
+	struct indirect_fill_push {
+		u32 Slot;
+		u32 SlotStride;
+		u32 Quad;
+	};
+
+	u32 FrameSlotCount = GDI_Get()->FramesInFlight + 1;
+	size_t DynamicIndirectRingBytes = FrameSlotCount * INDIRECT_DYNAMIC_FRAME_STRIDE;
+
+	/* --- Compute fills the dynamic indirect buffer each frame --- */
+	{
+		gdi_buffer_create_info DynamicIndirectBufferInfo = {
+			.Size = DynamicIndirectRingBytes,
+			.Usage = GDI_BUFFER_USAGE_STORAGE | GDI_BUFFER_USAGE_INDIRECT | GDI_BUFFER_USAGE_DYNAMIC,
+			.DebugName = String_Lit("dyn indirect cs"),
+		};
+		gdi_buffer ComputeDynamicIndirectBuffer = GDI_Create_Buffer(&DynamicIndirectBufferInfo);
+		ASSERT_FALSE(GDI_Is_Null(ComputeDynamicIndirectBuffer));
+
+		gdi_bind_group_buffer IndirectBufferForBindGroup = { .Buffer = ComputeDynamicIndirectBuffer };
+		gdi_bind_group_write FillBindGroupWrite = { .Buffers = { .Ptr = &IndirectBufferForBindGroup, .Count = 1 } };
+		gdi_bind_group_create_info FillBindGroupInfo = { .Layout = FillLayout, .Writes = { .Ptr = &FillBindGroupWrite, .Count = 1 } };
+		gdi_bind_group FillBindGroup = GDI_Create_Bind_Group(&FillBindGroupInfo);
+		ASSERT_FALSE(GDI_Is_Null(FillBindGroup));
+
+		for (u32 i = 0; i < 10; i++) {
+			u32 Quad = i % 4;
+			u32 Slot = i % FrameSlotCount;
+			indirect_fill_push FillPush = { .Slot = Slot, .SlotStride = INDIRECT_DYNAMIC_FRAME_STRIDE, .Quad = Quad };
+			gdi_dispatch FillDispatch = {};
+			FillDispatch.Shader = FillShader;
+			FillDispatch.BindGroups[0] = FillBindGroup;
+			FillDispatch.PushConstantCount = sizeof(indirect_fill_push) / sizeof(u32);
+			FillDispatch.ThreadGroupCount = V3i(1, 1, 1);
+			Memory_Copy(FillDispatch.PushConstants, &FillPush, sizeof(FillPush));
+			GDI_Submit_Compute_Pass({}, { .Ptr = &ComputeDynamicIndirectBuffer, .Count = 1 }, { .Ptr = &FillDispatch, .Count = 1 });
+
+			gdi_render_pass_begin_info BeginInfo = {
+				.RenderTargetViews = { RenderTarget.View },
+				.ClearColors = { { .ShouldClear = true, .F32 = { 0.15f, 0.15f, 0.15f, 1 } } },
+			};
+			gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RenderPass, RenderShader);
+			Render_Set_Bind_Group(RenderPass, 0, MatrixBuffer.BindGroup);
+			Render_Set_Vtx_Buffer(RenderPass, 0, VertexBuffer);
+			Render_Set_Idx_Buffer(RenderPass, IndexBuffer, GDI_IDX_FORMAT_32_BIT);
+			Render_Set_Scissor(RenderPass, 0, 0, 64, 64);
+			Render_Draw_Idx_Indirect(RenderPass, ComputeDynamicIndirectBuffer, (u64)(Slot * INDIRECT_DYNAMIC_FRAME_STRIDE), 1, (u32)sizeof(gdi_indexed_indirect_draw_info));
+			GDI_End_Render_Pass(RenderPass);
+			GDI_Submit_Render_Pass(RenderPass);
+
+			dynamic_indirect_frame_readback_ctx* FrameReadbackCtx = Arena_Push_Struct(Scratch.Arena, dynamic_indirect_frame_readback_ctx);
+			FrameReadbackCtx->ExpectedColor = QuadColors[Quad];
+			gdi_texture_readback FrameReadback = {
+				.Texture = RenderTarget.Handle,
+				.UserData = FrameReadbackCtx,
+				.ReadbackFunc = Dynamic_Indirect_Frame_Texture_Readback,
+			};
+			gdi_render_params FrameReadbackParams = { .TextureReadbacks = { .Ptr = &FrameReadback, .Count = 1 } };
+			GDI_Render(&FrameReadbackParams);
+		}
+		GDI_Flush();
+
+		GDI_Delete_Bind_Group(FillBindGroup);
+		GDI_Delete_Buffer(ComputeDynamicIndirectBuffer);
+	}
+
+	/* --- CPU maps the current frame slice and writes gdi_indirect_draw_info --- */
+	{
+		gdi_buffer_create_info DynamicIndirectBufferInfo = {
+			.Size = DynamicIndirectRingBytes,
+			.Usage = GDI_BUFFER_USAGE_STORAGE | GDI_BUFFER_USAGE_INDIRECT | GDI_BUFFER_USAGE_DYNAMIC,
+			.DebugName = String_Lit("dyn indirect cpu"),
+		};
+		gdi_buffer CpuDynamicIndirectBuffer = GDI_Create_Buffer(&DynamicIndirectBufferInfo);
+		ASSERT_FALSE(GDI_Is_Null(CpuDynamicIndirectBuffer));
+
+		for (u32 i = 0; i < 10; i++) {
+			u32 Quad = i % 4;
+			u32 Slot = i % FrameSlotCount;
+			gdi_indexed_indirect_draw_info Draw = {
+				.IdxCount = 6,
+				.InstanceCount = 1,
+				.IdxOffset = Quad * 6,
+				.VtxOffset = Quad * 4,
+				.InstanceOffset = 0,
+			};
+			size_t SlotByteOffset = (size_t)Slot * INDIRECT_DYNAMIC_FRAME_STRIDE;
+			u8* MappedSlice = (u8*)GDI_Map_Buffer(CpuDynamicIndirectBuffer, SlotByteOffset, INDIRECT_DYNAMIC_FRAME_STRIDE);
+			ASSERT_TRUE(MappedSlice);
+			Memory_Copy(MappedSlice, &Draw, sizeof(Draw));
+			GDI_Unmap_Buffer(CpuDynamicIndirectBuffer);
+
+			gdi_render_pass_begin_info BeginInfo = {
+				.RenderTargetViews = { RenderTarget.View },
+				.ClearColors = { { .ShouldClear = true, .F32 = { 0.15f, 0.15f, 0.15f, 1 } } },
+			};
+			gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+			Render_Set_Shader(RenderPass, RenderShader);
+			Render_Set_Bind_Group(RenderPass, 0, MatrixBuffer.BindGroup);
+			Render_Set_Vtx_Buffer(RenderPass, 0, VertexBuffer);
+			Render_Set_Idx_Buffer(RenderPass, IndexBuffer, GDI_IDX_FORMAT_32_BIT);
+			Render_Set_Scissor(RenderPass, 0, 0, 64, 64);
+			Render_Draw_Idx_Indirect(RenderPass, CpuDynamicIndirectBuffer, (u64)SlotByteOffset, 1, (u32)sizeof(gdi_indexed_indirect_draw_info));
+			GDI_End_Render_Pass(RenderPass);
+			GDI_Submit_Render_Pass(RenderPass);
+
+			dynamic_indirect_frame_readback_ctx* FrameReadbackCtx = Arena_Push_Struct(Scratch.Arena, dynamic_indirect_frame_readback_ctx);
+			FrameReadbackCtx->ExpectedColor = QuadColors[Quad];
+			gdi_texture_readback FrameReadback = {
+				.Texture = RenderTarget.Handle,
+				.UserData = FrameReadbackCtx,
+				.ReadbackFunc = Dynamic_Indirect_Frame_Texture_Readback,
+			};
+			gdi_render_params FrameReadbackParams = { .TextureReadbacks = { .Ptr = &FrameReadback, .Count = 1 } };
+			GDI_Render(&FrameReadbackParams);
+		}
+		GDI_Flush();
+
+		GDI_Delete_Buffer(CpuDynamicIndirectBuffer);
+	}
+
+	GDI_Delete_Shader(RenderShader);
+	GDI_Delete_Shader(FillShader);
+	GPU_Buffer_Delete(&MatrixBuffer);
+	Texture_Delete(&RenderTarget);
+	GDI_Delete_Buffer(IndexBuffer);
+	GDI_Delete_Buffer(VertexBuffer);
+	GDI_Delete_Bind_Group_Layout(FillLayout);
 }

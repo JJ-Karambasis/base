@@ -528,6 +528,18 @@ function void Render_Draw_Common(gdi_render_pass* RenderPass) {
 		Stream += sizeof(u32);
 	}
     
+	if (!GDI_Is_Equal(PrevState->IndirectBuffer, CurrentState->IndirectBuffer)) {
+		*Bitfield |= GDI_RENDER_PASS_INDIRECT_BUFFER_BIT;
+		Memory_Copy(Stream, &CurrentState->IndirectBuffer, sizeof(gdi_buffer));
+		Stream += sizeof(gdi_buffer);
+	}
+    
+	if (!GDI_Is_Equal(PrevState->IndirectCountBuffer, CurrentState->IndirectCountBuffer)) {
+		*Bitfield |= GDI_RENDER_PASS_INDIRECT_COUNT_BUFFER_BIT;
+		Memory_Copy(Stream, &CurrentState->IndirectCountBuffer, sizeof(gdi_buffer));
+		Stream += sizeof(gdi_buffer);
+	}
+    
 	if (PrevState->PushConstantCount != CurrentState->PushConstantCount) {
 		*Bitfield |= GDI_RENDER_PASS_PUSH_CONSTANT_COUNT;
 		Memory_Copy(Stream, &CurrentState->PushConstantCount, sizeof(u32));
@@ -577,6 +589,62 @@ export_function void Render_Draw_Instanced(gdi_render_pass* RenderPass, u32 VtxC
 
 export_function void Render_Draw(gdi_render_pass* RenderPass, u32 VtxCount, u32 VtxOffset) {
 	Render_Draw_Instanced(RenderPass, VtxCount, VtxOffset, 1, 0);
+}
+
+export_function void Render_Draw_Indirect(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, u32 DrawCount, u32 Stride) {
+	if (!DrawCount) {
+		return;
+	}
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+	CurrentState->DrawType = GDI_DRAW_TYPE_VTX_INDIRECT;
+	CurrentState->IndirectBuffer = IndirectBuffer;
+	CurrentState->PrimitiveOffset = (u32)IndirectOffset;
+	CurrentState->PrimitiveCount = DrawCount;
+	CurrentState->VtxOffset = Stride ? Stride : (u32)sizeof(gdi_indirect_draw_info);
+	Render_Draw_Common(RenderPass);
+}
+
+export_function void Render_Draw_Idx_Indirect(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, u32 DrawCount, u32 Stride) {
+	if (!DrawCount) {
+		return;
+	}
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+	CurrentState->DrawType = GDI_DRAW_TYPE_IDX_INDIRECT;
+	CurrentState->IndirectBuffer = IndirectBuffer;
+	CurrentState->PrimitiveOffset = (u32)IndirectOffset;
+	CurrentState->PrimitiveCount = DrawCount;
+	CurrentState->VtxOffset = Stride ? Stride : (u32)sizeof(gdi_indexed_indirect_draw_info);
+	Render_Draw_Common(RenderPass);
+}
+
+export_function void Render_Draw_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride) {
+	if (!MaxDrawCount) {
+		return;
+	}
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+	CurrentState->DrawType = GDI_DRAW_TYPE_VTX_INDIRECT_COUNT;
+	CurrentState->IndirectBuffer = IndirectBuffer;
+	CurrentState->IndirectCountBuffer = CountBuffer;
+	CurrentState->PrimitiveOffset = (u32)IndirectOffset;
+	CurrentState->PrimitiveCount = MaxDrawCount;
+	CurrentState->FirstInstance = (u32)CountBufferOffset;
+	CurrentState->VtxOffset = Stride ? Stride : (u32)sizeof(gdi_indirect_draw_info);
+	Render_Draw_Common(RenderPass);
+}
+
+export_function void Render_Draw_Idx_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride) {
+	if (!MaxDrawCount) {
+		return;
+	}
+	gdi_draw_state* CurrentState = &RenderPass->CurrentState;
+	CurrentState->DrawType = GDI_DRAW_TYPE_IDX_INDIRECT_COUNT;
+	CurrentState->IndirectBuffer = IndirectBuffer;
+	CurrentState->IndirectCountBuffer = CountBuffer;
+	CurrentState->PrimitiveOffset = (u32)IndirectOffset;
+	CurrentState->PrimitiveCount = MaxDrawCount;
+	CurrentState->FirstInstance = (u32)CountBufferOffset;
+	CurrentState->VtxOffset = Stride ? Stride : (u32)sizeof(gdi_indexed_indirect_draw_info);
+	Render_Draw_Common(RenderPass);
 }
 
 function void GDI_Pool_Init_Raw(gdi_pool* Pool, u16* IndicesPtr, gdi_id* IDsPtr, u16 Capacity) {
