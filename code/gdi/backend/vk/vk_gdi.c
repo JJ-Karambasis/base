@@ -397,6 +397,27 @@ function void VK_Add_Texture_Barrier(vk_barriers* Barriers, vk_texture* Texture,
 	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
 }
 
+function void VK_Add_Texture_Pre_Transfer_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState, vk_resource_state NewState) {
+	if(!Barriers->Context->HasDedicatedTransferQueue) {
+		VK_Add_Texture_Barrier(Barriers, Texture, OldState, NewState);
+		return;
+	}
+    
+	VkImageAspectFlags ImageAspect = GDI_Is_Depth_Format(Texture->Format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	VkImageMemoryBarrier2KHR Barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+		.srcAccessMask = VK_Get_Access_Mask(OldState),
+		.dstStageMask = VK_Get_Stage_Mask(NewState),
+		.dstAccessMask = VK_Get_Access_Mask(NewState),
+		.oldLayout = VK_Get_Image_Layout(OldState),
+		.newLayout = VK_Get_Image_Layout(NewState),
+		.image = Texture->Image,
+		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
+	};
+	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
+}
+
 function void VK_Add_Texture_Post_Transfer_Barrier(vk_barriers* Barriers, vk_texture* Texture, vk_resource_state OldState, vk_resource_state NewState) {
 	if(!Barriers->Context->HasDedicatedTransferQueue) {
 		VK_Add_Texture_Barrier(Barriers, Texture, OldState, NewState);
@@ -431,12 +452,12 @@ function void VK_Add_Texture_Compute_Barrier(vk_barriers* Barriers, vk_texture* 
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
-
+    
 	if(Barriers->IsAsyncCompute) {
 		Barrier.srcStageMask &= ~(VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR);
 		Barrier.dstStageMask &= ~(VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR);
 	}
-
+    
 	Dynamic_VK_Image_Memory_Barrier2_Array_Add(&Barriers->Barriers, Barrier);
 }
 
@@ -1451,8 +1472,8 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	
 	Context->IsAsyncComputeSupported = Device->IsAsyncComputeSupported;
 	Context->HasDedicatedTransferQueue =
-		(TargetGPU->TransferQueueFamilyIndex != TargetGPU->GraphicsQueueFamilyIndex) &&
-		(TargetGPU->TransferQueueFamilyIndex != TargetGPU->ComputeQueueFamilyIndex);
+    (TargetGPU->TransferQueueFamilyIndex != TargetGPU->GraphicsQueueFamilyIndex) &&
+    (TargetGPU->TransferQueueFamilyIndex != TargetGPU->ComputeQueueFamilyIndex);
 	
 	//Create the device
 	f32 QueuePriority = 1.0f;
@@ -2062,7 +2083,7 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	if (BufferInfo->Usage & GDI_BUFFER_USAGE_STORAGE) {
 		BufferUsage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	}
-
+    
 	if(BufferInfo->Usage & GDI_BUFFER_USAGE_INDIRECT) {
 		BufferUsage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 	}
@@ -3288,7 +3309,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 			case GDI_DRAW_TYPE_VTX: {
 				vkCmdDraw(VkRenderPass->CmdBuffer, CurrentPrimitiveCount, CurrentInstanceCount, CurrentPrimitiveOffset, CurrentFirstInstance);
 			} break;
-
+            
 			case GDI_DRAW_TYPE_IDX_INDIRECT:
 			case GDI_DRAW_TYPE_VTX_INDIRECT: 
 			case GDI_DRAW_TYPE_IDX_INDIRECT_COUNT:
@@ -3299,7 +3320,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 					if (CurrentIndirectBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
 						IndirectOffset += (Frame->Index * CurrentIndirectBuffer->Size);
 					}
-
+                    
 					switch(CurrentDrawType) {
 						case GDI_DRAW_TYPE_IDX_INDIRECT: {
 							vkCmdDrawIndexedIndirect(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentPrimitiveCount, CurrentVtxOffset);
@@ -3307,7 +3328,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 						case GDI_DRAW_TYPE_VTX_INDIRECT: {
 							vkCmdDrawIndirect(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentPrimitiveCount, CurrentVtxOffset);
 						} break;
-
+                        
 						default: {
 							Assert(CurrentIndirectCountBuffer && CurrentIndirectCountBuffer->Usage & GDI_BUFFER_USAGE_INDIRECT);
 							if(CurrentIndirectCountBuffer) {
@@ -3315,7 +3336,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 								if (CurrentIndirectCountBuffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
 									CountOffset += (Frame->Index * CurrentIndirectCountBuffer->Size);
 								}
-
+                                
 								if(CurrentDrawType == GDI_DRAW_TYPE_IDX_INDIRECT_COUNT) {
 									vkCmdDrawIndexedIndirectCountKHR(VkRenderPass->CmdBuffer, CurrentIndirectBuffer->Buffer, IndirectOffset, CurrentIndirectCountBuffer->Buffer, CountOffset, CurrentPrimitiveCount, CurrentVtxOffset);
 								} else {
@@ -3324,10 +3345,10 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 							}
 						} break;
 					}
-
+                    
 				}
 			} break;
-
+            
 			Invalid_Default_Case;
 		}
 	}
@@ -3915,7 +3936,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 			if (Texture->QueueFlags) {
 				if (Are_Bits_Set(Texture->QueueFlags, VK_GDI_QUEUE_FLAG_TRANSFER|VK_GDI_QUEUE_FLAG_CREATION)) {
 					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
+						VK_Add_Texture_Pre_Transfer_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
 						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 					} Invalid_Else;
 				} else if(Texture->QueueFlags == VK_GDI_QUEUE_FLAG_CREATION) {
@@ -3930,7 +3951,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 					} Invalid_Else;
 				} else if (Texture->QueueFlags == VK_GDI_QUEUE_FLAG_TRANSFER) {
 					if (Texture->Usage & GDI_TEXTURE_USAGE_SAMPLED) {
-						VK_Add_Texture_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_WRITE);
+						VK_Add_Texture_Pre_Transfer_Barrier(&PrePassBarriers, Texture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_TRANSFER_WRITE);
 						VK_Add_Texture_Post_Transfer_Barrier(&PostPassBarriers, Texture, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_SHADER_READ);
 					} Invalid_Else;
 				} Invalid_Else;
@@ -4190,7 +4211,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 												gdi_buffer Handle = ComputePass->BufferWrites.Ptr[BufferIndex++];
 												vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Handle);
 												Assert(Buffer);
-
+                                                
 												size_t Offset = 0;
 												if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
 													Offset += Buffer->Size * FrameContext->Index;
@@ -4827,7 +4848,7 @@ global gdi_backend_vtable VK_Backend_VTable = {
 	.CreateQueryPoolFunc = VK_Create_Query_Pool,
 	.DeleteQueryPoolFunc = VK_Delete_Query_Pool,
 	.GetQueryResultsFunc = VK_Get_Query_Results,
-
+    
 	.BeginRenderPassFunc = VK_Begin_Render_Pass,
 	.EndRenderPassFunc = VK_End_Render_Pass,
     
