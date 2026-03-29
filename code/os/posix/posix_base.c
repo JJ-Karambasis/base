@@ -321,6 +321,13 @@ function OS_COPY_FILE_DEFINE(Posix_Copy_File) {
     return Result;
 }
 
+function OS_SANITIZE_PATH_DEFINE(Posix_Sanitize_Path) {
+    (void)Allocator;
+    (void)Path;
+    Not_Implemented;
+    return String_Empty();
+}
+
 function OS_TLS_CREATE_DEFINE(Posix_TLS_Create) {
     posix_base* Posix = Posix_Get();
 
@@ -903,6 +910,7 @@ global os_base_vtable Posix_Base_VTable = {
 	.IsFilePathFunc = Posix_Is_File_Path,
 	.MakeDirectoryFunc = Posix_Make_Directory,
     .CopyFileFunc = Posix_Copy_File,
+    .SanitizePathFunc = Posix_Sanitize_Path,
 
 	.TLSCreateFunc = Posix_TLS_Create,
 	.TLSDeleteFunc = Posix_TLS_Delete,

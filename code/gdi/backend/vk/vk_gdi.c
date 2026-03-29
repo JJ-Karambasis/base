@@ -61,6 +61,8 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME),
 	String_Expand(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
 	String_Expand(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME),
+	String_Expand(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME),
+	String_Expand(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME),
 #ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 #endif
@@ -899,14 +901,17 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	VkPhysicalDeviceSynchronization2FeaturesKHR* Synchronization2Feature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceSynchronization2FeaturesKHR);
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR* DynamicRenderingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDynamicRenderingFeaturesKHR);
 	VkPhysicalDeviceTimelineSemaphoreFeatures* TimelineSemaphoreFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceTimelineSemaphoreFeatures);
+	VkPhysicalDeviceShaderDrawParametersFeatures* ShaderDrawParametersFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceShaderDrawParametersFeatures);
 	VkPhysicalDeviceFeatures2KHR* Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceFeatures2KHR);
     
 	DescriptorIndexingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
 	Synchronization2Feature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
 	DynamicRenderingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
 	TimelineSemaphoreFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+	ShaderDrawParametersFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
 	Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
     
+	TimelineSemaphoreFeature->pNext = ShaderDrawParametersFeature;
 	DescriptorIndexingFeature->pNext = TimelineSemaphoreFeature;
 	Synchronization2Feature->pNext = DescriptorIndexingFeature;
 	DynamicRenderingFeature->pNext = Synchronization2Feature;
@@ -934,6 +939,11 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
     
 	if (!TimelineSemaphoreFeature->timelineSemaphore) {
 		GDI_Log_Warning("Missing vulkan feature 'Timeline Semaphore' for device '%s'", DeviceProperties.deviceName);
+		HasFeatures = false;
+	}
+    
+	if (!ShaderDrawParametersFeature->shaderDrawParameters) {
+		GDI_Log_Warning("Missing vulkan feature 'Shader Draw Parameters' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
     
@@ -4965,7 +4975,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 #endif
     
 	VkApplicationInfo ApplicationInfo = {
-		.apiVersion = VK_API_VERSION_1_0
+		.apiVersion = VK_API_VERSION_1_1
 	};
     
 	VkInstanceCreateInfo InstanceCreateInfo = {

@@ -289,6 +289,28 @@ function OS_COPY_FILE_DEFINE(Win32_Copy_File) {
     return Result;
 }
 
+function OS_SANITIZE_PATH_DEFINE(Win32_Sanitize_Path) {
+    if (String_Is_Empty(Path)) {
+        return String_Empty();
+    }
+    arena* Scratch = Scratch_Get();
+    wstring PathW = WString_From_String((allocator*)Scratch, Path);
+    DWORD Size = GetFullPathNameW(PathW.Ptr, 0, NULL, NULL);
+    if (!Size) {
+        Scratch_Release();
+        return Path;
+    }
+    wchar_t* Buffer = (wchar_t*)Arena_Push(Scratch, sizeof(wchar_t) * Size);
+    DWORD FinalSize = GetFullPathNameW(PathW.Ptr, Size, Buffer, NULL);
+    if (FinalSize == 0 || FinalSize >= Size) {
+        Scratch_Release();
+        return Path;
+    }
+    string Result = String_From_WString(Allocator, Make_WString(Buffer, FinalSize));
+    Scratch_Release();
+    return Result;
+}
+
 function OS_TLS_CREATE_DEFINE(Win32_TLS_Create) {
     win32_base* Win32 = Win32_Get();
     
@@ -756,6 +778,7 @@ global os_base_vtable Win32_Base_VTable = {
     .IsFilePathFunc = Win32_Is_File_Path,
     .MakeDirectoryFunc = Win32_Make_Directory,
     .CopyFileFunc = Win32_Copy_File,
+    .SanitizePathFunc = Win32_Sanitize_Path,
     
     .TLSCreateFunc = Win32_TLS_Create,
     .TLSDeleteFunc = Win32_TLS_Delete,
