@@ -490,6 +490,7 @@ export_function v4 V4_Zero();
 export_function v4 V4_From_V3(v3 xyz, f32 w);
 export_function f32 V4_Dot(v4 a, v4 b);
 export_function v4 V4_Mul_V4(v4 A, v4 B);
+export_function v4 V4_Mul_S(v4 A, f32 B);
 
 export_function v4 V4_Color_From_U32(u32 Color);
 export_function u32 U32_Color_From_V4(v4 Color);

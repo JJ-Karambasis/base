@@ -99,6 +99,11 @@ function inline v3 operator/(v3 A, f32 B) {
     return Result;
 }
 
+function inline v4 operator*(v4 A, f32 B) {
+	v4 Result = V4_Mul_S(A, B);
+	return Result;
+}
+
 function inline quat operator*(quat A, quat B) {
 	quat Result = Quat_Mul_Quat(A, B);
 	return Result;

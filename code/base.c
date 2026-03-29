@@ -695,6 +695,11 @@ export_function v4 V4_Mul_V4(v4 A, v4 B) {
 	return Result;
 }
 
+export_function v4 V4_Mul_S(v4 A, f32 B) {
+	v4 Result = {A.x * B, A.y * B, A.z * B, A.w * B};
+    return Result;
+}
+
 export_function v4 V4_Color_From_U32(u32 Color) {
 	v4 Result = V4((f32)(Color & 0xFF) / 255.0f,
 				   (f32)((Color >> 8) & 0xFF) / 255.0f,
