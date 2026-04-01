@@ -2082,6 +2082,14 @@ export_function void* Cap_Allocator_Allocate_No_Clear(cap_allocator* Allocator, 
     return Allocator->Ptr;
 }
 
+export_function void* Cap_Allocator_Allocate(cap_allocator* Allocator, size_t Size) {
+    void* Result = Cap_Allocator_Allocate_No_Clear(Allocator, Size);
+    if (Result && Size) {
+        Memory_Clear(Result, Size);
+    }
+    return Result;
+}
+
 export_function void Cap_Allocator_Delete(cap_allocator* Allocator) {
     allocator* InnerAllocator = Allocator->InnerAllocator;
     

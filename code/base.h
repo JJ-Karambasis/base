@@ -809,6 +809,7 @@ typedef struct {
 } cap_allocator;
 
 export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator);
+export_function void* Cap_Allocator_Allocate_No_Clear(cap_allocator* Allocator, size_t Size);
 export_function void* Cap_Allocator_Allocate(cap_allocator* Allocator, size_t Size);
 export_function void Cap_Allocator_Delete(cap_allocator* Allocator);
 
