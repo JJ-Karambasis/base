@@ -277,6 +277,27 @@ function GDI_TEXTURE_READBACK_DEFINE(Dynamic_Indirect_Frame_Texture_Readback) {
 	Assert(Equal_Approx_F32(GotColor.w, Ctx->ExpectedColor.w, Eps));
 }
 
+struct constant_buffer_frame_readback_ctx {
+	v4 ExpectedColor;
+};
+
+function GDI_TEXTURE_READBACK_DEFINE(Constant_Buffer_Frame_Texture_Readback) {
+	(void)Texture;
+	(void)Format;
+	constant_buffer_frame_readback_ctx* Ctx = (constant_buffer_frame_readback_ctx*)UserData;
+	const u32* Pixels = (const u32*)Texels;
+	f32 Eps = 2.0f / 255.0f;
+	for (s32 y = 0; y < Dim.y; y++) {
+		for (s32 x = 0; x < Dim.x; x++) {
+			v4 Got = V4_Color_From_U32(Pixels[x + y * Dim.x]);
+			Assert(Equal_Approx_F32(Got.x, Ctx->ExpectedColor.x, Eps));
+			Assert(Equal_Approx_F32(Got.y, Ctx->ExpectedColor.y, Eps));
+			Assert(Equal_Approx_F32(Got.z, Ctx->ExpectedColor.z, Eps));
+			Assert(Equal_Approx_F32(Got.w, Ctx->ExpectedColor.w, Eps));
+		}
+	}
+}
+
 UTEST(gdi, SimpleTest) {
     scratch Scratch;
 
@@ -3997,11 +4018,10 @@ UTEST(gdi, AsyncComputeMultiStepOverlapStressTest) {
 	GDI_Delete_Query_Pool(QueryPool);
 }
 
-// CPU upload -> compute copy -> fullscreen draw -> readback. Always run: GDI_Submit_Async_Compute_Pass falls
-// back to graphics-queue compute when async is unavailable, and GDI_Wait_Signal is a no-op there; transfer
-// uses the graphics queue when there is no dedicated transfer queue. With dedicated queues, this also
-// exercises transfer timeline -> compute and async compute vs graphics (vk_gdi.c).
-UTEST(gdi, DedicatedTransferQueueAsyncComputeGraphicsTest) {
+// CPU upload -> compute copy -> fullscreen draw -> readback. GDI_Submit_Async_Compute_Pass falls back to
+// graphics-queue compute when async is unavailable; uploads use the graphics queue; transfer timeline
+// synchronizes async compute with upload work (vk_gdi.c).
+UTEST(gdi, TransferAsyncComputeGraphicsTest) {
 	scratch Scratch;
 
 	v2i Dim = V2i(64, 64);
@@ -4881,44 +4901,42 @@ UTEST(gdi, DynamicIndirectBufferMultiFrameTest) {
 /*
  * Uploads a non-dynamic constant buffer via Map/Unmap (staging copy on the transfer queue),
  * draws a fullscreen triangle with the graphics pipeline reading that CB, then readbacks the
- * render target to verify the GPU saw the uploaded constants.
+ * render target to verify the GPU saw the uploaded constants. Repeats for many frames with
+ * different colors to catch draws that observe a stale CB value after upload.
+ * Assertions run in the readback callback after the GPU has finished the copy into that frame's
+ * readback buffer (fence). Per-frame readback memory does not require extra CPU sync for correctness.
  */
-UTEST(gdi, ConstantBufferUpload_GraphicsPipeline_RenderTargetReadback) {
+UTEST(gdi, ConstantBufferUploadReadbackTest) {
 	gdi_tests* Tests = GDI_Get_Tests();
 	ASSERT_TRUE(Tests);
 	scratch Scratch;
 
-	struct ps_cb {
+	struct pixel_shader_constant_buffer {
 		v4 Color;
 	};
 
-	v4 ExpectedColor = V4(0.125f, 0.375f, 0.625f, 1.0f);
+	const u32 FrameCount = 100;
 
-	gdi_buffer_create_info CbInfo = {
-		.Size = sizeof(ps_cb),
+	gdi_buffer_create_info ConstantBufferInfo = {
+		.Size = sizeof(pixel_shader_constant_buffer),
 		.Usage = GDI_BUFFER_USAGE_CONSTANT,
-		.DebugName = String_Lit("CB upload graphics readback test"),
+		.DebugName = String_Lit("constant buffer upload readback test"),
 	};
-	gdi_buffer Cb = GDI_Create_Buffer(&CbInfo);
-	ASSERT_FALSE(GDI_Is_Null(Cb));
+	gdi_buffer ConstantBuffer = GDI_Create_Buffer(&ConstantBufferInfo);
+	ASSERT_FALSE(GDI_Is_Null(ConstantBuffer));
 
-	void* Mapped = GDI_Map_Buffer(Cb, 0, sizeof(ps_cb));
-	ASSERT_TRUE(Mapped);
-	*(ps_cb*)Mapped = { ExpectedColor };
-	GDI_Unmap_Buffer(Cb);
-
-	gdi_bind_group_buffer BgBuf = { .Buffer = Cb };
-	gdi_bind_group_write BgWrite = { .Buffers = { .Ptr = &BgBuf, .Count = 1 } };
-	gdi_bind_group_create_info BgCreate = {
+	gdi_bind_group_buffer ConstantBufferForBindGroup = { .Buffer = ConstantBuffer };
+	gdi_bind_group_write ConstantBufferBindGroupWrite = { .Buffers = { .Ptr = &ConstantBufferForBindGroup, .Count = 1 } };
+	gdi_bind_group_create_info ConstantBufferBindGroupInfo = {
 		.Layout = Tests->BufferLayout,
-		.Writes = { .Ptr = &BgWrite, .Count = 1 },
+		.Writes = { .Ptr = &ConstantBufferBindGroupWrite, .Count = 1 },
 	};
-	gdi_bind_group BindGroup = GDI_Create_Bind_Group(&BgCreate);
-	ASSERT_FALSE(GDI_Is_Null(BindGroup));
+	gdi_bind_group ConstantBufferBindGroup = GDI_Create_Bind_Group(&ConstantBufferBindGroupInfo);
+	ASSERT_FALSE(GDI_Is_Null(ConstantBufferBindGroup));
 
-	gdi_shader Shader;
+	gdi_shader FullscreenPassShader;
 	{
-		const char* Hlsl = R"(
+		const char* ShaderHlsl = R"(
 		cbuffer PsCb : register(b0, space0) {
 			float4 Color;
 		};
@@ -4930,20 +4948,20 @@ UTEST(gdi, ConstantBufferUpload_GraphicsPipeline_RenderTargetReadback) {
 			return Color;
 		}
 		)";
-		IDxcBlob* VS = Compile_Shader(String_Null_Term(Hlsl), String_Lit("vs_6_0"), String_Lit("VS_Main"), { String_Lit("-fvk-invert-y") });
-		IDxcBlob* PS = Compile_Shader(String_Null_Term(Hlsl), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
-		ASSERT_TRUE(VS && PS);
+		IDxcBlob* VtxShaderBlob = Compile_Shader(String_Null_Term(ShaderHlsl), String_Lit("vs_6_0"), String_Lit("VS_Main"), { String_Lit("-fvk-invert-y") });
+		IDxcBlob* PxlShaderBlob = Compile_Shader(String_Null_Term(ShaderHlsl), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VtxShaderBlob && PxlShaderBlob);
 		gdi_shader_create_info ShaderCreateInfo = {
-			.VS = { .Ptr = (u8*)VS->GetBufferPointer(), .Size = VS->GetBufferSize() },
-			.PS = { .Ptr = (u8*)PS->GetBufferPointer(), .Size = PS->GetBufferSize() },
+			.VS = { .Ptr = (u8*)VtxShaderBlob->GetBufferPointer(), .Size = VtxShaderBlob->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PxlShaderBlob->GetBufferPointer(), .Size = PxlShaderBlob->GetBufferSize() },
 			.BindGroupLayouts = { .Ptr = &Tests->BufferLayout, .Count = 1 },
 			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
 			.DebugName = String_Lit("Constant buffer readback pass"),
 		};
-		Shader = GDI_Create_Shader(&ShaderCreateInfo);
-		ASSERT_FALSE(GDI_Is_Null(Shader));
-		VS->Release();
-		PS->Release();
+		FullscreenPassShader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(FullscreenPassShader));
+		VtxShaderBlob->Release();
+		PxlShaderBlob->Release();
 	}
 
 	texture RenderTarget;
@@ -4953,44 +4971,46 @@ UTEST(gdi, ConstantBufferUpload_GraphicsPipeline_RenderTargetReadback) {
 		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK,
 	}));
 
-	gdi_render_pass_begin_info BeginInfo = {
-		.RenderTargetViews = { RenderTarget.View },
-		.ClearColors = { { .ShouldClear = true, .F32 = { 0.0f, 0.0f, 0.0f, 0.0f } } },
-	};
-	gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
-	Render_Set_Shader(RP, Shader);
-	Render_Set_Bind_Group(RP, 0, BindGroup);
-	Render_Draw(RP, 3, 0);
-	GDI_End_Render_Pass(RP);
-	GDI_Submit_Render_Pass(RP);
+	for (u32 Frame = 0; Frame < FrameCount; Frame++) {
+		v4 ExpectedColor = (Frame == 0)
+			? V4(0.125f, 0.375f, 0.625f, 1.0f)
+			: V4(
+				(f32)((Frame * 37 + 11) % 256) / 255.0f,
+				(f32)((Frame * 59 + 23) % 256) / 255.0f,
+				(f32)((Frame * 91 + 41) % 256) / 255.0f,
+				1.0f);
 
-	gdi_texture_info TexInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
-	simple_test_context TestContext = {
-		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
-	};
-	gdi_texture_readback TextureReadback = {
-		.Texture = RenderTarget.Handle,
-		.UserData = &TestContext,
-		.ReadbackFunc = Simple_Texture_Readback,
-	};
-	gdi_render_params RenderParams = { .TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 } };
-	GDI_Render(&RenderParams);
+		void* MappedConstantBuffer = GDI_Map_Buffer(ConstantBuffer, 0, sizeof(pixel_shader_constant_buffer));
+		ASSERT_TRUE(MappedConstantBuffer);
+		*(pixel_shader_constant_buffer*)MappedConstantBuffer = { ExpectedColor };
+		GDI_Unmap_Buffer(ConstantBuffer);
+
+		gdi_render_pass_begin_info BeginInfo = {
+			.RenderTargetViews = { RenderTarget.View },
+			.ClearColors = { { .ShouldClear = true, .F32 = { 0.0f, 0.0f, 0.0f, 0.0f } } },
+		};
+		gdi_render_pass* RenderPass = GDI_Begin_Render_Pass(&BeginInfo);
+		Render_Set_Shader(RenderPass, FullscreenPassShader);
+		Render_Set_Bind_Group(RenderPass, 0, ConstantBufferBindGroup);
+		Render_Draw(RenderPass, 3, 0);
+		GDI_End_Render_Pass(RenderPass);
+		GDI_Submit_Render_Pass(RenderPass);
+
+		constant_buffer_frame_readback_ctx* FrameReadbackCtx = Arena_Push_Struct(Scratch.Arena, constant_buffer_frame_readback_ctx);
+		FrameReadbackCtx->ExpectedColor = ExpectedColor;
+		gdi_texture_readback FrameReadback = {
+			.Texture = RenderTarget.Handle,
+			.UserData = FrameReadbackCtx,
+			.ReadbackFunc = Constant_Buffer_Frame_Texture_Readback,
+		};
+		gdi_render_params FrameReadbackParams = { .TextureReadbacks = { .Ptr = &FrameReadback, .Count = 1 } };
+		GDI_Render(&FrameReadbackParams);
+	}
 	GDI_Flush();
 
-	f32 Eps = 2.0f / 255.0f;
-	u32* Pixels = (u32*)TestContext.Texels;
-	for (s32 y = 0; y < TestContext.Dim.y; y++) {
-		for (s32 x = 0; x < TestContext.Dim.x; x++) {
-			v4 Got = V4_Color_From_U32(Pixels[x + y * TestContext.Dim.x]);
-			ASSERT_NEAR(Got.x, ExpectedColor.x, Eps);
-			ASSERT_NEAR(Got.y, ExpectedColor.y, Eps);
-			ASSERT_NEAR(Got.z, ExpectedColor.z, Eps);
-			ASSERT_NEAR(Got.w, ExpectedColor.w, Eps);
-		}
-	}
 
-	GDI_Delete_Bind_Group(BindGroup);
-	GDI_Delete_Buffer(Cb);
-	GDI_Delete_Shader(Shader);
+	GDI_Delete_Bind_Group(ConstantBufferBindGroup);
+	GDI_Delete_Buffer(ConstantBuffer);
+	GDI_Delete_Shader(FullscreenPassShader);
 	Texture_Delete(&RenderTarget);
 }

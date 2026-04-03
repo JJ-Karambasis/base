@@ -179,7 +179,7 @@ Meta()
 typedef enum {
 	VK_RESOURCE_STATE_NONE Tags(stage: VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, access: 0, layout: VK_IMAGE_LAYOUT_UNDEFINED),
 	VK_RESOURCE_STATE_TRANSFER_WRITE Tags(stage: VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR, access: VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
-	VK_RESOURCE_STATE_TRANSFER_READ Tags(stage: VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR, access: VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL), 
+	VK_RESOURCE_STATE_TRANSFER_READ Tags(stage: VK_PIPELINE_STAGE_2_COPY_BIT_KHR, access: VK_ACCESS_2_TRANSFER_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL), 
 	VK_RESOURCE_STATE_SHADER_READ Tags(stage: VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, access: VK_ACCESS_2_SHADER_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
 	VK_RESOURCE_STATE_DEPTH Tags(stage: VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT_KHR|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT_KHR, access:VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT_KHR | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT_KHR, layout: VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL), 
 	VK_RESOURCE_STATE_MEMORY_READ Tags(stage: VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, access: VK_ACCESS_2_MEMORY_READ_BIT_KHR, layout: VK_IMAGE_LAYOUT_GENERAL),
@@ -269,7 +269,6 @@ struct vk_frame_thread_context {
 	arena* 			Arena;
 	arena* 			TempArena;
 	b32    			NeedsReset;
-	VkCommandPool   RenderCmdPool;
 	VkCommandPool   TransferCmdPool;
 	VkCommandBuffer TransferCmdBuffer;
 	vk_cpu_buffer   UploadBuffer;
@@ -313,13 +312,11 @@ struct vk_frame_context {
 	VkSemaphore     RenderLock;
 	VkCommandPool   CmdPool;
 	VkCommandPool   ComputeCmdPool;
-	VkCommandPool   TransferCmdPool;
 	vk_cpu_buffer 	ReadbackBuffer;
 	u32 			Index;
 
 	vk_cmd_buffer* FreeCmdBuffers;
 	vk_cmd_buffer* FreeComputeCmdBuffers;
-	vk_cmd_buffer* FreeTransferCmdBuffers;
 
 	vk_cmd_buffer* RecordedCmdBuffers;
     
@@ -339,7 +336,6 @@ typedef struct {
 	u32 							 GraphicsQueueFamilyIndex;
 	u32 							 PresentQueueFamilyIndex;
 	u32 							 ComputeQueueFamilyIndex;
-	u32 							 TransferQueueFamilyIndex;
 	dynamic_char_ptr_array 			 Extensions;
 	VkPhysicalDeviceFeatures2KHR* 	 Features;
 } vk_gpu;
@@ -352,14 +348,12 @@ struct vk_device_context {
     
 	vk_gpu* 	GPU;
 	b32 IsAsyncComputeSupported;
-	b32 HasDedicatedTransferQueue;
     
 	VkDevice Device;
     
 	VkQueue  GraphicsQueue;
 	VkQueue  ComputeQueue;
 	VkQueue  PresentQueue;
-	VkQueue  TransferQueue;
     
 	//Support device features
 	b32 HasNullDescriptor;
