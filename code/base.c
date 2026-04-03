@@ -1200,10 +1200,10 @@ export_function m4 M4_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
 
 export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
 	m4 Result = {
-		(r-l)/2,     0,           0,            0,
-		0,           (t-b)/2,     0,            0,
-		0,           0,          -(f-n)/2,      0,
-		(r+l)/2,     (t+b)/2,    -(f+n)/2,     1
+        (r-l)/2,     0,           0,       0,
+        0,           (t-b)/2,     0,       0,
+        0,           0,           n - f,   0,
+        (r+l)/2,     (t+b)/2,     -n,      1
 	};
 	return Result;
 }
