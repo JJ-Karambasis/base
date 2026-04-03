@@ -109,6 +109,11 @@ function inline quat operator*(quat A, quat B) {
 	return Result;
 }
 
+function inline v3 operator*(v3 A, const m3& B) {
+	v3 Result = V3_Mul_M3(A, &B);
+	return Result;
+}
+
 function inline m4 operator*(const m4_affine& A, const m4& B) {
 	m4 Result = M4_Affine_Mul_M4(&A, &B);
 	return Result;
@@ -121,6 +126,11 @@ function inline v4 operator*(v4 A, const m4& B) {
 
 function inline m4 operator*(const m4& A, const m4& B) {
     m4 Result = M4_Mul_M4(&A, &B);
+    return Result;
+}
+
+function inline v3 operator*(v4 A, const m4_affine& B) {
+    v3 Result = V4_Mul_M4_Affine(A, &B);
     return Result;
 }
 

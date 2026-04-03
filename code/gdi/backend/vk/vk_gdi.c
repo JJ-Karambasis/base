@@ -393,6 +393,8 @@ function void VK_Add_Texture_Barrier(vk_barriers* Barriers, vk_texture* Texture,
 		.dstAccessMask = VK_Get_Access_Mask(NewState),
 		.oldLayout = VK_Get_Image_Layout(OldState),
 		.newLayout = VK_Get_Image_Layout(NewState),
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
@@ -414,6 +416,8 @@ function void VK_Add_Texture_Pre_Transfer_Barrier(vk_barriers* Barriers, vk_text
 		.dstAccessMask = VK_Get_Access_Mask(NewState),
 		.oldLayout = VK_Get_Image_Layout(OldState),
 		.newLayout = VK_Get_Image_Layout(NewState),
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
@@ -435,6 +439,8 @@ function void VK_Add_Texture_Post_Transfer_Barrier(vk_barriers* Barriers, vk_tex
 		.dstAccessMask = VK_Get_Access_Mask(NewState),
 		.oldLayout = VK_Get_Image_Layout(OldState),
 		.newLayout = VK_Get_Image_Layout(NewState),
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
@@ -451,6 +457,8 @@ function void VK_Add_Texture_Compute_Barrier(vk_barriers* Barriers, vk_texture* 
 		.dstAccessMask = VK_Get_Access_Mask(NewState),
 		.oldLayout = VK_Get_Image_Layout(OldState),
 		.newLayout = VK_Get_Image_Layout(NewState),
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { ImageAspect, 0, Texture->MipCount, 0, 1 }
 	};
@@ -472,6 +480,8 @@ function void VK_Add_Pre_Swapchain_Barrier(vk_barriers* Barriers, vk_texture* Te
 		.dstAccessMask = VK_Get_Access_Mask(NewState),
 		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		.newLayout = VK_Get_Image_Layout(NewState),
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, Texture->MipCount, 0, 1 }
 	};
@@ -483,10 +493,12 @@ function void VK_Add_Post_Swapchain_Barrier(vk_barriers* Barriers, vk_texture* T
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
 		.srcStageMask = VK_Get_Stage_Mask(OldState),
 		.srcAccessMask = VK_Get_Access_Mask(OldState),
-		.dstStageMask = VK_PIPELINE_STAGE_2_NONE_KHR,
+		.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT_KHR,
 		.dstAccessMask = 0,
 		.oldLayout = VK_Get_Image_Layout(OldState),
 		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = Texture->Image,
 		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, Texture->MipCount, 0, 1 }
 	};
@@ -499,6 +511,56 @@ function void VK_Submit_Memory_Barriers(vk_barriers* Barriers, vk_resource_state
 		.srcStageMask = VK_Get_Stage_Mask(OldMemoryState),
 		.srcAccessMask = VK_Get_Access_Mask(OldMemoryState),
 		.dstStageMask = VK_Get_Stage_Mask(NewMemoryState),
+		.dstAccessMask = VK_Get_Access_Mask(NewMemoryState)
+	};
+    
+	VkDependencyInfoKHR DependencyInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+		.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &MemoryBarrier,
+		.imageMemoryBarrierCount = (u32)Barriers->Barriers.Count,
+		.pImageMemoryBarriers = Barriers->Barriers.Count ? Barriers->Barriers.Ptr : NULL
+	};
+	vkCmdPipelineBarrier2KHR(Barriers->CmdBuffer, &DependencyInfo);
+}
+
+function void VK_Submit_Pre_Transfer_Memory_Barriers(vk_barriers* Barriers, vk_resource_state OldMemoryState, vk_resource_state NewMemoryState) {
+	if(!Barriers->Context->HasDedicatedTransferQueue) {
+		VK_Submit_Memory_Barriers(Barriers, OldMemoryState, NewMemoryState);
+		return;
+	}
+	
+	VkMemoryBarrier2KHR MemoryBarrier = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+		.srcAccessMask = VK_Get_Access_Mask(OldMemoryState),
+		.dstStageMask = VK_Get_Stage_Mask(NewMemoryState),
+		.dstAccessMask = VK_Get_Access_Mask(NewMemoryState)
+	};
+    
+	VkDependencyInfoKHR DependencyInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+		.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &MemoryBarrier,
+		.imageMemoryBarrierCount = (u32)Barriers->Barriers.Count,
+		.pImageMemoryBarriers = Barriers->Barriers.Count ? Barriers->Barriers.Ptr : NULL
+	};
+	vkCmdPipelineBarrier2KHR(Barriers->CmdBuffer, &DependencyInfo);
+}
+
+function void VK_Submit_Post_Transfer_Memory_Barriers(vk_barriers* Barriers, vk_resource_state OldMemoryState, vk_resource_state NewMemoryState) {
+	if(!Barriers->Context->HasDedicatedTransferQueue) {
+		VK_Submit_Memory_Barriers(Barriers, OldMemoryState, NewMemoryState);
+		return;
+	}
+	
+	VkMemoryBarrier2KHR MemoryBarrier = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
+		.srcStageMask = VK_Get_Stage_Mask(OldMemoryState),
+		.srcAccessMask = VK_Get_Access_Mask(OldMemoryState),
+		.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
 		.dstAccessMask = VK_Get_Access_Mask(NewMemoryState)
 	};
     
@@ -1705,20 +1767,6 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	}
 	Context->Frames = Frames;
     
-	if(Context->IsAsyncComputeSupported) {
-		//Create the timeline semaphores for async compute
-		VkSemaphoreTypeCreateInfo TimelineSemaphoreCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-			.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE
-		};
-		VkSemaphoreCreateInfo SemaphoreCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-			.pNext = &TimelineSemaphoreCreateInfo
-		};
-		vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->ComputeTimelineSemaphore);
-		vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->GraphicsTimelineSemaphore);
-	}
-    
 	//Create the timeline semaphores for dedicated transfer queue. If we don't have
 	//a dedicated transfer queue, we will still need the semaphore to sync transfers
 	//with the async compute queue.
@@ -1730,8 +1778,15 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 		.pNext = &TimelineSemaphoreCreateInfo
 	};
+    
+	vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->GraphicsTimelineSemaphore);
 	vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->TransferTimelineSemaphore);
     
+	if(Context->IsAsyncComputeSupported) {
+		//Create the timeline semaphores for async compute
+		vkCreateSemaphore(Context->Device, &SemaphoreCreateInfo, VK_Get_Allocator(), &Context->ComputeTimelineSemaphore);
+	}
+
 	Context->Base.TimestampPeriod = (f64)TargetGPU->Properties.limits.timestampPeriod;
     
 	//Initialize the readback thread
@@ -2101,7 +2156,8 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	//If we have a dynamic buffer, we need to allocate space for all 
 	//frames that will store data in the buffer
     
-	size_t TotalSize = BufferInfo->Size;
+	size_t BufferSize = Align(BufferInfo->Size, Context->Base.ConstantBufferAlignment);
+	size_t TotalSize = BufferSize;
     
 	VmaAllocationCreateFlags AllocationFlags = 0;
 	if (BufferInfo->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
@@ -2150,7 +2206,7 @@ function GDI_BACKEND_CREATE_BUFFER_DEFINE(VK_Create_Buffer) {
 	vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, Result);
 	Buffer->Buffer = Handle;
 	Buffer->Allocation = Allocation;
-	Buffer->Size = BufferInfo->Size;
+	Buffer->Size = BufferSize;
 	Buffer->TotalSize = TotalSize;
 	Buffer->Usage = BufferInfo->Usage;
 	Buffer->MappedPtr = MappedPtr;
@@ -3383,36 +3439,37 @@ function b32 VK_Submit_Command_Buffer(vk_device_context* Context, vk_submit_cont
 	VkQueue Queue = CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER ? Context->GraphicsQueue : Context->ComputeQueue;
 	
 	vkEndCommandBuffer(CmdBuffer->Handle);
-    
-	b32 ShouldWaitForTransfer = CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE || Context->HasDedicatedTransferQueue;
-	if(ShouldWaitForTransfer) {
-		b32 IsFirstSubmit = false;
-        
+
+	b32 IsFirstSubmit = false;
+	if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER) {
+		IsFirstSubmit = !SubmitContext->IsNotFirstRenderSubmit;
+		SubmitContext->IsNotFirstRenderSubmit = true;
+	}
+	
+	if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE) {
+		IsFirstSubmit = !SubmitContext->IsNotFirstComputeSubmit;
+		SubmitContext->IsNotFirstComputeSubmit = true;
+	}
+
+	if(IsFirstSubmit) {
 		if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER) {
-			IsFirstSubmit = !SubmitContext->IsNotFirstRenderSubmit;
-			SubmitContext->IsNotFirstRenderSubmit = true;
-		}
-        
-		if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE) {
-			IsFirstSubmit = !SubmitContext->IsNotFirstComputeSubmit;
-			SubmitContext->IsNotFirstComputeSubmit = true;
-		}
-        
-		if(IsFirstSubmit) {
-			VkSemaphoreSubmitInfoKHR TransferSemaphoreInfo = {
-				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-				.semaphore = Context->TransferTimelineSemaphore,
-				.value = Context->TransferTimelineValue,
-				.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
-			};
-			Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, TransferSemaphoreInfo);
-            
-			if(CmdBuffer->Type == VK_CMD_BUFFER_TYPE_RENDER) {
-				for (size_t i = 0; i < SubmitContext->SwapchainCount; i++) {
-					Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, SubmitContext->SwapchainWaitSemaphores[i]);
-				}
+			for (size_t i = 0; i < SubmitContext->SwapchainCount; i++) {
+				Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, SubmitContext->SwapchainWaitSemaphores[i]);
 			}
 		}
+	}
+    
+	b32 ShouldWaitForTransfer = CmdBuffer->Type == VK_CMD_BUFFER_TYPE_COMPUTE || Context->HasDedicatedTransferQueue;
+	if(ShouldWaitForTransfer && IsFirstSubmit) {
+		Assert(Context->TransferTimelineValue > 0);
+		VkSemaphoreSubmitInfoKHR TransferSemaphoreInfo = {
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+			.semaphore = Context->TransferTimelineSemaphore,
+			.value = Context->TransferTimelineValue,
+			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+		};
+		Debug_Log("Wait value: %llu", TransferSemaphoreInfo.value);
+		Dynamic_VK_Semaphore_Submit_Info_Array_Add(Waits, TransferSemaphoreInfo);
 	}
     
 	VkCommandBufferSubmitInfoKHR CommandBufferSubmitInfo = {
@@ -3771,18 +3828,17 @@ function vk_frame_context* VK_Begin_Next_Frame(vk_device_context* Context, u64* 
 	Arena_Clear(NewFrame->TempArena);
 	Memory_Clear(&NewFrame->TextureReadbacks, sizeof(vk_texture_readback_array));
 	Memory_Clear(&NewFrame->BufferReadbacks, sizeof(vk_buffer_readback_array));
-    
-	VK_Update_Frame_Bind_Groups(Context, FrameIndex);
-    
+        
 	OS_RW_Mutex_Write_Lock(Context->FrameLock);
-	Atomic_Increment_U64(&Context->FrameCount);
-	Result = Context->Frames.Ptr + (FrameIndex % Context->Frames.Count);
-    
+	VK_Update_Frame_Bind_Groups(Context, FrameIndex);
+
 	for (vk_frame_thread_context* ThreadContext = (vk_frame_thread_context*)Atomic_Load_Ptr(&NewFrame->TopThread); 
          ThreadContext; ThreadContext = ThreadContext->Next) {
 		ThreadContext->NeedsReset = true;
 	}
     
+	Result = Context->Frames.Ptr + (FrameIndex % Context->Frames.Count);
+	Atomic_Increment_U64(&Context->FrameCount);
 	OS_RW_Mutex_Write_Unlock(Context->FrameLock);
     
 	*OutFrameIndex = FrameIndex;
@@ -3971,14 +4027,14 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 		}
         
 		//Submit barriers and execute transfer cmds
-		VK_Submit_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
+		VK_Submit_Pre_Transfer_Memory_Barriers(&PrePassBarriers, VK_RESOURCE_STATE_NONE, VK_RESOURCE_STATE_TRANSFER_WRITE);
 		for (vk_frame_thread_context* Thread = (vk_frame_thread_context*)Atomic_Load_Ptr(&FrameContext->TopThread); 
 			 Thread; Thread = Thread->Next) {
 			if (!Thread->NeedsReset) {
 				vkCmdExecuteCommands(TransferCmdBuffer->Handle, 1, &Thread->TransferCmdBuffer);
 			}
 		}
-		VK_Submit_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_MEMORY_READ);
+		VK_Submit_Post_Transfer_Memory_Barriers(&PostPassBarriers, VK_RESOURCE_STATE_TRANSFER_WRITE, VK_RESOURCE_STATE_MEMORY_READ);
 		Scratch_Release();
         
 		//End and submit the transfer command buffer with signaling the transfer semaphore
@@ -3989,6 +4045,7 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 			.value = ++Context->TransferTimelineValue,
 			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
 		};
+		Debug_Log("Signal value: %llu", TransferSemaphoreSubmitInfo.value);
         
 		VkCommandBufferSubmitInfoKHR CommandBufferSubmitInfo = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR,
@@ -4385,10 +4442,10 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 							
 							if (!(DepthTexture->Usage & GDI_TEXTURE_USAGE_SAMPLED)) {
 								VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_DEPTH);
-								VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_DEPTH);
+								VK_Add_Texture_Barrier(&PostPassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_DEPTH);
 							} else {
 								VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_SHADER_READ, VK_RESOURCE_STATE_DEPTH);
-								VK_Add_Texture_Barrier(&PrePassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_SHADER_READ);
+								VK_Add_Texture_Barrier(&PostPassBarriers, DepthTexture, VK_RESOURCE_STATE_DEPTH, VK_RESOURCE_STATE_SHADER_READ);
 							}
 							
 							VkRenderingAttachmentInfoKHR DepthAttachmentInfo = {
@@ -4416,9 +4473,11 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 						};
 						
 						VK_Submit_Barriers(&PrePassBarriers);
+
 						vkCmdBeginRenderingKHR(RenderCmdBuffer->Handle, &RenderingInfo);
 						vkCmdExecuteCommands(RenderCmdBuffer->Handle, 1, &PassCmdBuffer);
 						vkCmdEndRenderingKHR(RenderCmdBuffer->Handle);
+
 						VK_Submit_Barriers(&PostPassBarriers);
 					} break;
                     
@@ -4619,9 +4678,10 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 		Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, SignalSemaphoreInfo);
 		
 		if(Swapchains->Count > 0) {
-			VkSemaphoreSubmitInfo RenderLockSemaphoreInfo = {
+			VkSemaphoreSubmitInfoKHR RenderLockSemaphoreInfo = {
 				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
-				.semaphore = FrameContext->RenderLock
+				.semaphore = FrameContext->RenderLock,
+				.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR
 			};
 			Dynamic_VK_Semaphore_Submit_Info_Array_Add(&Signals, RenderLockSemaphoreInfo);
 		}
@@ -4935,6 +4995,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 	b32 HasValidationLayers = false;
 	b32 HasDebugUtil = false;
     
+#if 0 
 	for (u32 i = 0; i < LayerCount; i++) {
 		string LayerName = String_Null_Term(LayerProperties[i].layerName);
 		if (String_Equals(LayerName, String_Lit("VK_LAYER_KHRONOS_validation"))) {
@@ -4942,6 +5003,7 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
 			HasValidationLayers = true;
 		}
 	}
+#endif
 #endif
     
 	b32 HasRequiredInstanceExtensions[Array_Count(G_RequiredInstanceExtensions)] = { 0 };
@@ -4998,11 +5060,11 @@ export_function GDI_INIT_DEFINE(GDI_Init) {
     
 #ifdef DEBUG_BUILD
 	if (!HasValidationLayers) {
-		GDI_Log_Warning("Missing vulkan validation layers");
+		//GDI_Log_Warning("Missing vulkan validation layers");
 	}
     
 	if (!HasDebugUtil) {
-		GDI_Log_Warning("Missing vulkan debug utility extension");
+		//GDI_Log_Warning("Missing vulkan debug utility extension");
 	}
 #endif
     

@@ -4877,3 +4877,120 @@ UTEST(gdi, DynamicIndirectBufferMultiFrameTest) {
 	GDI_Delete_Buffer(VertexBuffer);
 	GDI_Delete_Bind_Group_Layout(FillLayout);
 }
+
+/*
+ * Uploads a non-dynamic constant buffer via Map/Unmap (staging copy on the transfer queue),
+ * draws a fullscreen triangle with the graphics pipeline reading that CB, then readbacks the
+ * render target to verify the GPU saw the uploaded constants.
+ */
+UTEST(gdi, ConstantBufferUpload_GraphicsPipeline_RenderTargetReadback) {
+	gdi_tests* Tests = GDI_Get_Tests();
+	ASSERT_TRUE(Tests);
+	scratch Scratch;
+
+	struct ps_cb {
+		v4 Color;
+	};
+
+	v4 ExpectedColor = V4(0.125f, 0.375f, 0.625f, 1.0f);
+
+	gdi_buffer_create_info CbInfo = {
+		.Size = sizeof(ps_cb),
+		.Usage = GDI_BUFFER_USAGE_CONSTANT,
+		.DebugName = String_Lit("CB upload graphics readback test"),
+	};
+	gdi_buffer Cb = GDI_Create_Buffer(&CbInfo);
+	ASSERT_FALSE(GDI_Is_Null(Cb));
+
+	void* Mapped = GDI_Map_Buffer(Cb, 0, sizeof(ps_cb));
+	ASSERT_TRUE(Mapped);
+	*(ps_cb*)Mapped = { ExpectedColor };
+	GDI_Unmap_Buffer(Cb);
+
+	gdi_bind_group_buffer BgBuf = { .Buffer = Cb };
+	gdi_bind_group_write BgWrite = { .Buffers = { .Ptr = &BgBuf, .Count = 1 } };
+	gdi_bind_group_create_info BgCreate = {
+		.Layout = Tests->BufferLayout,
+		.Writes = { .Ptr = &BgWrite, .Count = 1 },
+	};
+	gdi_bind_group BindGroup = GDI_Create_Bind_Group(&BgCreate);
+	ASSERT_FALSE(GDI_Is_Null(BindGroup));
+
+	gdi_shader Shader;
+	{
+		const char* Hlsl = R"(
+		cbuffer PsCb : register(b0, space0) {
+			float4 Color;
+		};
+		float4 VS_Main(uint VertexID : SV_VertexID) : SV_POSITION {
+			float2 Texcoord = float2((VertexID << 1) & 2, VertexID & 2);
+			return float4(Texcoord * float2(2, -2) + float2(-1, 1), 0, 1);
+		}
+		float4 PS_Main(float4 Pos : SV_POSITION) : SV_TARGET0 {
+			return Color;
+		}
+		)";
+		IDxcBlob* VS = Compile_Shader(String_Null_Term(Hlsl), String_Lit("vs_6_0"), String_Lit("VS_Main"), { String_Lit("-fvk-invert-y") });
+		IDxcBlob* PS = Compile_Shader(String_Null_Term(Hlsl), String_Lit("ps_6_0"), String_Lit("PS_Main"), {});
+		ASSERT_TRUE(VS && PS);
+		gdi_shader_create_info ShaderCreateInfo = {
+			.VS = { .Ptr = (u8*)VS->GetBufferPointer(), .Size = VS->GetBufferSize() },
+			.PS = { .Ptr = (u8*)PS->GetBufferPointer(), .Size = PS->GetBufferSize() },
+			.BindGroupLayouts = { .Ptr = &Tests->BufferLayout, .Count = 1 },
+			.RenderTargetFormats = { GDI_FORMAT_R8G8B8A8_UNORM },
+			.DebugName = String_Lit("Constant buffer readback pass"),
+		};
+		Shader = GDI_Create_Shader(&ShaderCreateInfo);
+		ASSERT_FALSE(GDI_Is_Null(Shader));
+		VS->Release();
+		PS->Release();
+	}
+
+	texture RenderTarget;
+	ASSERT_TRUE(Texture_Create(&RenderTarget, {
+		.Format = GDI_FORMAT_R8G8B8A8_UNORM,
+		.Dim = V2i(16, 16),
+		.Usage = GDI_TEXTURE_USAGE_RENDER_TARGET | GDI_TEXTURE_USAGE_READBACK,
+	}));
+
+	gdi_render_pass_begin_info BeginInfo = {
+		.RenderTargetViews = { RenderTarget.View },
+		.ClearColors = { { .ShouldClear = true, .F32 = { 0.0f, 0.0f, 0.0f, 0.0f } } },
+	};
+	gdi_render_pass* RP = GDI_Begin_Render_Pass(&BeginInfo);
+	Render_Set_Shader(RP, Shader);
+	Render_Set_Bind_Group(RP, 0, BindGroup);
+	Render_Draw(RP, 3, 0);
+	GDI_End_Render_Pass(RP);
+	GDI_Submit_Render_Pass(RP);
+
+	gdi_texture_info TexInfo = GDI_Get_Texture_Info(RenderTarget.Handle);
+	simple_test_context TestContext = {
+		.Texels = (u8*)Arena_Push(Scratch.Arena, TexInfo.Dim.x * TexInfo.Dim.y * GDI_Get_Format_Size(TexInfo.Format)),
+	};
+	gdi_texture_readback TextureReadback = {
+		.Texture = RenderTarget.Handle,
+		.UserData = &TestContext,
+		.ReadbackFunc = Simple_Texture_Readback,
+	};
+	gdi_render_params RenderParams = { .TextureReadbacks = { .Ptr = &TextureReadback, .Count = 1 } };
+	GDI_Render(&RenderParams);
+	GDI_Flush();
+
+	f32 Eps = 2.0f / 255.0f;
+	u32* Pixels = (u32*)TestContext.Texels;
+	for (s32 y = 0; y < TestContext.Dim.y; y++) {
+		for (s32 x = 0; x < TestContext.Dim.x; x++) {
+			v4 Got = V4_Color_From_U32(Pixels[x + y * TestContext.Dim.x]);
+			ASSERT_NEAR(Got.x, ExpectedColor.x, Eps);
+			ASSERT_NEAR(Got.y, ExpectedColor.y, Eps);
+			ASSERT_NEAR(Got.z, ExpectedColor.z, Eps);
+			ASSERT_NEAR(Got.w, ExpectedColor.w, Eps);
+		}
+	}
+
+	GDI_Delete_Bind_Group(BindGroup);
+	GDI_Delete_Buffer(Cb);
+	GDI_Delete_Shader(Shader);
+	Texture_Delete(&RenderTarget);
+}

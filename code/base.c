@@ -2106,7 +2106,7 @@ function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Cap_Allocator_Allocate_Memory) {
     if(Result && ClearFlag == CLEAR_FLAG_YES) {
         Memory_Clear(Result, Size);
     }
-    return Result;
+    return Result; 
 }
 
 function ALLOCATOR_FREE_MEMORY_DEFINE(Cap_Allocator_Free_Memory) {
