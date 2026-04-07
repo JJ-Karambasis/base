@@ -229,9 +229,7 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 					if (TokenIter.Token->Type == ',') {
 						if (!ParamStackIndex && !BracketStackIndex) {
 							break;
-						} 
-                        
-						ParamStackIndex--;
+						}                         
 					}
                     
 					SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
@@ -340,6 +338,7 @@ function source_token* Source_Parse_Enum(source_parser* Parser, source_token* To
 		}
         
 		if (!Source_Check_Token(TokenIter.Token, ',')) {
+			Debug_Log("%.*s", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 			return NULL;
 		}
