@@ -203,6 +203,10 @@ export_function f32 ATan2_F32(f32 a, f32 b) {
 	return atan2f(a, b);
 }
 
+export_function f32 ASin_F32(f32 V) {
+	return asinf(V);
+}
+
 export_function f32 ACos_F32(f32 V) {
 	return acosf(V);
 }

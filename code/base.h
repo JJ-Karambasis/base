@@ -314,6 +314,7 @@ export_function f32 Cos_F32(f32 Value);
 export_function f32 Sin_F32(f32 Value);
 export_function f32 Tan_F32(f32 Value);
 export_function f32 ATan2_F32(f32 a, f32 b);
+export_function f32 ASin_F32(f32 V);
 export_function f32 ACos_F32(f32 V);
 export_function size_t Align(size_t Value, size_t Alignment);
 export_function u32 Ceil_Pow2_U32(u32 V);
@@ -800,6 +801,7 @@ export_function void  Heap_Free(heap* Heap, void* Memory);
 export_function void  Heap_Clear(heap* Heap);
 
 #define Heap_Alloc_Struct(heap, type) (type*)Heap_Alloc(heap, sizeof(type))
+#define Heap_Alloc_Array(heap, count, type) (type*)Heap_Alloc(heap, sizeof(type)*(count))
 
 typedef struct {
     allocator  Base;
