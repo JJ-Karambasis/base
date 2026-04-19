@@ -22,5 +22,6 @@ typedef struct {
 } ray_cast;
 
 #include "gjk_epa.h"
+#include "convex_hull_builder.h"
 
 #endif //GEOMETRY_H

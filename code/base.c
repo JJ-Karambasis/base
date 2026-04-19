@@ -4012,6 +4012,10 @@ export_function u64 U64_Hash_U32_With_Seed(u32 Value, u64 Seed) {
     return Result;
 }
 
+export_function u32 U32_Hash_S32(s32 Value) {
+    return U32_Hash_U32((u32)Value);
+}
+
 export_function u64 U64_Hash_U32(u32 Value) {
     u64 Result = (u32)XXH64(&Value, sizeof(u32), InitialSeed);
     return Result;
@@ -4070,6 +4074,17 @@ export_function KEY_HASH_FUNC(Hash_U64) {
 export_function KEY_COMP_FUNC(Compare_U64) {
     u64 ValueA = *(u64*)KeyA;
     u64 ValueB = *(u64*)KeyB;
+    return ValueA == ValueB;
+}
+
+export_function KEY_HASH_FUNC(Hash_S32) {
+    s32 Value = *(s32*)Key;
+    return U32_Hash_S32(Value);
+}
+
+export_function KEY_COMP_FUNC(Compare_S32) {
+    s32 ValueA = *(s32*)KeyA;
+    s32 ValueB = *(s32*)KeyB;
     return ValueA == ValueB;
 }
 

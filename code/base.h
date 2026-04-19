@@ -1428,6 +1428,7 @@ export_function u32 U32_Hash_U64_With_Seed(u64 Value, u32 Seed);
 export_function u32 U32_Hash_U64(u64 Value);
 export_function u64 U64_Hash_U32_With_Seed(u32 Value, u64 Seed);
 export_function u64 U64_Hash_U32(u32 Value);
+export_function u32 U32_Hash_S32(s32 Value);
 export_function u32 U32_Hash_String(string String);
 export_function u64 U64_Hash_String(string String);
 export_function u64 U64_Hash_String_With_Seed(string String, u64 Seed);
@@ -1440,6 +1441,8 @@ export_function KEY_HASH_FUNC(Hash_String);
 export_function KEY_COMP_FUNC(Compare_String);
 export_function KEY_HASH_FUNC(Hash_U64);
 export_function KEY_COMP_FUNC(Compare_U64);
+export_function KEY_HASH_FUNC(Hash_S32);
+export_function KEY_COMP_FUNC(Compare_S32);
 export_function buffer Read_Entire_File(allocator* Allocator, string Path);
 export_function b32 Write_Entire_File(string Path, buffer Data);
 #define Read_Entire_File_Str(allocator, path) String_From_Buffer(Read_Entire_File(allocator, path))
