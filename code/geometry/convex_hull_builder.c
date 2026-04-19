@@ -757,11 +757,12 @@ function chb2_result Chb2_Initialize(
     return Result;
 }
 
-function convex_hull_build_result Chb_Build_Internal(chb_ctx* Ctx, s32 MaxVertices, f32 Tolerance, const char** OutError) {
+function convex_hull_build_result Chb_Build_Internal(chb_ctx* Ctx, s32 MaxVertices, f32 Tolerance, string* OutError) {
     Dynamic_Work_Face_Ptr_Array_Clear(&Ctx->Faces);
     Dynamic_Coplanar_Entry_Array_Clear(&Ctx->CoplanarList);
     if (Ctx->PositionCount < 3) {
-        *OutError = "Need at least 3 points to make a hull";
+        if (OutError)
+            *OutError = String_Lit("Need at least 3 points to make a hull");
         return CONVEX_HULL_BUILD_TOO_FEW_POINTS;
     }
     f32 CoplanarTolSq = Sq(Chb_Determine_Coplanar_Distance(Ctx));
@@ -804,7 +805,8 @@ function convex_hull_build_result Chb_Build_Internal(chb_ctx* Ctx, s32 MaxVertic
     }
     Assert(Idx3 >= 0);
     if (BestTriSq < CHB_MIN_TRIANGLE_AREA_SQ) {
-        *OutError = "Could not find a suitable initial triangle because its area was too small";
+        if (OutError)
+            *OutError = String_Lit("Could not find a suitable initial triangle because its area was too small");
         return CONVEX_HULL_BUILD_DEGENERATE;
     }
     if (Ctx->PositionCount == 3) {
@@ -981,7 +983,8 @@ function convex_hull_build_result Chb_Build_Internal(chb_ctx* Ctx, s32 MaxVertic
         Chb_Garbage_Collect_Faces(Ctx);
     }
     if (Ctx->Faces.Count < 2) {
-        *OutError = "Too few faces in hull";
+        if (OutError)
+            *OutError = String_Lit("Too few faces in hull");
         return CONVEX_HULL_BUILD_TOO_FEW_FACES;
     }
     return CONVEX_HULL_BUILD_SUCCESS;
@@ -1046,10 +1049,10 @@ export_function convex_hull_build_result Convex_Hull_Build(
     s32 MaxVertices,
     f32 Tolerance,
     convex_hull_mesh* OutMesh,
-    const char** OutError) {
+    string* OutError) {
     Zero_Struct(*OutMesh);
     if (OutError)
-        *OutError = 0;
+        *OutError = String_Empty();
     if (!Allocator || !Vertices.Ptr || Vertices.Count == 0)
         return CONVEX_HULL_BUILD_TOO_FEW_POINTS;
     arena* Scratch = Scratch_Get();
@@ -1060,16 +1063,15 @@ export_function convex_hull_build_result Convex_Hull_Build(
     };
     Ctx.Faces = Dynamic_Work_Face_Ptr_Array_Init((allocator*)Scratch);
     Ctx.CoplanarList = Dynamic_Coplanar_Entry_Array_Init((allocator*)Scratch);
-    const char* Err = 0;
-    convex_hull_build_result R = Chb_Build_Internal(&Ctx, MaxVertices, Tolerance, &Err);
+    convex_hull_build_result R = Chb_Build_Internal(&Ctx, MaxVertices, Tolerance, OutError);
     if (R == CONVEX_HULL_BUILD_SUCCESS || R == CONVEX_HULL_BUILD_MAX_VERTICES_REACHED) {
         if (!Chb_Clone_Mesh_To_Allocator(&Ctx, Allocator, OutMesh)) {
             R = CONVEX_HULL_BUILD_OUT_OF_MEMORY;
             Convex_Hull_Mesh_Free(Allocator, OutMesh);
+            if (OutError)
+                *OutError = String_Lit("Out of memory");
         }
     }
-    if (OutError && Err)
-        *OutError = Err;
     Scratch_Release();
     return R;
 }

@@ -246,7 +246,7 @@ function convex_hull_build_result Chb_Test_Convex_Hull_Build(
 	u32 PointCount,
 	f32 Tol,
 	convex_hull_mesh* Mesh) {
-	const char* Err = 0;
+	string Err = String_Empty();
 	v3_array Vertices = { .Ptr = (v3*)Points, .Count = PointCount };
 	return Convex_Hull_Build(OutAlloc, Vertices, (s32)0x7fffffff, Tol, Mesh, &Err);
 }

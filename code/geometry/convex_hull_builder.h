@@ -35,7 +35,7 @@ export_function convex_hull_build_result Convex_Hull_Build(
     s32 MaxVertices,
     f32 Tolerance,
     convex_hull_mesh* OutMesh,
-    const char** OutError);
+    string* OutError);
 
 export_function void Convex_Hull_Mesh_Free(allocator* Allocator, convex_hull_mesh* Mesh);
 
