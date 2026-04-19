@@ -134,6 +134,11 @@ function inline v3 operator*(v4 A, const m4_affine& B) {
     return Result;
 }
 
+function inline m4_affine operator*(const m4_affine& A, const m4_affine& B) {
+    m4_affine Result = M4_Affine_Mul_M4_Affine(&A, &B);
+    return Result;
+}
+
 template <typename type>
 struct array;
 
