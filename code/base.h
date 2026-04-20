@@ -649,6 +649,7 @@ export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M);
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q);
 export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target);
+export_function m4 M4_From_M4_Affine(const m4_affine* M);
 
 typedef struct {
     v2 p0;

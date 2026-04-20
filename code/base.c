@@ -1514,6 +1514,17 @@ export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target) {
 	return M4_Affine_Inverse_Transform_No_Scale(Position, &M);
 }
 
+export_function m4 M4_From_M4_Affine(const m4_affine* M) {
+    m4 Result = {
+        .x = M->x,
+        .y = M->y,
+        .z = M->z,
+        .t = M->t
+    };
+    Result.m33 = 1.0f;
+    return Result;
+}
+
 export_function rect2 Rect2(v2 p0, v2 p1) {
 	rect2 Result = { p0, p1 };
 	return Result;

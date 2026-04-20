@@ -655,7 +655,7 @@ function b32 GJK_Get_Closest_Point(gjk_simplex* Simplex, f32 PrevDistSq, v3* Out
 	//Make sure the closest point is actually closer than the previous point. If its not, we are not converging
 	//and should exit out of the gjk iterations
 	f32 DistSq = V3_Sq_Mag(V);
-	if (DistSq <= PrevDistSq) {
+	if (DistSq < PrevDistSq) {
 		*OutV = V;
 		*OutDistSq = DistSq;
 		*OutSet = Set;
