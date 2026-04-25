@@ -26,6 +26,7 @@ export_function gjk_support GJK_AABB(arena* Arena, v3 Min, v3 Max);
 export_function gjk_support GJK_Triangle(arena* Arena, v3 p0, v3 p1, v3 p2);
 export_function gjk_support GJK_Add_Radius(arena* Arena, gjk_support InnerSupport, f32 Radius);
 export_function gjk_support GJK_Transform(arena* Arena, gjk_support InnerSupport, const m4* Matrix);
+export_function gjk_support GJK_Delta(arena* Arena, gjk_support InnerSupport, v3 Delta);
 
 export_function b32 GJK_Intersects(gjk_support* SupportA, gjk_support* SupportB, f32 Tolerance, v3* InOutV);
 export_function closest_points GJK_Get_Closest_Points(gjk_support* SupportA, gjk_support* SupportB, 

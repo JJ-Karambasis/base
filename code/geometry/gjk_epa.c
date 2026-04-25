@@ -37,6 +37,11 @@ typedef struct {
 	m3 InvTransform;
 } gjk_transform;
 
+typedef struct {
+	gjk_support Support;
+	v3 Delta;
+} gjk_delta;
+
 function b32 Get_Line_Barycentric_From_Origin(v3 p0, v3 p1, f32* OutU, f32* OutV) {
 	v3 ab = V3_Sub_V3(p1, p0);
 	f32 Denominator = V3_Sq_Mag(ab);
@@ -466,6 +471,19 @@ function GJK_SUPPORT_FUNC(GJK_Transform_Support) {
 	return V4_Mul_M4(V4_From_V3(P, 1.0f), &Transform->Transform).xyz;
 }
 
+function GJK_SUPPORT_FUNC(GJK_Delta_Support) {
+	//The swept volume of the inner shape along Delta is the Minkowski sum of the inner shape
+	//with the line segment from 0 to Delta. The support of that segment in a given direction
+	//is Delta when (Direction . Delta) > 0 and 0 otherwise, so the swept support is just the
+	//inner support optionally translated by Delta.
+	gjk_delta* DeltaShape = (gjk_delta *)UserData;
+	v3 P = GJK_Get_Support(&DeltaShape->Support, Direction);
+	if (V3_Dot(Direction, DeltaShape->Delta) > 0.0f) {
+		P = V3_Add_V3(P, DeltaShape->Delta);
+	}
+	return P;
+}
+
 export_function gjk_support GJK_Make_Support(gjk_support_func* Func, void* UserData) {
 	gjk_support Result = {
 		UserData,
@@ -549,6 +567,15 @@ export_function gjk_support GJK_Transform(arena* Arena, gjk_support InnerSupport
 	Transform->InvTransform = M3_Transpose(&M);
     
 	gjk_support Support = GJK_Make_Support(GJK_Transform_Support, Transform);
+	return Support;
+}
+
+export_function gjk_support GJK_Delta(arena* Arena, gjk_support InnerSupport, v3 Delta) {
+	gjk_delta* DeltaShape = Arena_Push_Struct(Arena, gjk_delta);
+	DeltaShape->Support = InnerSupport;
+	DeltaShape->Delta = Delta;
+    
+	gjk_support Support = GJK_Make_Support(GJK_Delta_Support, DeltaShape);
 	return Support;
 }
 
