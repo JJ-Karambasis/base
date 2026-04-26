@@ -2774,6 +2774,26 @@ export_function string String_Remove(allocator* Allocator, string String, size_t
     
 }
 
+export_function b32 String_Starts_With(string String, string Substr) {
+    Assert(String.Size && Substr.Size);
+    if (Substr.Size > String.Size) return false;
+    
+    const char* StrStart = String.Ptr;
+    const char* SubstrStart = Substr.Ptr;
+    
+    while (Substr.Size) {
+        if (*StrStart != *SubstrStart) {
+            return false;
+        }
+        
+        StrStart++;
+        SubstrStart++;
+        Substr.Size--;
+    }
+    
+    return true;
+}
+
 export_function b32 String_Ends_With(string String, string Substr) {
     Assert(String.Size && Substr.Size);
     if (Substr.Size > String.Size) return false;
@@ -2852,6 +2872,47 @@ export_function size_t String_Find_First(string String, string Substr) {
     }
     
     return STRING_INVALID_INDEX;
+}
+
+export_function string String_Replace(allocator* Allocator, string String, string Substr, string Replacement) {
+    Assert(String.Size && Substr.Size);
+    if (Substr.Size > String.Size) {
+        return String;
+    }
+
+    arena* Scratch = Scratch_Get();
+    sstream_writer Writer = SStream_Writer_Begin((allocator*)Scratch);
+    
+    size_t StartIndex = 0;
+    size_t StringIndex = 0;
+    while (StringIndex < String.Size) {
+        size_t SubstringIndex = 0;
+        size_t TotalStringIndex = StringIndex+SubstringIndex;
+        while (SubstringIndex < Substr.Size && TotalStringIndex < String.Size) {
+            if (String.Ptr[TotalStringIndex] == Substr.Ptr[SubstringIndex]) {
+                SubstringIndex++;
+                TotalStringIndex++;
+            } else {
+                break;
+            }
+        }
+        
+        if (SubstringIndex == Substr.Size) {
+            SStream_Writer_Add(&Writer, String_Substr(String, StartIndex, StringIndex));
+            SStream_Writer_Add(&Writer, Replacement);
+
+            StartIndex = StringIndex+Substr.Size;
+        }
+        
+        StringIndex++;
+    }
+    
+    if (StartIndex < StringIndex) {
+        SStream_Writer_Add(&Writer, String_Substr(String, StartIndex, StringIndex));
+    }
+
+    string Result = SStream_Writer_Join(&Writer, Allocator, String_Lit(""));    
+    return Result;
 }
 
 export_function string String_From_WString(allocator* Allocator, wstring WString) {

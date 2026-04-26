@@ -130,7 +130,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_IS_TYPE"),
 		String_Lit("META_IS_NOT_TYPE"),
 		String_Lit("META_IS_NAME"),
-		String_Lit("META_IS_NOT_NAME")
+		String_Lit("META_IS_NOT_NAME"),
+		String_Lit("META_CONTAINS_TAG_VALUE")
 	};
 	meta_predicate Predicates[] = {
 		META_CONTAINS_TAG_PREDICATE,
@@ -142,7 +143,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_IS_TYPE_PREDICATE,
 		META_IS_NOT_TYPE_PREDICATE,
 		META_IS_NAME_PREDICATE,
-		META_IS_NOT_NAME_PREDICATE
+		META_IS_NOT_NAME_PREDICATE,
+		META_CONTAINS_TAG_VALUE_PREDICATE
 	};
 	Static_Assert(Array_Count(Predicates) == Array_Count(PredicatesStr));
 	Static_Assert(Array_Count(Predicates) == META_PREDICATE_COUNT);
@@ -244,13 +246,28 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Type_Predicate
 	return !String_Equals(Parameters.First->String, Entry->Type);
 }
 
-
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Name_Predicate) {
 	return String_Equals(Parameters.First->String, Entry->Name);
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Name_Predicate) {
 	return !String_Equals(Parameters.First->String, Entry->Name);
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Tag_Value_Predicate) {
+	if(Parameters.Count != 2) return false;
+
+	string_entry* TagEntry = Parameters.First;
+	meta_tag_list* Tags = &Entry->Tags;
+
+	string TagString = TagEntry->String;
+	string TagValue = TagEntry->Next->String;
+	for (meta_tag* Tag = Tags->First; Tag; Tag = Tag->Next) {
+		if (String_Equals(TagString, Tag->Name) && String_Equals(TagValue, Tag->Value)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateName) {
@@ -270,6 +287,7 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 		Meta_Parser_Contains_Is_Not_Type_Predicate,
 		Meta_Parser_Contains_Is_Name_Predicate,
 		Meta_Parser_Contains_Is_Not_Name_Predicate,
+		Meta_Parser_Contains_Tag_Value_Predicate,
 	};
 	Static_Assert(Array_Count(MetaPredicates) == META_PREDICATE_COUNT);
 	Assert(Predicate < META_PREDICATE_COUNT);
