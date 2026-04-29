@@ -1179,7 +1179,13 @@ typedef struct {
 export_function bstream_reader BStream_Reader_Begin(buffer Buffer);
 export_function b32 BStream_Reader_Is_Valid(bstream_reader* Reader);
 export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t Size);
-export_function u32 BStream_Reader_U32(bstream_reader* Reader);
+function inline u16 BStream_Reader_U16(bstream_reader* Reader) {
+    return *(const u16*)BStream_Reader_Size(Reader, sizeof(u16));
+}
+
+function inline u32 BStream_Reader_U32(bstream_reader* Reader) {
+    return *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
+}
 
 function inline const void* BStream_Reader_Peek(bstream_reader* Reader) {
     return Reader->At;

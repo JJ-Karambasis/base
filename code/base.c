@@ -3279,11 +3279,6 @@ export_function const void* BStream_Reader_Size(bstream_reader* Reader, size_t S
     return Result;
 }
 
-export_function u32 BStream_Reader_U32(bstream_reader* Reader) {
-    u32 Result = *(const u32*)BStream_Reader_Size(Reader, sizeof(u32));
-    return Result;
-}
-
 export_function bstream_writer BStream_Writer_Begin(allocator* Allocator) {
     bstream_writer Result;
     Memory_Clear(&Result, sizeof(bstream_writer));
