@@ -3328,7 +3328,10 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 					DstBindGroup->ShouldUpdate = true;
 					DstBindGroup->LastUpdatedFrame = OldFrameIndex;
                     
-					if (ThreadWriteCmd->FirstDynamicDescriptor) {
+					vk_bind_group_binding* Binding = DstBindGroup->Bindings + ThreadWriteCmd->Binding;
+					Binding->IsDynamic = ThreadWriteCmd->FirstDynamicDescriptor != NULL; 
+
+					if (Binding->IsDynamic) {
 						vk_bind_group_write_cmd* BindGroupWriteCmd = Arena_Push_Struct(OldFrame->TempArena, vk_bind_group_write_cmd);
 						BindGroupWriteCmd->LastUpdatedFrame = OldFrameIndex;
 						
@@ -3342,8 +3345,8 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
 							SLL_Push_Back(BindGroupWriteCmd->FirstDynamicDescriptor, BindGroupWriteCmd->LastDynamicDescriptor, BindGroupThreadDescriptor);
 						}
                         
-						SLL_Push_Back(DstBindGroup->Bindings[ThreadWriteCmd->Binding].FirstBindGroupWriteCmd,
-									  DstBindGroup->Bindings[ThreadWriteCmd->Binding].LastBindGroupWriteCmd,
+						SLL_Push_Back(Binding->FirstBindGroupWriteCmd,
+									  Binding->LastBindGroupWriteCmd,
 									  BindGroupWriteCmd);
 					}
 				}
@@ -3531,21 +3534,25 @@ function void VK_Update_Frame_Bind_Groups(vk_device_context* Context, u64 OldFra
                             
 							vk_bind_group* SrcBindGroup = VK_Bind_Group_Pool_Get(&Context->ResourcePool, CopyCmd->SrcBindGroup);
 							if (SrcBindGroup) {
+								vk_bind_group_binding* SrcBinding = SrcBindGroup->Bindings + CopyCmd->SrcBinding;
+								b32 HasDynamicDescriptors = SrcBinding->IsDynamic;
                                 
-								VkCopyDescriptorSet CopyDescriptor = {
-									.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-									.srcSet = SrcBindGroup->Sets[NewFrame->Index],
-									.srcBinding = CopyCmd->SrcBinding,
-									.srcArrayElement = CopyCmd->SrcIndex,
-									.dstSet = DstSet,
-									.dstBinding = (u32)j,
-									.dstArrayElement = CopyCmd->DstIndex,
-									.descriptorCount = CopyCmd->Count
-								};
-                                
-								Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
-                                
-								DescriptorCounts[CopyCmd->DstIndex] = CopyCmd->Count;
+								if(HasDynamicDescriptors) {
+									VkCopyDescriptorSet CopyDescriptor = {
+										.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
+										.srcSet = SrcBindGroup->Sets[NewFrame->Index],
+										.srcBinding = CopyCmd->SrcBinding,
+										.srcArrayElement = CopyCmd->SrcIndex,
+										.dstSet = DstSet,
+										.dstBinding = (u32)j,
+										.dstArrayElement = CopyCmd->DstIndex,
+										.descriptorCount = CopyCmd->Count
+									};
+									
+									Dynamic_VK_Copy_Descriptor_Set_Array_Add(&Copies, CopyDescriptor);
+									
+									DescriptorCounts[CopyCmd->DstIndex] = CopyCmd->Count;
+								}
 							}
 						}
                         

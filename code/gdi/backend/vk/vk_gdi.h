@@ -126,6 +126,8 @@ typedef struct {
     
 	vk_bind_group_copy_cmd* FirstBindGroupCopyCmd;
 	vk_bind_group_copy_cmd* LastBindGroupCopyCmd;
+
+	b32 IsDynamic;
 } vk_bind_group_binding;
 
 typedef struct {
