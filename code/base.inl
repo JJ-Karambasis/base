@@ -798,7 +798,7 @@ function inline void Hashmap_Clear(hashmap_t<key, value, hasher, comparer>* Hash
 
 template<typename key, typename value, typename hasher, typename comparer>
 inline value& hashmap_t<key, value, hasher, comparer>::operator[](const key& Key) {
-	value* Value = Hashmap_Get(this, Key);
+	value* Value = Hashmap_Find(this, Key);
 	Assert(Value);
 	return *Value;
 }
