@@ -1073,6 +1073,7 @@ export_function string String_Combine(allocator* Allocator, const string* String
 export_function string String_Concat(allocator* Allocator, string StringA, string StringB);
 export_function size_t String_Get_Last_Directory_Slash_Index(string Directory);
 export_function string String_Get_Directory_Path(string Path);
+export_function string String_Get_Directory_Name(string Path);
 export_function string String_Directory_Combine(allocator* Allocator, const string* Strings, size_t Count);
 export_function string String_Directory_Concat(allocator* Allocator, string StringA, string StringB);
 export_function b32 String_Starts_With_Char(string String, char Character);
@@ -1097,6 +1098,8 @@ export_function string String_From_WString(allocator* Allocator, wstring WString
 export_function b32 Try_Parse_Bool(string String, b32* OutBool);
 export_function b32 Try_Parse_F64(string String, f64* OutNumber);
 export_function b32 Try_Parse_S64(string String, s64* OutNumber);
+export_function b32 Try_Parse_S32(string String, s32* OutNumber);
+export_function b32 Try_Parse_F32(string String, f32* OutNumber);
 export_function size_t WString_Length(const wchar_t* Ptr);
 export_function wstring Make_WString(const wchar_t* Ptr, size_t Size);
 export_function wstring WString_Null_Term(const wchar_t* Ptr);
@@ -1132,6 +1135,7 @@ export_function string SStream_Reader_Consume_Token(sstream_reader* Reader);
 export_function string SStream_Reader_Peek_Line(sstream_reader* Reader);
 export_function string SStream_Reader_Consume_Line(sstream_reader* Reader);
 export_function void SStream_Reader_Skip_Line(sstream_reader* Reader);
+export_function void SStream_Reader_Skip_Line_And_Eat_Whitespace(sstream_reader* Reader);
 
 typedef struct sstream_writer_node sstream_writer_node;
 struct sstream_writer_node {

@@ -1,80 +1,28 @@
 // raddbg 0.9.25 project file
 
-recent_file: path: "C:/Program Files (x86)/Windows Kits/10/include/10.0.22621.0/ucrt/stdio.h"
-recent_file: path: "c:/Users/akara/Projects/base/code/gdi/backend/vk/vk_gdi.c"
-recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/tran/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/tran/fpexcept.cpp"
-recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/gdi_tests.cpp"
-recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/unit_tests.cpp"
-recent_file: path: "C:/Users/akara/Projects/base/code/third_party/DirectXShaderCompiler/include/dxc/dxcapi.h"
-recent_file: path: "C:/Users/akara/Projects/base/code/tests/unit_tests/geometry_tests.cpp"
-recent_file: path: "c:/Users/akara/Projects/base/code/third_party/VulkanMemoryAllocator/vk_mem_alloc.h"
-recent_file: path: "c:/Users/akara/Projects/base/code/base.c"
-recent_file: path: "code/geometry/gjk_epa.c"
-recent_file: path: "code/base.c"
-recent_file: path: "code/tests/unit_tests/geometry_tests.cpp"
 recent_file: path: "code/gdi/backend/vk/vk_gdi.c"
-recent_file: path: "code/tests/unit_tests/utest.h"
-recent_file: path: "code/tests/unit_tests/unit_tests.cpp"
-recent_file: path: "code/gdi/gdi.c"
-recent_file: path: "code/tests/gdi_tests.cpp"
-recent_file: path: "code/gdi/gdi.h"
-recent_file: path: "code/base.c"
-recent_file: path: "code/gdi/im_gdi.c"
+recent_file: path: "code/tests/unit_tests/gdi_tests.cpp"
 recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/abort.cpp"
-recent_file: path: "code/third_party/VulkanMemoryAllocator/vk_mem_alloc.h"
-recent_file: path: "code/tests/tests.cpp"
-recent_file: path: "code/os/win32/win32_base.c"
-recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcruntime/src/string/amd64/memcpy.asm"
-recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcstartup/src/gs/gs_report.c"
-recent_file: path: "../../../lunarg/work/LunarG/sdk/build/Vulkan-ValidationLayers/repo/layers/drawdispatch/descriptor_validator.cpp"
-recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/internal/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/internal/report_runtime_error.cpp"
-recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/assert.cpp"
-recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/xmt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/abort.cpp"
-recent_file: path: "code/third_party/rpmalloc/rpmalloc.c"
-recent_file: path: "code/tests/job_tests.cpp"
-recent_file: path: "code/tests/utest.h"
-watch_pin:
+recent_file: path: "code/gdi/gdi.c"
+recent_file: path: "code/tests/unit_tests/unit_tests.cpp"
+target:
 {
-  expression: "*Buffer.Buffer"
-  source_location: "code/gdi/backend/vk/vk_gdi.c:2104:1"
-}
-breakpoint:
-{
-  source_location: "code/tests/gdi_tests.cpp:484:17"
-  hit_count: 0
+  executable: "bin/unit_tests.exe"
+  working_directory: "bin/"
+  enabled: 1
 }
 debug_info:
 {
-  path: "c:/Users/akara/Projects/base/bin/unit_tests.pdb"
-  timestamp: 66204684542670
+  path: "C:/Users/akara/Projects/constructs/code/third_party/base/bin/unit_tests.pdb"
+  timestamp: 66213698387819
 }
 debug_info:
 {
-  path: "C:/Users/akara/Projects/base/code/third_party/DirectXShaderCompiler/bin/Release/bin/dxcompiler.pdb"
-  timestamp: 66200877571280
+  path: "C:/Users/akara/Projects/constructs/code/third_party/base/code/third_party/DirectXShaderCompiler/bin/Release/bin/dxcompiler.pdb"
+  timestamp: 66211000286697
 }
 debug_info:
 {
   path: "C:/VulkanSDK/1.4.309.0/Bin/VkLayer_khronos_validation.pdb"
   timestamp: 66176449816450
-}
-breakpoint:
-{
-  source_location: "code/tests/unit_tests/geometry_tests.cpp:196:10"
-  hit_count: 0
-}
-breakpoint:
-{
-  source_location: "code/geometry/gjk_epa.c:784:22"
-  hit_count: 0
-}
-debug_info:
-{
-  path: "C:/Users/akara/Projects/base/bin/unit_tests.pdb"
-  timestamp: 66209990875176
-}
-breakpoint:
-{
-  source_location: "C:/Users/akara/Projects/base/code/tests/unit_tests/unit_tests.cpp:17:6"
-  hit_count: 0
 }

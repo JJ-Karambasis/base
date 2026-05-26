@@ -2449,7 +2449,7 @@ export_function string String_Copy(allocator* Allocator, string Str) {
 }
 
 export_function string String_Substr(string Str, size_t FirstIndex, size_t LastIndex) {
-    Assert(LastIndex != STRING_INVALID_INDEX && LastIndex != STRING_INVALID_INDEX);
+    Assert(FirstIndex != STRING_INVALID_INDEX);
     if (FirstIndex == LastIndex) return String_Empty();
     
     LastIndex = Min(LastIndex, Str.Size);
@@ -2581,6 +2581,30 @@ export_function string String_Get_Directory_Path(string Path) {
     size_t PathIndex = String_Get_Last_Directory_Slash_Index(Path);
     if (PathIndex == STRING_INVALID_INDEX) return Path;
     return String_Substr(Path, 0, PathIndex + 1);
+}
+
+export_function string String_Get_Directory_Name(string Path) {
+    size_t SecondToLastSlashIndex = STRING_INVALID_INDEX;
+
+    size_t TotalSize = Path.Size;
+    if(String_Ends_With_Char(Path, '/') || String_Ends_With_Char(Path, '\\')) {
+        TotalSize--;
+    }
+
+    for (size_t Index = TotalSize; Index != 0; Index--) {
+        size_t ArrayIndex = Index - 1;
+        if (Path.Ptr[ArrayIndex] == '/' || Path.Ptr[ArrayIndex] == '\\') {
+            SecondToLastSlashIndex = ArrayIndex;
+            break;
+        }
+    }
+
+    if(SecondToLastSlashIndex == STRING_INVALID_INDEX) {
+        return Path;
+    }
+
+    string Result = String_Substr(Path, SecondToLastSlashIndex + 1, TotalSize);
+    return Result;
 }
 
 export_function string String_Directory_Combine(allocator* Allocator, const string* Strings, size_t Count) {
@@ -2972,7 +2996,27 @@ export_function b32 Try_Parse_F64(string String, f64* OutNumber) {
 
 export_function b32 Try_Parse_S64(string String, s64* OutNumber) {
     char* OutPtr;
-    s64 Numeric = strtol(String.Ptr, &OutPtr, 10);
+    s64 Numeric = strtoll(String.Ptr, &OutPtr, 10);
+    if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+        if (OutNumber) *OutNumber = Numeric;
+        return true;
+    }
+    return false;
+}
+
+export_function b32 Try_Parse_S32(string String, s32* OutNumber) {
+    char* OutPtr;
+    s32 Numeric = strtol(String.Ptr, &OutPtr, 10);
+    if ((size_t)(OutPtr - String.Ptr) == String.Size) {
+        if (OutNumber) *OutNumber = Numeric;
+        return true;
+    }
+    return false;
+}
+
+export_function b32 Try_Parse_F32(string String, f32* OutNumber) {
+    char* OutPtr;
+    f32 Numeric = strtof(String.Ptr, &OutPtr);
     if ((size_t)(OutPtr - String.Ptr) == String.Size) {
         if (OutNumber) *OutNumber = Numeric;
         return true;
@@ -3190,6 +3234,11 @@ export_function void SStream_Reader_Skip_Line(sstream_reader* Reader) {
             break;
         }
     }
+}
+
+export_function void SStream_Reader_Skip_Line_And_Eat_Whitespace(sstream_reader* Reader) {
+    SStream_Reader_Skip_Line(Reader);
+    SStream_Reader_Eat_Whitespace(Reader);
 }
 
 export_function sstream_writer SStream_Writer_Begin(allocator* Allocator) {
