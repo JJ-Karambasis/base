@@ -355,6 +355,9 @@ typedef struct {
     s32 x, y;
 } v2i;
 
+typedef struct {
+    u32 x, y;
+} v2u;
 
 export_function s64 Pack_S64(v2i Data);
 export_function v2i Unpack_S64(s64 PackedData);
@@ -1369,6 +1372,7 @@ export_function void* Pool_Get(pool* Pool, pool_id ID);
 export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID);
 export_function void Pool_Clear(pool* Pool);
 export_function pool_id Pool_Get_ID(pool* Pool, void* Data);
+export_function pool_id Pool_Get_ID_By_Index(pool* Pool, u32 Index);
 
 export_function pool_iter Pool_Begin_Iter(pool* Pool);
 export_function void Pool_Iter_Next(pool_iter* Iter);

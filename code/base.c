@@ -3830,6 +3830,13 @@ export_function pool_id Pool_Get_ID(pool* Pool, void* Data) {
     return *ID;
 }
 
+export_function pool_id Pool_Get_ID_By_Index(pool* Pool, u32 Index) {
+    Assert(Index < Pool->MaxUsed);
+    pool_id* PoolID = Pool_Get_Internal_ID(Pool, Index);
+    if (PoolID->Index != Index) return Empty_Pool_ID();
+    return *PoolID;
+}
+
 export_function pool_iter Pool_Begin_Iter(pool* Pool) {
     pool_iter Result = {
         .Pool = Pool
