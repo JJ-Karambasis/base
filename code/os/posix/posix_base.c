@@ -295,6 +295,79 @@ function OS_MAKE_DIRECTORY_DEFINE(Posix_Make_Directory) {
     return Result;
 }
 
+function OS_DELETE_FILE_DEFINE(Posix_Delete_File) {
+    arena* Scratch = Scratch_Get();
+    if(!String_Is_Null_Term(Path)) {
+        Path = String_Copy((allocator*)Scratch, Path);
+    }
+    Assert(String_Is_Null_Term(Path));
+
+    b32 Result = unlink(Path.Ptr) == 0;
+    Scratch_Release();
+    return Result;
+}
+
+/* Recursive helper for Posix_Delete_Directory. Mirrors
+   Posix_Get_All_Files_Recursive's opendir/readdir walk: drain children
+   first (rmdir only removes empty directories), then rmdir the parent. */
+function b32 Posix_Delete_Directory_Recursive(string Directory) {
+    arena* Scratch = Scratch_Get();
+
+    if (!String_Ends_With_Char(Directory, '/')) {
+        Directory = String_Concat((allocator*)Scratch, Directory, String_Lit("/"));
+    }
+    Directory = String_Copy((allocator*)Scratch, Directory);
+
+    b32 Result = true;
+
+    DIR* Dir = opendir(Directory.Ptr);
+    if (Dir != NULL) {
+        struct dirent* DirEntry;
+        while ((DirEntry = readdir(Dir)) != NULL) {
+            string FileOrDirectoryName = String_Null_Term(DirEntry->d_name);
+            if (String_Equals(FileOrDirectoryName, String_Lit(".")) || String_Equals(FileOrDirectoryName, String_Lit(".."))) {
+                continue;
+            }
+
+            string ChildPath = String_Concat((allocator*)Scratch, Directory, FileOrDirectoryName);
+            ChildPath = String_Copy((allocator*)Scratch, ChildPath);
+            if (DirEntry->d_type == DT_DIR) {
+                if (!Posix_Delete_Directory_Recursive(ChildPath)) {
+                    Result = false;
+                }
+            } else {
+                if (unlink(ChildPath.Ptr) != 0) {
+                    Result = false;
+                }
+            }
+        }
+        closedir(Dir);
+    }
+
+    if (rmdir(Directory.Ptr) != 0) {
+        Result = false;
+    }
+
+    Scratch_Release();
+    return Result;
+}
+
+function OS_DELETE_DIRECTORY_DEFINE(Posix_Delete_Directory) {
+    if (Recursive) {
+        return Posix_Delete_Directory_Recursive(Directory);
+    }
+
+    arena* Scratch = Scratch_Get();
+    if (!String_Is_Null_Term(Directory)) {
+        Directory = String_Copy((allocator*)Scratch, Directory);
+    }
+    Assert(String_Is_Null_Term(Directory));
+
+    b32 Result = rmdir(Directory.Ptr) == 0;
+    Scratch_Release();
+    return Result;
+}
+
 function OS_COPY_FILE_DEFINE(Posix_Copy_File) {    
     os_file* SrcFile = Posix_Open_File(SrcFilePath, OS_FILE_ATTRIBUTE_READ);
     os_file* DstFile = Posix_Open_File(DstFilePath, OS_FILE_ATTRIBUTE_WRITE);
@@ -909,6 +982,8 @@ global os_base_vtable Posix_Base_VTable = {
 	.IsDirectoryPathFunc = Posix_Is_Directory_Path,
 	.IsFilePathFunc = Posix_Is_File_Path,
 	.MakeDirectoryFunc = Posix_Make_Directory,
+	.DeleteFileFunc = Posix_Delete_File,
+	.DeleteDirectoryFunc = Posix_Delete_Directory,
     .CopyFileFunc = Posix_Copy_File,
     .SanitizePathFunc = Posix_Sanitize_Path,
 

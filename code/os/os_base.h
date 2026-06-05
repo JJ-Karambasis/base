@@ -25,6 +25,8 @@ typedef OS_QUERY_PERFORMANCE_DEFINE(os_query_performance_func);
 #define OS_GET_ALL_FILES_DEFINE(name) string_array name(allocator* Allocator, string Path, b32 Recursive)
 #define OS_IS_PATH_DEFINE(name) b32 name(string Path)
 #define OS_MAKE_DIRECTORY_DEFINE(name) b32 name(string Directory)
+#define OS_DELETE_FILE_DEFINE(name) b32 name(string Path)
+#define OS_DELETE_DIRECTORY_DEFINE(name) b32 name(string Directory, b32 Recursive)
 #define OS_COPY_FILE_DEFINE(name) b32 name(string SrcFilePath, string DstFilePath)
 #define OS_SANITIZE_PATH_DEFINE(name) string name(allocator* Allocator, string Path)
 
@@ -47,6 +49,8 @@ typedef OS_CLOSE_FILE_DEFINE(os_close_file_func);
 typedef OS_GET_ALL_FILES_DEFINE(os_get_all_files_func);
 typedef OS_IS_PATH_DEFINE(os_is_path_func);
 typedef OS_MAKE_DIRECTORY_DEFINE(os_make_directory_func);
+typedef OS_DELETE_FILE_DEFINE(os_delete_file_func);
+typedef OS_DELETE_DIRECTORY_DEFINE(os_delete_directory_func);
 typedef OS_COPY_FILE_DEFINE(os_copy_file_func);
 typedef OS_SANITIZE_PATH_DEFINE(os_sanitize_path_func);
 
@@ -175,12 +179,14 @@ typedef struct {
 	os_get_file_pointer_func* GetFilePointerFunc;
 	os_close_file_func* CloseFileFunc;
 
-	os_get_all_files_func*  GetAllFilesFunc;
-	os_is_path_func*        IsDirectoryPathFunc;
-	os_is_path_func*        IsFilePathFunc;
-	os_make_directory_func* MakeDirectoryFunc;
-	os_copy_file_func*      CopyFileFunc;
-	os_sanitize_path_func*  SanitizePathFunc;
+	os_get_all_files_func*    GetAllFilesFunc;
+	os_is_path_func*          IsDirectoryPathFunc;
+	os_is_path_func*          IsFilePathFunc;
+	os_make_directory_func*   MakeDirectoryFunc;
+	os_delete_file_func*      DeleteFileFunc;
+	os_delete_directory_func* DeleteDirectoryFunc;
+	os_copy_file_func*        CopyFileFunc;
+	os_sanitize_path_func*    SanitizePathFunc;
 
 	os_tls_create_func* TLSCreateFunc;
 	os_tls_delete_func* TLSDeleteFunc;
@@ -284,6 +290,8 @@ typedef struct {
 #define OS_Is_Directory_Path(path) Base_Get()->OSBase->VTable->IsDirectoryPathFunc(path)
 #define OS_Is_File_Path(path) Base_Get()->OSBase->VTable->IsFilePathFunc(path)
 #define OS_Make_Directory(path) Base_Get()->OSBase->VTable->MakeDirectoryFunc(path)
+#define OS_Delete_File(path) Base_Get()->OSBase->VTable->DeleteFileFunc(path)
+#define OS_Delete_Directory(path, recursive) Base_Get()->OSBase->VTable->DeleteDirectoryFunc(path, recursive)
 #define OS_Copy_File(src_file, dst_file) Base_Get()->OSBase->VTable->CopyFileFunc(src_file, dst_file)
 #define OS_Sanitize_Path(allocator, path) Base_Get()->OSBase->VTable->SanitizePathFunc(allocator, path)
 #define OS_Santize_Path(allocator, path) OS_Sanitize_Path(allocator, path)

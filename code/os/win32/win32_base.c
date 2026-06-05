@@ -280,6 +280,83 @@ function OS_MAKE_DIRECTORY_DEFINE(Win32_Make_Directory) {
     return Result;
 }
 
+function OS_DELETE_FILE_DEFINE(Win32_Delete_File) {
+    arena* Scratch = Scratch_Get();
+    wstring PathW = WString_From_String((allocator*)Scratch, Path);
+    BOOL Result = DeleteFileW(PathW.Ptr);
+    Scratch_Release();
+    return Result;
+}
+
+/* Recursive helper for Win32_Delete_Directory. Mirrors the FindFirstFileW /
+   FindNextFileW pattern used by Win32_Get_All_Files_Recursive: enumerate
+   every entry, recurse into subdirectories, then remove this directory.
+   Win32 RemoveDirectoryW only succeeds on empty directories, so we must
+   drain children before removing the parent. */
+function b32 Win32_Delete_Directory_Recursive(string Directory) {
+    arena* Scratch = Scratch_Get();
+
+    if (!String_Ends_With_Char(Directory, '\\') && !String_Ends_With_Char(Directory, '/')) {
+        Directory = String_Concat((allocator*)Scratch, Directory, String_Lit("\\"));
+    }
+
+    string DirectoryWithWildcard = String_Concat((allocator*)Scratch, Directory, String_Lit("*"));
+
+    b32 Result = true;
+
+    WIN32_FIND_DATAW FindData;
+    wstring DirectoryW = WString_From_String((allocator*)Scratch, DirectoryWithWildcard);
+    HANDLE Handle = FindFirstFileW(DirectoryW.Ptr, &FindData);
+    if (Handle != INVALID_HANDLE_VALUE) {
+        do {
+            string FileOrDirectoryName = String_From_WString((allocator*)Scratch, WString_Null_Term(FindData.cFileName));
+            if (String_Equals(FileOrDirectoryName, String_Lit(".")) || String_Equals(FileOrDirectoryName, String_Lit(".."))) {
+                continue;
+            }
+
+            string ChildPath = String_Concat((allocator*)Scratch, Directory, FileOrDirectoryName);
+            if (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                if (!Win32_Delete_Directory_Recursive(ChildPath)) {
+                    Result = false;
+                }
+            } else {
+                /* Read-only files refuse DeleteFileW; clear the attribute
+                   first so the wipe doesn't bail on something the user
+                   forgot they marked read-only at some point. */
+                if (FindData.dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+                    wstring ChildPathW = WString_From_String((allocator*)Scratch, ChildPath);
+                    SetFileAttributesW(ChildPathW.Ptr, FindData.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY);
+                }
+                wstring ChildPathW = WString_From_String((allocator*)Scratch, ChildPath);
+                if (!DeleteFileW(ChildPathW.Ptr)) {
+                    Result = false;
+                }
+            }
+        } while (FindNextFileW(Handle, &FindData));
+        FindClose(Handle);
+    }
+
+    wstring DirOnlyW = WString_From_String((allocator*)Scratch, Directory);
+    if (!RemoveDirectoryW(DirOnlyW.Ptr)) {
+        Result = false;
+    }
+
+    Scratch_Release();
+    return Result;
+}
+
+function OS_DELETE_DIRECTORY_DEFINE(Win32_Delete_Directory) {
+    if (Recursive) {
+        return Win32_Delete_Directory_Recursive(Directory);
+    }
+
+    arena* Scratch = Scratch_Get();
+    wstring PathW = WString_From_String((allocator*)Scratch, Directory);
+    BOOL Result = RemoveDirectoryW(PathW.Ptr);
+    Scratch_Release();
+    return Result;
+}
+
 function OS_COPY_FILE_DEFINE(Win32_Copy_File) {
     arena* Scratch = Scratch_Get();
     wstring SrcFileW = WString_From_String((allocator*)Scratch, SrcFilePath);
@@ -777,6 +854,8 @@ global os_base_vtable Win32_Base_VTable = {
     .IsDirectoryPathFunc = Win32_Is_Directory_Path,
     .IsFilePathFunc = Win32_Is_File_Path,
     .MakeDirectoryFunc = Win32_Make_Directory,
+    .DeleteFileFunc = Win32_Delete_File,
+    .DeleteDirectoryFunc = Win32_Delete_Directory,
     .CopyFileFunc = Win32_Copy_File,
     .SanitizePathFunc = Win32_Sanitize_Path,
     
