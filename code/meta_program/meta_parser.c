@@ -2351,7 +2351,18 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 					Meta_Tokens_Replace(&ForEachTokens, &NewTokens);
 					Meta_Tokens_Free(Parser->Tokenizer, &ForEachTokens);
 					Token = NewTokens.First->Prev;
-				} Invalid_Else;
+				} else {
+					//Remove the for loop tokens
+					meta_token* PrevToken = ForEachTokens.First->Prev;
+					meta_token* NextToken = ForEachTokens.Last->Next;
+
+					PrevToken->Next = NextToken;
+					NextToken->Prev = PrevToken;
+
+					//Meta_Tokens_Free(Parser->Tokenizer, &ForEachTokens);
+
+					Token = PrevToken;
+				}
                 
 				TokenIter = Meta_Begin_Simple_Token_Iter(Token);
 				Meta_Token_Iter_Move_Next(&TokenIter);
