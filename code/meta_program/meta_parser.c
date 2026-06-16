@@ -69,10 +69,12 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
     
 	//For loop flags
 	string ForLoopFlagsStr[] = {
-		String_Lit("NoBraces")
+		String_Lit("NoBraces"),
+		String_Lit("NoParent")
 	};
 	meta_for_loop_flags_metadata ForLoopFlagsMetadata[] = {
-		{ META_FOR_LOOP_NO_BRACE_FLAG, META_FOR_LOOP_SUPPORT_ALL }
+		{ META_FOR_LOOP_NO_BRACE_FLAG, META_FOR_LOOP_SUPPORT_ALL },
+		{ META_FOR_LOOP_NO_PARENT_FLAG, META_FOR_LOOP_SUPPORT_STRUCT }
 	};
 	Static_Assert(Array_Count(ForLoopFlagsMetadata) == Array_Count(ForLoopFlagsStr));
 	for (size_t i = 0; i < Array_Count(ForLoopFlagsMetadata); i++) {
@@ -131,7 +133,12 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_IS_NOT_TYPE"),
 		String_Lit("META_IS_NAME"),
 		String_Lit("META_IS_NOT_NAME"),
-		String_Lit("META_CONTAINS_TAG_VALUE")
+		String_Lit("META_CONTAINS_TAG_VALUE"),
+		String_Lit("META_NOT_CONTAINS_TAG_VALUE"),
+		String_Lit("META_IS_PARENT"),
+		String_Lit("META_IS_NOT_PARENT"),
+		String_Lit("META_IS_BASE"),
+		String_Lit("META_IS_NOT_BASE")
 	};
 	meta_predicate Predicates[] = {
 		META_CONTAINS_TAG_PREDICATE,
@@ -144,7 +151,12 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_IS_NOT_TYPE_PREDICATE,
 		META_IS_NAME_PREDICATE,
 		META_IS_NOT_NAME_PREDICATE,
-		META_CONTAINS_TAG_VALUE_PREDICATE
+		META_CONTAINS_TAG_VALUE_PREDICATE,
+		META_NOT_CONTAINS_TAG_VALUE_PREDICATE,
+		META_IS_PARENT_PREDICATE,
+		META_IS_NOT_PARENT_PREDICATE,
+		META_IS_BASE_PREDICATE,
+		META_IS_NOT_BASE_PREDICATE
 	};
 	Static_Assert(Array_Count(Predicates) == Array_Count(PredicatesStr));
 	Static_Assert(Array_Count(Predicates) == META_PREDICATE_COUNT);
@@ -263,11 +275,35 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Tag_Value_Predicate) 
 	string TagString = TagEntry->String;
 	string TagValue = TagEntry->Next->String;
 	for (meta_tag* Tag = Tags->First; Tag; Tag = Tag->Next) {
-		if (String_Equals(TagString, Tag->Name) && String_Equals(TagValue, Tag->Value)) {
-			return true;
+		if (String_Equals(TagString, Tag->Name)) {
+			for(meta_tag_value* Value = Tag->Values.First; Value; Value = Value->Next) {
+				if(String_Equals(TagValue, Value->Value)) {
+					return true;
+				}
+			}
 		}
 	}
 	return false;
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Not_Tag_Value_Predicate) {
+	return !Meta_Parser_Contains_Tag_Value_Predicate(Parser, Entry, Parameters);
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Parent_Predicate) {
+	return Entry->IsFromParent;
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Parent_Predicate) {
+	return !Entry->IsFromParent;
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Base_Predicate) {
+	return Entry->IsFromBase;
+}
+
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Not_Base_Predicate) {
+	return !Entry->IsFromBase;
 }
 
 function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateName) {
@@ -288,6 +324,11 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 		Meta_Parser_Contains_Is_Name_Predicate,
 		Meta_Parser_Contains_Is_Not_Name_Predicate,
 		Meta_Parser_Contains_Tag_Value_Predicate,
+		Meta_Parser_Contains_Not_Tag_Value_Predicate,
+		Meta_Parser_Contains_Is_Parent_Predicate,
+		Meta_Parser_Contains_Is_Not_Parent_Predicate,
+		Meta_Parser_Contains_Is_Base_Predicate,
+		Meta_Parser_Contains_Is_Not_Base_Predicate
 	};
 	Static_Assert(Array_Count(MetaPredicates) == META_PREDICATE_COUNT);
 	Assert(Predicate < META_PREDICATE_COUNT);
@@ -949,7 +990,7 @@ function string Meta_Parser_Get_Tag_Value(meta_tag_list Tags, string Name) {
 	string Result = String_Empty();
 	for (meta_tag* Tag = Tags.First; Tag; Tag = Tag->Next) {
 		if (String_Equals(Tag->Name, Name)) {
-			return Tag->Value;
+			return Tag->Values.First->Value;
 		}
 	}
 	return Result;
@@ -1365,7 +1406,6 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
             
 			meta_tag* Tag = Arena_Push_Struct(Parser->Arena, meta_tag);
 			Tag->Name = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-			Tag->Value = Tag->Name;
 			SLL_Push_Back(Tags->First, Tags->Last, Tag);
 			Tags->Count++;
             
@@ -1405,8 +1445,11 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
 					SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
 					Meta_Token_Iter_Move_Next(&TokenIter);
 				}
-                
-				Tag->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
+
+				meta_tag_value* Value = Arena_Push_Struct(Parser->Arena, meta_tag_value);
+				Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
+				SLL_Push_Back(Tag->Values.First, Tag->Values.Last, Value);
+				Tag->Values.Count++;                
 			}
             
 			if (Meta_Check_Token(TokenIter.Token, ')')) {
@@ -1803,6 +1846,8 @@ function meta_for_loop_entries Meta_Get_Struct_Entries(arena* Arena, meta_struct
 		Entry->Type = StructEntry->Type;
 		Entry->Tags = StructEntry->Tags;
 		Entry->IsArray = StructEntry->IsArray;
+		Entry->IsFromParent = StructEntry->IsFromParent;
+		Entry->IsFromBase = StructEntry->IsFromBase;
         
 		SLL_Push_Back(Result.First, Result.Last, Entry);
 	}
@@ -2180,6 +2225,8 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
     
 	meta_if_state_stack IfStateStack = { .Index = (size_t)-1 };
 	for (meta_for_loop_entry* Entry = ForLoopStack->CurrentContext->Entries.First; Entry; Entry = Entry->Next) {
+		if(ForLoopFlags & META_FOR_LOOP_NO_PARENT_FLAG && Entry->IsFromParent) continue;
+		
 		ForLoopStack->CurrentContext->CurrentEntry = Entry;
 		TokenIter = Meta_Begin_Token_Iter(&CodeTokens);
         
@@ -2308,10 +2355,17 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after '->'");
 		return NULL;
 	}
-    
-	Function->ReturnType = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-    
+
+	string ReturnType = TokenIter.Token->Identifier;
+
 	Meta_Token_Iter_Move_Next(&TokenIter);
+	if(Meta_Check_Token(TokenIter.Token, '>')) {
+		Function->ReturnType = String_Concat((allocator*)Parser->Arena, ReturnType, String_Lit(">"));
+		Meta_Token_Iter_Move_Next(&TokenIter);
+	} else {
+		Function->ReturnType = String_Copy((allocator*)Parser->Arena, ReturnType);
+	}
+        
 	if (!Meta_Check_Token(TokenIter.Token, '{')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '{' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;

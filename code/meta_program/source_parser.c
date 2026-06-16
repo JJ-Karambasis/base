@@ -171,72 +171,119 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
             
 			meta_tag* Tag = Arena_Push_Struct(Parser->Arena, meta_tag);
 			Tag->Name = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
-			Tag->Value = Tag->Name;
 			SLL_Push_Back(Tags->First, Tags->Last, Tag);
 			Tags->Count++;
             
 			Source_Token_Iter_Move_Next(&TokenIter);
             
 			//Token has a value
-			if (Source_Check_Token(TokenIter.Token, ':')) {
-				sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
-                
-				size_t ParamStackIndex = 0;
-                size_t BracketStackIndex = 0;
+			if (Source_Check_Token(TokenIter.Token, ':')) {                
 				Source_Token_Iter_Move_Next(&TokenIter);
                 
                 b32 IsValidToken = (TokenIter.Token && 
                                     (TokenIter.Token->Type == SOURCE_TOKEN_TYPE_IDENTIFIER ||
                                      TokenIter.Token->Type == '(' ||
-                                     TokenIter.Token->Type == '{'));
+                                     TokenIter.Token->Type == '{' || 
+									 TokenIter.Token->Type == '['));
                 
 				if (!IsValidToken) {
 					Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
 					return NULL;
 				}
-                
-				while (TokenIter.Token) {
-					if (TokenIter.Token->Type == '(') {
-						ParamStackIndex++;
-					}
-                    
-					if (TokenIter.Token->Type == ')') {
-						if (!BracketStackIndex && !ParamStackIndex) {
-							break;
-						} else if(!ParamStackIndex) {
-                            Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
-                            return NULL;
-                        }
-                        
-						ParamStackIndex--;
-					}
-                    
-                    if(TokenIter.Token->Type == '{') {
-                        BracketStackIndex++;
-                    }
-                    
-                    if(TokenIter.Token->Type == '}') {
-                        if (!BracketStackIndex && !ParamStackIndex) {
-                            break;
-                        } else if(!BracketStackIndex) {
-                            Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
-                            return NULL;
-                        }
-                        
-                        BracketStackIndex--;
-                    }
-                    
-					if (TokenIter.Token->Type == ',') {
-						if (!ParamStackIndex && !BracketStackIndex) {
-							break;
-						}                         
-					}
-                    
-					SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
+
+				b32 IsArray = TokenIter.Token->Type == '[';
+
+				if(IsArray) {
+					//Skip over the [
 					Source_Token_Iter_Move_Next(&TokenIter);
 				}
                 
-				Tag->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Empty());
+				while (TokenIter.Token) {
+					sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
+					size_t ParamStackIndex = 0;
+					size_t BracketStackIndex = 0;
+
+					while(TokenIter.Token) {
+						if (TokenIter.Token->Type == '(') {
+							ParamStackIndex++;
+						}
+						
+						if (TokenIter.Token->Type == ')') {
+							if (!BracketStackIndex && !ParamStackIndex) {
+								break;
+							} else if(!ParamStackIndex) {
+								Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
+								return NULL;
+							}
+							
+							ParamStackIndex--;
+						}
+						
+						if(TokenIter.Token->Type == '{') {
+							BracketStackIndex++;
+						}
+						
+						if(TokenIter.Token->Type == '}') {
+							if (!BracketStackIndex && !ParamStackIndex) {
+								break;
+							} else if(!BracketStackIndex) {
+								Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
+								return NULL;
+							}
+							
+							BracketStackIndex--;
+						}
+
+						if(TokenIter.Token->Type == ']') {
+							if(IsArray) {
+								if(!BracketStackIndex && !ParamStackIndex) {
+									break;
+								} else {
+									Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of array for tag value: %.*s", Tag->Name.Size, Tag->Name.Ptr);
+									return NULL;
+								}
+							} else {
+								Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected ']' in tag value: %.*s", Tag->Name.Size, Tag->Name.Ptr);
+								return NULL;
+							}
+						}
+						
+						if (TokenIter.Token->Type == ',') {
+							if (!ParamStackIndex && !BracketStackIndex) {
+								break;
+							}                         
+						}
+						
+						SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
+						Source_Token_Iter_Move_Next(&TokenIter);
+					}
+
+					meta_tag_value* Value = Arena_Push_Struct(Parser->Arena, meta_tag_value);
+					Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
+					SLL_Push_Back(Tag->Values.First, Tag->Values.Last, Value);
+					Tag->Values.Count++;
+
+					if(IsArray) {
+						if(Source_Check_Token(TokenIter.Token, ']')) {
+							Source_Token_Iter_Move_Next(&TokenIter);
+							break;
+						}
+
+						if(!Source_Check_Token(TokenIter.Token, ',')) {
+							Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", Tag->Name.Size, Tag->Name.Ptr);
+							return NULL;
+						}
+
+						Source_Token_Iter_Move_Next(&TokenIter);
+					} else {
+						break;
+					}
+				}
+
+				if(IsArray && !TokenIter.Token) {
+					Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected end of array for tag value: %.*s", Tag->Name.Size, Tag->Name.Ptr);
+					return NULL;
+				}
 			}
             
 			if (Source_Check_Token(TokenIter.Token, ')')) {
@@ -434,7 +481,28 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 	if (String_Is_Empty(StructName)) {
 		StructName = Source_Generate_Struct_Name(Parser, Scratch);
 	}
-    
+
+	//If we are inheriting from a parent, we need to store the parent name.
+	//Later we will pull all the properties off the parent and add them to the 
+	//struct. One requirement is that the parent struct must have the Meta() attribute.
+    if(Source_Check_Token(TokenIter.Token, ':')) {
+		//We will require public inheritance only for now.
+		Source_Token_Iter_Move_Next(&TokenIter);
+		if (!Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER) || !String_Equals(TokenIter.Token->Identifier, String_Lit("public"))) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected public after ':' when inheriting from a parent");
+			return NULL;
+		}
+
+		Source_Token_Iter_Move_Next(&TokenIter);
+		if (!Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER)) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected an identifier after 'public'");
+			return NULL;
+		}
+
+		Struct->ParentStructName = String_Copy((allocator*)Parser->Arena, TokenIter.Token->Identifier);
+		Source_Token_Iter_Move_Next(&TokenIter);
+	}
+
 	if (!Source_Check_Token(TokenIter.Token, '{')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '{' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
 		return NULL;
@@ -468,12 +536,18 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 				//entry, and then reverse the order. It'll go 
 				// ; -> Optional Tags -> Value -> Type List
 				source_token* StartEntryToken = TokenIter.Token;
+
+				b32 HasEqualSign = false;
                 
 				source_token_iter TagIter = { 0 };
 				while (TokenIter.Token && TokenIter.Token->Type != ';') {
 					if (Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER) &&
 						String_Equals(TokenIter.Token->Identifier, String_Lit("Tags"))) {
 						TagIter = Source_Begin_Token_Iter(TokenIter.Token);
+					}
+
+					if(Source_Check_Token(TokenIter.Token, '=')) {
+						HasEqualSign = true;
 					}
                     
 					Source_Token_Iter_Move_Next(&TokenIter);
@@ -530,8 +604,16 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
                     
 					Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
 				}
+
+				//Check if it has a default value
+				if(HasEqualSign) {
+					while(StructEntryTokenIter.Token && StructEntryTokenIter.Token->Type != '=') {
+						Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
+					}
+					Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
+				}
                 
-				//Check if its an array first
+				//Check if its an array 
                 
 				b32 IsArray = false;
 				if (Source_Check_Token(StructEntryTokenIter.Token, ']')) {
@@ -569,7 +651,8 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 				VariableEntry->IsPointer = IsPointer;
 				VariableEntry->IsArray = IsArray;
 				VariableEntry->Tags = Tags;
-                
+                VariableEntry->IsFromBase = String_Is_Empty(Struct->ParentStructName);
+
 				SLL_Push_Back(Struct->Struct->FirstEntry, Struct->Struct->LastEntry, VariableEntry);
 				Struct->Struct->EntryCount++;
 			} break;

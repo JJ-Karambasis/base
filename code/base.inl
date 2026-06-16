@@ -197,6 +197,16 @@ template <typename type>
 inline span<type>::span(const array<type>& Array) : Ptr(Array.Ptr), Count(Array.Count) { }
 
 template <typename type>
+function inline b32 Span_Find(span<type> Span, const type& Value) {
+    for(size_t i = 0; i < Span.Count; i++) {
+        if(Span[i] == Value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename type>
 function inline void Array_Init(array<type>* Array, allocator* Allocator = Default_Allocator_Get()) {
 	*Array = array<type>();
     Array->Type = array<type>::array_type::ALLOCATOR;

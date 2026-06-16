@@ -52,8 +52,9 @@ typedef struct {
 typedef struct meta_struct_type meta_struct_type;
 typedef struct meta_enum_type meta_enum_type;
 typedef struct {
-	source_token* Token;
+	source_token* 	  Token;
 	meta_struct_type* Struct;
+	string 			  ParentStructName;
 } source_struct_type;
 
 typedef struct {

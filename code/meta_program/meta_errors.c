@@ -18,3 +18,7 @@ function void Output_Errors() {
 	Debug_Log("%.*s", ErrorText.Size, ErrorText.Ptr);
 	Scratch_Release();
 }
+
+function inline b32 Has_Errors() {
+	return !SStream_Writer_Is_Empty(&G_ErrorStream);
+}

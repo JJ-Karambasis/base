@@ -9,6 +9,9 @@
 
 Dynamic_Array_Implement_Type(string, String);
 
+Dynamic_Array_Define(source_struct_type*, source_struct_type);
+Dynamic_Array_Implement(source_struct_type, source_struct_type*, Source_Struct_Type);
+
 int main(int ArgCount, const char** Args) {
 	Base_Init();
 	arena* Arena = Arena_Create(String_Lit("Main Storage"));
@@ -155,6 +158,8 @@ int main(int ArgCount, const char** Args) {
 	hashmap EnumTypeMap = Hashmap_Init((allocator*)Arena, sizeof(meta_enum_type*), sizeof(string), Hash_String, Compare_String);
 	hashmap UnionTypeMap = Hashmap_Init((allocator*)Arena, sizeof(meta_struct_type*), sizeof(string), Hash_String, Compare_String);
     
+	dynamic_source_struct_type_array StructsWithParents = Dynamic_Source_Struct_Type_Array_Init((allocator*)Arena);
+
 	for (size_t i = 0; i < SourceFiles.Count; i++) {
 		arena* Scratch = Scratch_Get();
 		string File = SourceFiles.Ptr[i];
@@ -207,6 +212,10 @@ int main(int ArgCount, const char** Args) {
 						source_struct_type* Struct;
 						Hashmap_Get_Key_Value(&Parser.StructMap, i, &StructName, &Struct);
 						Hashmap_Add(&StructTypeMap, &StructName, &Struct->Struct);
+					
+						if (!String_Is_Empty(Struct->ParentStructName)) {
+							Dynamic_Source_Struct_Type_Array_Add(&StructsWithParents, Struct);
+						}
 					}
 				}
                 
@@ -232,7 +241,50 @@ int main(int ArgCount, const char** Args) {
         
 		Scratch_Release();
 	}
+
+	if(Has_Errors()) {
+		Output_Errors();
+		return 1;
+	}
     
+	//Now we need to add the parent structs to the structs that inherit from them
+	for (size_t i = 0; i < StructsWithParents.Count; i++) {
+		source_struct_type* SourceStruct = StructsWithParents.Ptr[i];
+		meta_struct_type* ParentStruct = NULL;
+		if (Hashmap_Find(&StructTypeMap, &SourceStruct->ParentStructName, &ParentStruct)) {
+			meta_struct_type* Struct = SourceStruct->Struct;
+
+			meta_variable_entry* FirstEntry = NULL;
+			meta_variable_entry* LastEntry = NULL;
+
+			for(meta_variable_entry* Variable = ParentStruct->FirstEntry; Variable; Variable = Variable->Next) {
+				meta_variable_entry* NewVariable = Arena_Push_Struct(Arena, meta_variable_entry);
+				NewVariable->Type = Variable->Type;
+				NewVariable->Name = Variable->Name;
+				NewVariable->IsPointer = Variable->IsPointer;
+				NewVariable->IsArray = Variable->IsArray;
+				NewVariable->Tags = Variable->Tags;
+				NewVariable->IsFromParent = true;
+				NewVariable->IsFromBase = Variable->IsFromBase;
+
+				SLL_Push_Back(FirstEntry, LastEntry, NewVariable);
+			}
+
+			if(!Struct->FirstEntry) {
+				Struct->FirstEntry = FirstEntry;
+				Struct->LastEntry = LastEntry;
+			} else {
+				LastEntry->Next = Struct->FirstEntry;
+				Struct->FirstEntry = FirstEntry;
+			}
+		} else {
+			meta_struct_type* Struct = SourceStruct->Struct;
+			Debug_Log("Parent struct %.*s not found for %.*s", SourceStruct->ParentStructName.Size, SourceStruct->ParentStructName.Ptr, Struct->Name.Size, Struct->Name.Ptr);
+			//todo: We need to report an error here
+			Not_Implemented;
+		}
+	}
+
 	meta_parser_process_info ProcessInfo = {
 		.Structs = (meta_struct_type**)StructTypeMap.Values,
 		.StructCount = StructTypeMap.ItemCount,

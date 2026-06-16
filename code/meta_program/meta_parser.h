@@ -45,6 +45,11 @@ enum {
 	META_IS_NAME_PREDICATE,
 	META_IS_NOT_NAME_PREDICATE,
 	META_CONTAINS_TAG_VALUE_PREDICATE,
+	META_NOT_CONTAINS_TAG_VALUE_PREDICATE,
+	META_IS_PARENT_PREDICATE,
+	META_IS_NOT_PARENT_PREDICATE,
+	META_IS_BASE_PREDICATE,
+	META_IS_NOT_BASE_PREDICATE,
 	META_PREDICATE_COUNT
 };
 typedef u32 meta_predicate;
@@ -99,10 +104,22 @@ typedef struct {
 	meta_token_list CodeTokens;
 } meta_macro;
 
+typedef struct meta_tag_value meta_tag_value;
+struct meta_tag_value {
+	string Value;
+	meta_tag_value* Next;
+};
+
+typedef struct {
+	meta_tag_value* First;
+	meta_tag_value* Last;
+	size_t Count;
+} meta_tag_value_list;
+
 typedef struct meta_tag meta_tag;
 struct meta_tag {
 	string Name;
-	string Value;
+	meta_tag_value_list Values;
 	meta_tag* Next;
 };
 
@@ -119,6 +136,8 @@ struct meta_variable_entry {
 	b32 				 IsPointer;
 	b32 				 IsArray;
 	meta_tag_list 		 Tags;
+	b32 				 IsFromParent;
+	b32 				 IsFromBase;
 	meta_variable_entry* Next;
 };
 
@@ -183,7 +202,8 @@ typedef u32 meta_for_loop_support_flags;
 
 enum {
 	META_FOR_LOOP_FLAG_NONE,
-	META_FOR_LOOP_NO_BRACE_FLAG = (1 << 0)
+	META_FOR_LOOP_NO_BRACE_FLAG = (1 << 0),
+	META_FOR_LOOP_NO_PARENT_FLAG = (1 << 1)
 };
 typedef u32 meta_for_loop_flags;
 
@@ -213,6 +233,8 @@ struct meta_for_loop_entry {
 	string 				 ShortName;
 	meta_tag_list 		 Tags;
 	b32 				 IsArray;
+	b32 				 IsFromParent;
+	b32 				 IsFromBase;
 	meta_for_loop_entry* Next;
 };
 

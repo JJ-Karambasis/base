@@ -60,36 +60,38 @@ export_function ray_hit Ray_Intersect_Ring(const ray* Ray, v3 Center, v3 Normal,
 	return Result;
 }
 
-export_function ray_hit Ray_Intersect_AABB(const ray* Ray, v3 Center, f32 Size) {
-	ray_hit Result = { false, 0.0f };
-	v3 Origin = Ray->Origin;
-	v3 Dir = Ray->Direction;
+export_function ray_hit Ray_Intersect_AABB(const ray* Ray, v3 Min, v3 Max) {
+    ray_hit Result = { false, 0.0f };
+    f32 OComp[3] = { Ray->Origin.x,    Ray->Origin.y,    Ray->Origin.z    };
+    f32 DComp[3] = { Ray->Direction.x, Ray->Direction.y, Ray->Direction.z };
+    f32 MnComp[3] = { Min.x, Min.y, Min.z };
+    f32 MxComp[3] = { Max.x, Max.y, Max.z };
+    f32 TMin = -1e30f;
+    f32 TMax =  1e30f;
+    for(int i = 0; i < 3; i++) {
+        if(Abs(DComp[i]) < 1e-6f) {
+            if(OComp[i] < MnComp[i] || OComp[i] > MxComp[i]) return Result;
+        } else {
+            f32 Inv = 1.0f / DComp[i];
+            f32 T1 = (MnComp[i] - OComp[i]) * Inv;
+            f32 T2 = (MxComp[i] - OComp[i]) * Inv;
+            if(T1 > T2) { f32 Tmp = T1; T1 = T2; T2 = Tmp; }
+            TMin = Max(TMin, T1);
+            TMax = Min(TMax, T2);
+            if(TMax < TMin) return Result;
+        }
+    }
+    if(TMax < 0.0f) return Result;
+    Result.Hit = true;
+    Result.T = TMin >= 0.0f ? TMin : TMax;
+    return Result;
+}
+
+export_function ray_hit Ray_Intersect_AABB_Uniform(const ray* Ray, v3 Center, f32 Size) {
 	f32 H = Size * 0.5f;
 	v3 Min = Center - V3_All(H);
 	v3 Max = Center + V3_All(H);
-	f32 TMin = -1e30f;
-	f32 TMax =  1e30f;
-	f32 OComp[3] = { Origin.x, Origin.y, Origin.z };
-	f32 DComp[3] = { Dir.x, Dir.y, Dir.z };
-	f32 MinComp[3] = { Min.x, Min.y, Min.z };
-	f32 MaxComp[3] = { Max.x, Max.y, Max.z };
-	for(int i = 0; i < 3; i++) {
-		if(Abs(DComp[i]) < 1e-6f) {
-			if(OComp[i] < MinComp[i] || OComp[i] > MaxComp[i]) return Result;
-		} else {
-			f32 InvD = 1.0f / DComp[i];
-			f32 T1 = (MinComp[i] - OComp[i]) * InvD;
-			f32 T2 = (MaxComp[i] - OComp[i]) * InvD;
-			if(T1 > T2) { f32 Tmp = T1; T1 = T2; T2 = Tmp; }
-			if(T1 > TMin) TMin = T1;
-			if(T2 < TMax) TMax = T2;
-			if(TMax < TMin) return Result;
-		}
-	}
-	if(TMax < 0.0f) return Result;
-	Result.Hit = true;
-	Result.T = TMin >= 0.0f ? TMin : TMax;
-	return Result;
+	return Ray_Intersect_AABB(Ray, Min, Max);
 }
 
 export_function b32 Ray_Project_To_Axis(const ray* Ray, v3 LineOrigin, v3 Axis, f32* OutT) {
