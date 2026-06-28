@@ -139,6 +139,13 @@ function inline m4_affine operator*(const m4_affine& A, const m4_affine& B) {
     return Result;
 }
 
+function inline b32 operator==(string A, string B) {
+    return String_Equals(A, B);
+}
+function inline b32 operator!=(string A, string B) {
+    return !String_Equals(A, B);
+}
+
 template <typename type>
 struct array;
 
