@@ -3816,7 +3816,7 @@ export_function b32 Pool_Is_Allocated(pool* Pool, pool_id ID) {
 export_function void Pool_Clear(pool* Pool) {
     for (size_t i = 0; i < Pool->MaxUsed; i++) {
         pool_id* PoolID = Pool_Get_Internal_ID(Pool, i);
-        PoolID->Generation = 1;
+        PoolID->Generation++;
         PoolID->Index = INVALID_POOL_INDEX;
     }
     Pool->Count = 0;
