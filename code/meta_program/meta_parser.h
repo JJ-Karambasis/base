@@ -287,7 +287,7 @@ typedef struct {
 	size_t 		Count;
 } meta_token_iter;
 
-#define META_PARSER_PREDICATE_DEFINE(name) b32 name(meta_parser* Parser, meta_for_loop_entry* Entry, string_list Parameters)
+#define META_PARSER_PREDICATE_DEFINE(name) b32 name(meta_parser* Parser, meta_for_loop_entry* Entry, string_list Parameters, size_t LineNumber)
 typedef META_PARSER_PREDICATE_DEFINE(meta_parser_predicate_func);
 
 #endif

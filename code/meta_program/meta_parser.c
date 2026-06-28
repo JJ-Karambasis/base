@@ -228,21 +228,33 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Tag_Predicate) {
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Not_Contains_Tag_Predicate) {
-	return !Meta_Parser_Contains_Tag_Predicate(Parser, Entry, Parameters);
+	return !Meta_Parser_Contains_Tag_Predicate(Parser, Entry, Parameters, LineNumber);
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Struct_Predicate) {
 	meta_struct_type* StructType;
+	if(Parameters.Count != 1) {
+		Report_Error(Parser->Tokenizer->FilePath, LineNumber, "META_IS_STRUCT expected 1 parameter");
+		return false;
+	}
 	return Meta_Parser_Is_Struct(Parser, Parameters.First->String, &StructType);
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Union_Predicate) {
 	meta_struct_type* StructType;
+	if(Parameters.Count != 1) {
+		Report_Error(Parser->Tokenizer->FilePath, LineNumber, "META_IS_UNION expected 1 parameter");
+		return false;
+	}
 	return Meta_Parser_Is_Union(Parser, Parameters.First->String, &StructType);
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Enum_Predicate) {
 	meta_enum_type* EnumType;
+	if(Parameters.Count != 1) {
+		Report_Error(Parser->Tokenizer->FilePath, LineNumber, "META_IS_ENUM expected 1 parameter");
+		return false;
+	}
 	return Meta_Parser_Is_Enum(Parser, Parameters.First->String, &EnumType);
 }
 
@@ -287,7 +299,7 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Tag_Value_Predicate) 
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Not_Tag_Value_Predicate) {
-	return !Meta_Parser_Contains_Tag_Value_Predicate(Parser, Entry, Parameters);
+	return !Meta_Parser_Contains_Tag_Value_Predicate(Parser, Entry, Parameters, LineNumber);
 }
 
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Parent_Predicate) {
@@ -1968,6 +1980,7 @@ function meta_token* Meta_Parse_If(meta_parser* Parser, meta_token* Token, meta_
 	}
     
 	string PredicateName = TokenIter.Token->Identifier;
+	size_t LineNumber = TokenIter.Token->LineNumber;
     
 	string_list Parameters;
 	Token = Meta_Parse_Parameters(Parser, TokenIter.Token->Next, &Parameters, Scratch);
@@ -2047,7 +2060,7 @@ function meta_token* Meta_Parse_If(meta_parser* Parser, meta_token* Token, meta_
 		Report_Error(Tokenizer->FilePath, TokenIter.Token->LineNumber, "Invalid META_IF predicate '%.*s'", PredicateName.Size, PredicateName.Ptr);
 		return NULL;
 	}
-	IfState->PassedPredicate = PredicateFunc(Parser, Entry, Parameters);
+	IfState->PassedPredicate = PredicateFunc(Parser, Entry, Parameters, LineNumber);
 	return EndParamsToken->Next;
 }
 
