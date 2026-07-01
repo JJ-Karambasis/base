@@ -383,6 +383,11 @@ export_function v2 V2_Add_V2(v2 a, v2 b) {
 	return Result;
 }
 
+export_function v2 V2_Add_S(v2 a, f32 b) {
+    v2 Result = { a.x + b, a.y + b };
+    return Result;
+}
+
 export_function v2 V2_Sub_V2(v2 a, v2 b) {
 	v2 Result = { a.x - b.x, a.y - b.y };
 	return Result;

@@ -13,6 +13,10 @@ function inline v2 operator+(v2 A, v2 B) {
 	return V2_Add_V2(A, B);
 }
 
+function inline v2 operator+(v2 A, f32 B) {
+	return V2_Add_S(A, B);
+}
+
 function inline v2 operator-(v2 A, v2 B) {
 	return V2_Sub_V2(A, B);
 }
@@ -91,6 +95,11 @@ function inline v3 operator*(v3 A, v3 B) {
 
 function inline v3& operator*=(v3& A, f32 B) {
 	A = V3_Mul_S(A, B);
+	return A;
+}
+
+function inline v3& operator*=(v3& A, v3 B) {
+	A = V3_Mul_V3(A, B);
 	return A;
 }
 

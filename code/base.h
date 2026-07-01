@@ -369,6 +369,7 @@ export_function v2 V2_Zero();
 export_function v2 V2_Negate(v2 V);
 export_function v2 V2_All(f32 V);
 export_function v2 V2_Add_V2(v2 a, v2 b);
+export_function v2 V2_Add_S(v2 A, f32 B);
 export_function v2 V2_Sub_V2(v2 a, v2 b);
 export_function v2 V2_Mul_S(v2 A, f32 B);
 export_function v2 V2_Div_S(v2 A, f32 B);
