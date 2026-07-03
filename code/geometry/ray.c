@@ -1,3 +1,33 @@
+// Moller-Trumbore ray/triangle intersection. Two-sided (hits both front and back faces); T is the
+// distance along the (assumed unit-length) ray direction to the hit point.
+export_function ray_hit Ray_Intersect_Triangle(const ray* Ray, v3 P0, v3 P1, v3 P2) {
+    ray_hit Result = { false, 0.0f };
+
+    v3 Edge1 = P1 - P0;
+    v3 Edge2 = P2 - P0;
+    v3 PVec = V3_Cross(Ray->Direction, Edge2);
+    f32 Det = V3_Dot(Edge1, PVec);
+
+    //Ray is parallel to the triangle plane.
+    if(Abs(Det) < 1e-8f) return Result;
+
+    f32 InvDet = 1.0f / Det;
+    v3 TVec = Ray->Origin - P0;
+    f32 U = V3_Dot(TVec, PVec) * InvDet;
+    if(U < 0.0f || U > 1.0f) return Result;
+
+    v3 QVec = V3_Cross(TVec, Edge1);
+    f32 V = V3_Dot(Ray->Direction, QVec) * InvDet;
+    if(V < 0.0f || U + V > 1.0f) return Result;
+
+    f32 T = V3_Dot(Edge2, QVec) * InvDet;
+    if(T < 0.0f) return Result;
+
+    Result.Hit = true;
+    Result.T = T;
+    return Result;
+}
+
 export_function ray_hit Ray_Intersect_Cylinder_Segment(const ray* Ray, v3 SegA, v3 SegB, f32 PickRadius) {
 	ray_hit Result = { false, 0.0f };
 	v3 Origin = Ray->Origin;

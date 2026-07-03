@@ -829,6 +829,106 @@ inline value& hashmap_t<key, value, hasher, comparer>::operator[](const key& Key
 	return *Value;
 }
 
+template <typename type>
+struct queue {
+    allocator* Allocator = NULL;
+    type*  Ptr      = NULL;
+    size_t Head     = 0;
+    size_t Count    = 0;
+    size_t Capacity = 0;
+    
+    queue() = default;
+    inline queue(allocator* Allocator);
+};
+
+template <typename type>
+function inline void Queue_Init(queue<type>* Queue, allocator* Allocator = Default_Allocator_Get()) {
+    *Queue = queue<type>();
+    Queue->Allocator = Allocator;
+}
+
+template <typename type>
+function inline void Queue_Release(queue<type>* Queue) {
+    if(Queue->Ptr) {
+        Allocator_Free_Memory(Queue->Allocator, Queue->Ptr);
+    }
+    Memory_Clear(Queue, sizeof(queue<type>));
+}
+
+template <typename type>
+function inline void Queue_Reserve(queue<type>* Queue, size_t NewCapacity) {
+    if(NewCapacity < 32) {
+        NewCapacity = 32;
+    }
+    
+    if(NewCapacity <= Queue->Capacity) {
+        return;
+    }
+    
+    type* NewPtr = Allocator_Allocate_Array(Queue->Allocator, NewCapacity, type);
+    if(Queue->Ptr) {
+        //Unwrap the ring buffer so the elements start at index 0 in the new buffer
+        for(size_t i = 0; i < Queue->Count; i++) {
+            NewPtr[i] = Queue->Ptr[(Queue->Head + i) % Queue->Capacity];
+        }
+        Allocator_Free_Memory(Queue->Allocator, Queue->Ptr);
+    }
+    
+    Queue->Ptr = NewPtr;
+    Queue->Head = 0;
+    Queue->Capacity = NewCapacity;
+}
+
+template <typename type>
+function inline void Queue_Push(queue<type>* Queue, const type& Entry) {
+    if(Queue->Count == Queue->Capacity) {
+        size_t NewCapacity = Queue->Capacity ? Queue->Capacity*2 : 32;
+        Queue_Reserve(Queue, NewCapacity);
+    }
+    
+    size_t Tail = (Queue->Head + Queue->Count) % Queue->Capacity;
+    Queue->Ptr[Tail] = Entry;
+    Queue->Count++;
+}
+
+template <typename type>
+function inline b32 Queue_Is_Empty(queue<type>* Queue) {
+    return Queue->Count == 0;
+}
+
+template <typename type>
+function inline b32 Queue_Pop(queue<type>* Queue, type* OutEntry) {
+    if(Queue_Is_Empty(Queue)) {
+        return false;
+    }
+    
+    Memory_Copy(OutEntry, Queue->Ptr + Queue->Head, sizeof(type));
+    Queue->Head = (Queue->Head + 1) % Queue->Capacity;
+    Queue->Count--;
+    return true;
+}
+
+template <typename type>
+function inline b32 Queue_Peek(queue<type>* Queue, type* OutEntry) {
+    if(Queue_Is_Empty(Queue)) {
+        return false;
+    }
+    
+    Memory_Copy(OutEntry, Queue->Ptr + Queue->Head, sizeof(type));
+    return true;
+}
+
+template <typename type>
+function inline void Queue_Clear(queue<type>* Queue) {
+    Queue->Head = 0;
+    Queue->Count = 0;
+}
+
+template <typename type>
+inline queue<type>::queue(allocator* Allocator) {
+    Queue_Init(this, Allocator);
+}
+
 template <typename type, size_t capacity=1024>
 struct spsc_queue {
     type       Entries[capacity];
@@ -837,7 +937,7 @@ struct spsc_queue {
 };
 
 template <typename type, size_t capacity>
-function inline void SPSC_Enqueue(spsc_queue<type, capacity>* Queue, const type& Entry) {
+function inline void SPSC_Push(spsc_queue<type, capacity>* Queue, const type& Entry) {
     u32 NextEntryToWrite = Atomic_Load_U32(&Queue->NextEntryToWrite);
     u32 NewNextEntryToWrite = (NextEntryToWrite + 1) % capacity;
     Assert(NewNextEntryToWrite != Atomic_Load_U32(&Queue->NextEntryToRead));
@@ -846,7 +946,7 @@ function inline void SPSC_Enqueue(spsc_queue<type, capacity>* Queue, const type&
 }
 
 template <typename type, size_t capacity>
-function inline b32 SPSC_Dequeue(spsc_queue<type, capacity>* Queue, type* OutEntry) {
+function inline b32 SPSC_Pop(spsc_queue<type, capacity>* Queue, type* OutEntry) {
     u32 NextEntryToRead = Atomic_Load_U32(&Queue->NextEntryToRead);
     b32 Result = NextEntryToRead != Atomic_Load_U32(&Queue->NextEntryToWrite);
     if(Result) {
@@ -861,7 +961,7 @@ function inline b32 SPSC_Dequeue(spsc_queue<type, capacity>* Queue, type* OutEnt
 template <typename type, size_t capacity>
 function inline void SPSC_Flush(spsc_queue<type, capacity>* Queue) {
     type Entry;
-    while(SPSC_Dequeue(Queue, &Entry)) {}
+    while(SPSC_Pop(Queue, &Entry)) {}
 }
 
 #endif

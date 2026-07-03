@@ -11,6 +11,7 @@ struct ray_hit {
 	f32 T;
 };
 
+export_function ray_hit Ray_Intersect_Triangle(const ray* Ray, v3 P0, v3 P1, v3 P2);
 export_function ray_hit Ray_Intersect_Cylinder_Segment(const ray* Ray, v3 SegA, v3 SegB, f32 PickRadius);
 export_function ray_hit Ray_Intersect_Plane(const ray* Ray, v3 PlaneOrigin, v3 PlaneNormal);
 export_function ray_hit Ray_Intersect_Ring(const ray* Ray, v3 Center, v3 Normal, f32 Radius, f32 PickRadius);
