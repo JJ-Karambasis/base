@@ -21,6 +21,7 @@ typedef struct {
     v3  V;
 } ray_cast;
 
+#include "aabb.h"
 #include "ray.h"
 #include "gjk_epa.h"
 #include "convex_hull_builder.h"
