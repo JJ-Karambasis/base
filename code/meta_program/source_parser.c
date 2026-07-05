@@ -574,7 +574,7 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 				Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
                 
 				//Skip over tags
-				while(StructEntryTokenIter.Token->Type == ')') {
+				if(StructEntryTokenIter.Token->Type == ')') {
 					Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
                     
 					size_t ParamStackIndex = 0;

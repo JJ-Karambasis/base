@@ -1,6 +1,10 @@
 #ifndef SOURCE_PARSER_H
 #define SOURCE_PARSER_H
 
+// todo: 
+// We are not handling comments properly when they are at the end of a structure on 
+// the same line as the last variable.
+
 typedef enum {
 	SOURCE_TOKEN_TYPE_IDENTIFIER=256,
 	SOURCE_TOKEN_TYPE_STRUCT=257,

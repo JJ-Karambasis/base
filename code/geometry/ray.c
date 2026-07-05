@@ -124,6 +124,25 @@ export_function ray_hit Ray_Intersect_AABB_Uniform(const ray* Ray, v3 Center, f3
 	return Ray_Intersect_AABB(Ray, Min, Max);
 }
 
+export_function ray_hit Ray_Intersect_OBB(const ray* Ray, const obb* Box) {
+	ray_hit Result = { false, 0.0f };
+	if(Box->HalfExtent.x <= 0.0f || Box->HalfExtent.y <= 0.0f || Box->HalfExtent.z <= 0.0f) {
+		return Result;
+	}
+
+	m4_affine ModelToWorld = M4_Affine_Transform(Box->Center, &Box->Orientation, Box->HalfExtent);
+	m4_affine WorldToModel = M4_Affine_Inverse(&ModelToWorld);
+
+	v3 LocalOrigin = V4_Mul_M4_Affine(V4(Ray->Origin.x, Ray->Origin.y, Ray->Origin.z, 1.0f), &WorldToModel);
+	v3 LocalDirection = V4_Mul_M4_Affine(V4(Ray->Direction.x, Ray->Direction.y, Ray->Direction.z, 0.0f), &WorldToModel);
+
+	ray LocalRay = {
+		.Origin = LocalOrigin,
+		.Direction = LocalDirection,
+	};
+	return Ray_Intersect_AABB(&LocalRay, V3_All(-1.0f), V3_All(1.0f));
+}
+
 export_function b32 Ray_Project_To_Axis(const ray* Ray, v3 LineOrigin, v3 Axis, f32* OutT) {
 	v3 Origin = Ray->Origin;
 	v3 Dir = Ray->Direction;
