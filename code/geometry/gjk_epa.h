@@ -21,6 +21,7 @@ export_function gjk_support GJK_Origin();
 export_function gjk_support GJK_Point(arena* Arena, v3 P);
 export_function gjk_support GJK_Radius(arena* Arena, f32 Radius);
 export_function gjk_support GJK_Sphere(arena* Arena, v3 P, f32 Radius);
+export_function gjk_support GJK_Cylinder(arena* Arena, v3 Center, f32 HalfHeight, f32 Radius);
 export_function gjk_support GJK_Extent(arena* Arena, v3 HalfExtent);
 export_function gjk_support GJK_AABB(arena* Arena, v3 Min, v3 Max);
 export_function gjk_support GJK_Triangle(arena* Arena, v3 p0, v3 p1, v3 p2);

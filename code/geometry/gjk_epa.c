@@ -12,6 +12,12 @@ typedef struct {
 } gjk_sphere;
 
 typedef struct {
+	v3 Center;
+	f32 HalfHeight;
+	f32 Radius;
+} gjk_cylinder;
+
+typedef struct {
 	v3 HalfExtent;
 } gjk_extent;
 
@@ -412,6 +418,31 @@ function GJK_SUPPORT_FUNC(GJK_Sphere_Support) {
 	return Length > 0 ? V3_Add_V3(Sphere->CenterP, V3_Mul_S(Direction, Sphere->Radius / Length)) : Sphere->CenterP;
 }
 
+function GJK_SUPPORT_FUNC(GJK_Cylinder_Support) {
+	gjk_cylinder* Cylinder = (gjk_cylinder*)UserData;
+
+	// Z-aligned capped cylinder; use GJK_Transform to orient in world space.
+	f32 AxisDot = Direction.z;
+	f32 PerpLenSq = Direction.x*Direction.x + Direction.y*Direction.y;
+
+	if(PerpLenSq <= Sq(FLT_EPSILON)) {
+		f32 AxisSign = AxisDot >= 0.0f ? 1.0f : -1.0f;
+		return V3_Add_V3(Cylinder->Center, V3(0.0f, 0.0f, Cylinder->HalfHeight*AxisSign));
+	}
+
+	f32 PerpLen = Sqrt_F32(PerpLenSq);
+	f32 InvPerpLen = 1.0f/PerpLen;
+	v3 Radial = V3(Direction.x*InvPerpLen*Cylinder->Radius, Direction.y*InvPerpLen*Cylinder->Radius, 0.0f);
+
+	if(Abs(AxisDot)*Cylinder->Radius >= Cylinder->HalfHeight*PerpLen) {
+		f32 AxisSign = AxisDot >= 0.0f ? 1.0f : -1.0f;
+		return V3_Add_V3(V3_Add_V3(Cylinder->Center, Radial), V3(0.0f, 0.0f, Cylinder->HalfHeight*AxisSign));
+	}
+
+	f32 AxisOffset = Clamp(-Cylinder->HalfHeight, Cylinder->HalfHeight*AxisDot/PerpLen, Cylinder->HalfHeight);
+	return V3_Add_V3(V3_Add_V3(Cylinder->Center, Radial), V3(0.0f, 0.0f, AxisOffset));
+}
+
 function GJK_SUPPORT_FUNC(GJK_Extent_Support) {
 	gjk_extent* Extent = (gjk_extent *)UserData;
     
@@ -519,6 +550,16 @@ export_function gjk_support GJK_Sphere(arena* Arena, v3 P, f32 Radius) {
 	Sphere->CenterP = P;
     
 	gjk_support Support = GJK_Make_Support(GJK_Sphere_Support, Sphere);
+	return Support;
+}
+
+export_function gjk_support GJK_Cylinder(arena* Arena, v3 Center, f32 HalfHeight, f32 Radius) {
+	gjk_cylinder* Cylinder = Arena_Push_Struct(Arena, gjk_cylinder);
+	Cylinder->Center = Center;
+	Cylinder->HalfHeight = HalfHeight;
+	Cylinder->Radius = Radius;
+
+	gjk_support Support = GJK_Make_Support(GJK_Cylinder_Support, Cylinder);
 	return Support;
 }
 
