@@ -132,6 +132,10 @@ if %build_asan% == 1 (
 	set msvc_flags=%msvc_flags% -fsanitize=address
 )
 
+if %build_tracy% == 1 (
+	set msvc_warnings=%msvc_warnings% /wd4366
+)
+
 if %build_clang% == 1 (
 	set obj_out=-o
 	set compile_only=%clang_compile_only%
