@@ -12,12 +12,115 @@ function win32_base* Win32_Get() {
     return G_Win32;
 }
 
+function string Win32_Get_Error_Message(allocator* Allocator, DWORD Error) {
+    if (Error == 0) {
+        return String_Lit("No error code was set");
+    }
+
+    wchar_t* Buffer = NULL;
+    DWORD Size = FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        Error,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPWSTR)&Buffer,
+        0,
+        NULL);
+
+    if (Size == 0 || !Buffer) {
+        return String_Lit("Unknown error");
+    }
+
+    while (Size > 0 && (Buffer[Size - 1] == L'\n' || Buffer[Size - 1] == L'\r' || Buffer[Size - 1] == L' ')) {
+        Size--;
+    }
+
+    string Result = String_From_WString(Allocator, Make_WString(Buffer, Size));
+    LocalFree(Buffer);
+    return Result;
+}
+
+function void Win32_Log_Last_Error(string Operation, string Path) {
+    DWORD Error = GetLastError();
+    arena* Scratch = Scratch_Get();
+    string Message = Win32_Get_Error_Message((allocator*)Scratch, Error);
+
+    if (Path.Size > 0) {
+        Debug_Log("%.*s failed for '%.*s': %.*s (error %lu)",
+                  Operation.Size, Operation.Ptr,
+                  Path.Size, Path.Ptr,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+    } else {
+        Debug_Log("%.*s failed: %.*s (error %lu)",
+                  Operation.Size, Operation.Ptr,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+    }
+
+    Scratch_Release();
+}
+
+function void Win32_Log_Last_Error_For_Size(string Operation, u64 Size) {
+    DWORD Error = GetLastError();
+    arena* Scratch = Scratch_Get();
+    string Message = Win32_Get_Error_Message((allocator*)Scratch, Error);
+    Debug_Log("%.*s failed for %llu bytes: %.*s (error %lu)",
+              Operation.Size, Operation.Ptr,
+              (unsigned long long)Size,
+              Message.Size, Message.Ptr,
+              (unsigned long)Error);
+    Scratch_Release();
+}
+
+function string Win32_Get_File_Path_From_Handle(arena* Scratch, HANDLE Handle) {
+    if (!Handle || Handle == INVALID_HANDLE_VALUE) {
+        return String_Empty();
+    }
+
+    DWORD Size = GetFinalPathNameByHandleW(Handle, NULL, 0, VOLUME_NAME_DOS);
+    if (Size == 0) {
+        return String_Empty();
+    }
+
+    wchar_t* Buffer = (wchar_t*)Arena_Push(Scratch, sizeof(wchar_t) * (Size + 1));
+    if (GetFinalPathNameByHandleW(Handle, Buffer, Size + 1, VOLUME_NAME_DOS) == 0) {
+        return String_Empty();
+    }
+
+    return String_From_WString((allocator*)Scratch, WString_Null_Term(Buffer));
+}
+
+function void Win32_Log_Last_Error_For_Handle(string Operation, HANDLE Handle) {
+    DWORD Error = GetLastError();
+    arena* Scratch = Scratch_Get();
+    string Message = Win32_Get_Error_Message((allocator*)Scratch, Error);
+    string Path = Win32_Get_File_Path_From_Handle(Scratch, Handle);
+
+    if (Path.Size > 0) {
+        Debug_Log("%.*s failed for '%.*s': %.*s (error %lu)",
+                  Operation.Size, Operation.Ptr,
+                  Path.Size, Path.Ptr,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+    } else {
+        Debug_Log("%.*s failed: %.*s (error %lu)",
+                  Operation.Size, Operation.Ptr,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+    }
+
+    Scratch_Release();
+}
+
 function OS_RESERVE_MEMORY_DEFINE(Win32_Reserve_Memory) {
     void* Result = VirtualAlloc(NULL, ReserveSize, MEM_RESERVE, PAGE_READWRITE);
     if (Result) {
         os_base* Base = (os_base*)Win32_Get();
         Atomic_Add_U64(&Base->ReservedAmount, ReserveSize);
         Atomic_Increment_U64(&Base->ReservedCount);
+    } else {
+        Win32_Log_Last_Error_For_Size(String_Lit("VirtualAlloc reserve"), ReserveSize);
     }
     return Result;
 }
@@ -28,6 +131,8 @@ function OS_COMMIT_MEMORY_DEFINE(Win32_Commit_Memory) {
         os_base* Base = (os_base*)Win32_Get();
         Atomic_Add_U64(&Base->CommittedAmount, CommitSize);
         Atomic_Increment_U64(&Base->CommittedCount);
+    } else {
+        Win32_Log_Last_Error_For_Size(String_Lit("VirtualAlloc commit"), CommitSize);
     }
     return Result;
 }
@@ -116,8 +221,7 @@ function OS_OPEN_FILE_DEFINE(Win32_Open_File) {
         
         Atomic_Increment_U64(&Win32->Base.AllocatedFileCount);
     } else {
-        //todo: Diagnostic and error logging 
-        Debug_Log("CreateFileW failed!");
+        Win32_Log_Last_Error(String_Lit("CreateFileW"), Path);
     }
     
     Scratch_Release();
@@ -130,7 +234,10 @@ function OS_GET_FILE_SIZE_DEFINE(Win32_Get_File_Size) {
     if (!File) return 0;
     
     LARGE_INTEGER Result;
-    GetFileSizeEx(File->Handle, &Result);
+    if (!GetFileSizeEx(File->Handle, &Result)) {
+        Win32_Log_Last_Error_For_Handle(String_Lit("GetFileSizeEx"), File->Handle);
+        return 0;
+    }
     return Result.QuadPart;
 }
 
@@ -142,12 +249,18 @@ function OS_READ_FILE_DEFINE(Win32_Read_File) {
     DWORD BytesRead;
     
     if (!ReadFile(File->Handle, Data, ReadSizeTrunc, &BytesRead, NULL)) {
-        Debug_Log("ReadFile failed!");
+        Win32_Log_Last_Error_For_Handle(String_Lit("ReadFile"), File->Handle);
         return false;
     }
     
     if ((u64)BytesRead != ReadSize) {
-        //todo: Diagnostic and error logging
+        arena* Scratch = Scratch_Get();
+        string Path = Win32_Get_File_Path_From_Handle(Scratch, File->Handle);
+        Debug_Log("ReadFile incomplete read for '%.*s': expected %llu bytes, got %lu",
+                    Path.Size, Path.Ptr,
+                    (unsigned long long)ReadSize,
+                    (unsigned long)BytesRead);
+        Scratch_Release();
         return false;
     }
     
@@ -162,12 +275,18 @@ function OS_WRITE_FILE_DEFINE(Win32_Write_File) {
     DWORD BytesWritten;
     
     if (!WriteFile(File->Handle, Data, WriteSizeTrunc, &BytesWritten, NULL)) {
-        Debug_Log("WriteFile failed!");
+        Win32_Log_Last_Error_For_Handle(String_Lit("WriteFile"), File->Handle);
         return false;
     }
     
     if ((u64)BytesWritten != WriteSize) {
-        //todo: Diagnostic and error logging
+        arena* Scratch = Scratch_Get();
+        string Path = Win32_Get_File_Path_From_Handle(Scratch, File->Handle);
+        Debug_Log("WriteFile incomplete write for '%.*s': expected %llu bytes, wrote %lu",
+                    Path.Size, Path.Ptr,
+                    (unsigned long long)WriteSize,
+                    (unsigned long)BytesWritten);
+        Scratch_Release();
         return false;
     }
     
@@ -179,7 +298,9 @@ function OS_SET_FILE_POINTER_DEFINE(Win32_Set_File_Pointer) {
     if(!File) return;
     LARGE_INTEGER Offset; 
     Offset.QuadPart = Pointer;
-    SetFilePointerEx(File->Handle, Offset, NULL, FILE_BEGIN);
+    if (!SetFilePointerEx(File->Handle, Offset, NULL, FILE_BEGIN)) {
+        Win32_Log_Last_Error_For_Handle(String_Lit("SetFilePointerEx"), File->Handle);
+    }
 }
 
 function OS_GET_FILE_POINTER_DEFINE(Win32_Get_File_Pointer) {
@@ -189,7 +310,10 @@ function OS_GET_FILE_POINTER_DEFINE(Win32_Get_File_Pointer) {
     Offset.QuadPart = 0;
     
     LARGE_INTEGER Result;
-    SetFilePointerEx(File->Handle, Offset, &Result, FILE_CURRENT);
+    if (!SetFilePointerEx(File->Handle, Offset, &Result, FILE_CURRENT)) {
+        Win32_Log_Last_Error_For_Handle(String_Lit("SetFilePointerEx"), File->Handle);
+        return (u64)-1;
+    }
     return Result.QuadPart;
 }
 
@@ -221,6 +345,9 @@ function void Win32_Get_All_Files_Recursive(allocator* Allocator, dynamic_string
     WIN32_FIND_DATAW FindData;
     wstring DirectoryW = WString_From_String((allocator*)Scratch, DirectoryWithWildcard);
     HANDLE Handle = FindFirstFileW(DirectoryW.Ptr, &FindData);
+    if (Handle == INVALID_HANDLE_VALUE) {
+        Win32_Log_Last_Error(String_Lit("FindFirstFileW"), Directory);
+    }
     while (Handle != INVALID_HANDLE_VALUE) {
         string FileOrDirectoryName = String_From_WString((allocator*)Scratch, WString_Null_Term(FindData.cFileName));
         if (!String_Equals(FileOrDirectoryName, String_Lit(".")) && !String_Equals(FileOrDirectoryName, String_Lit(".."))) {
@@ -276,6 +403,9 @@ function OS_MAKE_DIRECTORY_DEFINE(Win32_Make_Directory) {
     arena* Scratch = Scratch_Get();
     wstring PathW = WString_From_String((allocator*)Scratch, Directory);
     BOOL Result = CreateDirectoryW(PathW.Ptr, NULL);
+    if (!Result) {
+        Win32_Log_Last_Error(String_Lit("CreateDirectoryW"), Directory);
+    }
     Scratch_Release();
     return Result;
 }
@@ -284,6 +414,9 @@ function OS_DELETE_FILE_DEFINE(Win32_Delete_File) {
     arena* Scratch = Scratch_Get();
     wstring PathW = WString_From_String((allocator*)Scratch, Path);
     BOOL Result = DeleteFileW(PathW.Ptr);
+    if (!Result) {
+        Win32_Log_Last_Error(String_Lit("DeleteFileW"), Path);
+    }
     Scratch_Release();
     return Result;
 }
@@ -307,7 +440,10 @@ function b32 Win32_Delete_Directory_Recursive(string Directory) {
     WIN32_FIND_DATAW FindData;
     wstring DirectoryW = WString_From_String((allocator*)Scratch, DirectoryWithWildcard);
     HANDLE Handle = FindFirstFileW(DirectoryW.Ptr, &FindData);
-    if (Handle != INVALID_HANDLE_VALUE) {
+    if (Handle == INVALID_HANDLE_VALUE) {
+        Win32_Log_Last_Error(String_Lit("FindFirstFileW"), Directory);
+        Result = false;
+    } else {
         do {
             string FileOrDirectoryName = String_From_WString((allocator*)Scratch, WString_Null_Term(FindData.cFileName));
             if (String_Equals(FileOrDirectoryName, String_Lit(".")) || String_Equals(FileOrDirectoryName, String_Lit(".."))) {
@@ -329,6 +465,7 @@ function b32 Win32_Delete_Directory_Recursive(string Directory) {
                 }
                 wstring ChildPathW = WString_From_String((allocator*)Scratch, ChildPath);
                 if (!DeleteFileW(ChildPathW.Ptr)) {
+                    Win32_Log_Last_Error(String_Lit("DeleteFileW"), ChildPath);
                     Result = false;
                 }
             }
@@ -338,6 +475,7 @@ function b32 Win32_Delete_Directory_Recursive(string Directory) {
 
     wstring DirOnlyW = WString_From_String((allocator*)Scratch, Directory);
     if (!RemoveDirectoryW(DirOnlyW.Ptr)) {
+        Win32_Log_Last_Error(String_Lit("RemoveDirectoryW"), Directory);
         Result = false;
     }
 
@@ -353,6 +491,9 @@ function OS_DELETE_DIRECTORY_DEFINE(Win32_Delete_Directory) {
     arena* Scratch = Scratch_Get();
     wstring PathW = WString_From_String((allocator*)Scratch, Directory);
     BOOL Result = RemoveDirectoryW(PathW.Ptr);
+    if (!Result) {
+        Win32_Log_Last_Error(String_Lit("RemoveDirectoryW"), Directory);
+    }
     Scratch_Release();
     return Result;
 }
@@ -362,6 +503,15 @@ function OS_COPY_FILE_DEFINE(Win32_Copy_File) {
     wstring SrcFileW = WString_From_String((allocator*)Scratch, SrcFilePath);
     wstring DstFileW = WString_From_String((allocator*)Scratch, DstFilePath);
     BOOL Result = CopyFileW(SrcFileW.Ptr, DstFileW.Ptr, FALSE);
+    if (!Result) {
+        DWORD Error = GetLastError();
+        string Message = Win32_Get_Error_Message((allocator*)Scratch, Error);
+        Debug_Log("CopyFileW failed copying '%.*s' to '%.*s': %.*s (error %lu)",
+                  SrcFilePath.Size, SrcFilePath.Ptr,
+                  DstFilePath.Size, DstFilePath.Ptr,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+    }
     Scratch_Release();
     return Result;
 }
@@ -374,12 +524,14 @@ function OS_SANITIZE_PATH_DEFINE(Win32_Sanitize_Path) {
     wstring PathW = WString_From_String((allocator*)Scratch, Path);
     DWORD Size = GetFullPathNameW(PathW.Ptr, 0, NULL, NULL);
     if (!Size) {
+        Win32_Log_Last_Error(String_Lit("GetFullPathNameW"), Path);
         Scratch_Release();
         return Path;
     }
     wchar_t* Buffer = (wchar_t*)Arena_Push(Scratch, sizeof(wchar_t) * Size);
     DWORD FinalSize = GetFullPathNameW(PathW.Ptr, Size, Buffer, NULL);
     if (FinalSize == 0 || FinalSize >= Size) {
+        Win32_Log_Last_Error(String_Lit("GetFullPathNameW"), Path);
         Scratch_Release();
         return Path;
     }
@@ -399,6 +551,9 @@ function OS_TLS_CREATE_DEFINE(Win32_TLS_Create) {
     
     Memory_Clear(TLS, sizeof(os_tls));
     TLS->Index = TlsAlloc();
+    if (TLS->Index == TLS_OUT_OF_INDEXES) {
+        Win32_Log_Last_Error(String_Lit("TlsAlloc"), String_Empty());
+    }
     
     Atomic_Increment_U64(&Win32->Base.AllocatedTLSCount);
     
@@ -422,7 +577,9 @@ function OS_TLS_GET_DEFINE(Win32_TLS_Get) {
 }
 
 function OS_TLS_SET_DEFINE(Win32_TLS_Set) {
-    TlsSetValue(TLS->Index, Data);
+    if (!TlsSetValue(TLS->Index, Data)) {
+        Win32_Log_Last_Error(String_Lit("TlsSetValue"), String_Empty());
+    }
 }
 
 function DWORD Win32_Thread_Callback(LPVOID Parameter) {
@@ -448,6 +605,7 @@ function OS_THREAD_CREATE_DEFINE(Win32_Thread_Create) {
     Thread->UserData = UserData;
     Thread->Handle = CreateThread(NULL, 0, Win32_Thread_Callback, Thread, 0, &Thread->ThreadID);
     if (Thread->Handle == NULL) {
+        Win32_Log_Last_Error(String_Lit("CreateThread"), DebugName);
         EnterCriticalSection(&Win32->ResourceLock);
         SLL_Push_Front(Win32->FreeThreads, Thread);
         LeaveCriticalSection(&Win32->ResourceLock);
@@ -483,7 +641,9 @@ function OS_THREAD_CREATE_DEFINE(Win32_Thread_Create) {
 function OS_THREAD_JOIN_DEFINE(Win32_Thread_Join) {
     if (Thread) {
         win32_base* Win32 = Win32_Get();
-        WaitForSingleObject(Thread->Handle, INFINITE);
+        if (WaitForSingleObject(Thread->Handle, INFINITE) == WAIT_FAILED) {
+            Win32_Log_Last_Error(String_Lit("WaitForSingleObject"), String_Empty());
+        }
         CloseHandle(Thread->Handle);
         
         EnterCriticalSection(&Win32->ResourceLock);
@@ -588,7 +748,10 @@ function OS_RW_MUTEX_LOCK_DEFINE(Win32_RW_Mutex_Write_Unlock) {
 
 function OS_SEMAPHORE_CREATE_DEFINE(Win32_Semaphore_Create) {
     HANDLE Handle = CreateSemaphoreA(NULL, (LONG)InitialCount, LONG_MAX, NULL);
-    if (Handle == NULL) return NULL;
+    if (Handle == NULL) {
+        Win32_Log_Last_Error(String_Lit("CreateSemaphoreA"), String_Empty());
+        return NULL;
+    }
     
     win32_base* Win32 = Win32_Get();
     EnterCriticalSection(&Win32->ResourceLock);
@@ -620,25 +783,34 @@ function OS_SEMAPHORE_DELETE_DEFINE(Win32_Semaphore_Delete) {
 
 function OS_SEMAPHORE_INCREMENT_DEFINE(Win32_Semaphore_Increment) {
     if (Semaphore && Semaphore->Handle) {
-        ReleaseSemaphore(Semaphore->Handle, 1, NULL);
+        if (!ReleaseSemaphore(Semaphore->Handle, 1, NULL)) {
+            Win32_Log_Last_Error(String_Lit("ReleaseSemaphore"), String_Empty());
+        }
     }
 }
 
 function OS_SEMAPHORE_DECREMENT_DEFINE(Win32_Semaphore_Decrement) {
     if (Semaphore && Semaphore->Handle) {
-        WaitForSingleObject(Semaphore->Handle, INFINITE);
+        if (WaitForSingleObject(Semaphore->Handle, INFINITE) == WAIT_FAILED) {
+            Win32_Log_Last_Error(String_Lit("WaitForSingleObject"), String_Empty());
+        }
     }
 }
 
 function OS_SEMAPHORE_ADD_DEFINE(Win32_Semaphore_Add) {
     if (Semaphore && Semaphore->Handle) {
-        ReleaseSemaphore(Semaphore->Handle, Count, NULL);
+        if (!ReleaseSemaphore(Semaphore->Handle, Count, NULL)) {
+            Win32_Log_Last_Error(String_Lit("ReleaseSemaphore"), String_Empty());
+        }
     }
 }
 
 function OS_EVENT_CREATE_DEFINE(Win32_Event_Create) {
     HANDLE Handle = CreateEventA(NULL, TRUE, FALSE, NULL);
-    if (Handle == NULL) return NULL;
+    if (Handle == NULL) {
+        Win32_Log_Last_Error(String_Lit("CreateEventA"), String_Empty());
+        return NULL;
+    }
     
     win32_base* Win32 = Win32_Get();
     EnterCriticalSection(&Win32->ResourceLock);
@@ -669,15 +841,21 @@ function OS_EVENT_DELETE_DEFINE(Win32_Event_Delete) {
 }
 
 function OS_EVENT_WAIT_DEFINE(Win32_Event_Wait) {
-    WaitForSingleObject(Event->Handle, INFINITE);
+    if (WaitForSingleObject(Event->Handle, INFINITE) == WAIT_FAILED) {
+        Win32_Log_Last_Error(String_Lit("WaitForSingleObject"), String_Empty());
+    }
 }
 
 function OS_EVENT_SIGNAL_DEFINE(Win32_Event_Signal) {
-    SetEvent(Event->Handle);
+    if (!SetEvent(Event->Handle)) {
+        Win32_Log_Last_Error(String_Lit("SetEvent"), String_Empty());
+    }
 }
 
 function OS_EVENT_RESET_DEFINE(Win32_Event_Reset) {
-    ResetEvent(Event->Handle);
+    if (!ResetEvent(Event->Handle)) {
+        Win32_Log_Last_Error(String_Lit("ResetEvent"), String_Empty());
+    }
 }
 
 function OS_HOT_RELOAD_CREATE_DEFINE(Win32_Hot_Reload_Create) {
@@ -685,6 +863,7 @@ function OS_HOT_RELOAD_CREATE_DEFINE(Win32_Hot_Reload_Create) {
     
     WIN32_FILE_ATTRIBUTE_DATA FileAttributes;
     if (!GetFileAttributesExW(FilePathW.Ptr, GetFileExInfoStandard, &FileAttributes)) {
+        Win32_Log_Last_Error(String_Lit("GetFileAttributesExW"), FilePath);
         Allocator_Free_Memory(Default_Allocator_Get(), (void*)FilePathW.Ptr);
         return NULL;
     }
@@ -734,11 +913,12 @@ function OS_LIBRARY_CREATE_DEFINE(Win32_Library_Create) {
     arena* Scratch = Scratch_Get();
     wstring LibraryPathW = WString_From_String((allocator*)Scratch, LibraryPath);
     HMODULE Library = LoadLibraryW(LibraryPathW.Ptr);
-    Scratch_Release();
-    
     if (!Library) {
+        Win32_Log_Last_Error(String_Lit("LoadLibraryW"), LibraryPath);
+        Scratch_Release();
         return NULL;
     }
+    Scratch_Release();
     
     win32_base* Win32 = Win32_Get();
     EnterCriticalSection(&Win32->ResourceLock);
@@ -769,7 +949,18 @@ function OS_LIBRARY_DELETE_DEFINE(Win32_Library_Delete) {
 }
 
 function OS_LIBRARY_GET_FUNCTION_DEFINE(Win32_Library_Get_Function) {
-    return (void*)GetProcAddress(Library->Library, FunctionName);
+    void* Result = (void*)GetProcAddress(Library->Library, FunctionName);
+    if (!Result) {
+        DWORD Error = GetLastError();
+        arena* Scratch = Scratch_Get();
+        string Message = Win32_Get_Error_Message((allocator*)Scratch, Error);
+        Debug_Log("GetProcAddress failed for '%s': %.*s (error %lu)",
+                  FunctionName,
+                  Message.Size, Message.Ptr,
+                  (unsigned long)Error);
+        Scratch_Release();
+    }
+    return Result;
 }
 
 function OS_CONDITION_VARIABLE_CREATE_DEFINE(Win32_Condition_Variable_Create) {
@@ -805,7 +996,9 @@ function OS_CONDITION_VARIABLE_DELETE_DEFINE(Win32_Condition_Variable_Delete) {
 
 function OS_CONDITION_VARIABLE_WAIT_DEFINE(Win32_Condition_Variable_Wait) {
     if (Variable && Mutex) {
-        SleepConditionVariableCS(&Variable->Handle, &Mutex->CriticalSection, INFINITE);
+        if (!SleepConditionVariableCS(&Variable->Handle, &Mutex->CriticalSection, INFINITE)) {
+            Win32_Log_Last_Error(String_Lit("SleepConditionVariableCS"), String_Empty());
+        }
     }
 }
 
@@ -822,7 +1015,12 @@ function OS_CONDITION_VARIABLE_WAKE_ALL_DEFINE(Win32_Condition_Variable_Wake_All
 }
 
 function OS_GET_ENTROPY_DEFINE(Win32_Get_Entropy) {
-    BCryptGenRandom(NULL, (PUCHAR)Buffer,(ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    NTSTATUS Status = BCryptGenRandom(NULL, (PUCHAR)Buffer, (ULONG)Size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!BCRYPT_SUCCESS(Status)) {
+        Debug_Log("BCryptGenRandom failed for %llu bytes: status 0x%08lx",
+                  (unsigned long long)Size,
+                  (unsigned long)Status);
+    }
 }
 
 function OS_SLEEP_DEFINE(Win32_Sleep) {
@@ -928,6 +1126,7 @@ function string Win32_Get_Executable_Path(allocator* Allocator) {
         MemorySize *= 2;
     }
     
+    Win32_Log_Last_Error(String_Lit("GetModuleFileNameW"), String_Empty());
     return String_Empty();
 }
 

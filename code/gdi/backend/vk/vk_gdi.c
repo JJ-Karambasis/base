@@ -63,6 +63,7 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME),
 	String_Expand(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME),
 	String_Expand(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME),
+	String_Expand(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
 #ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 #endif
@@ -849,6 +850,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	VkPhysicalDeviceProperties DeviceProperties;
 	vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties);
     
+	VkPhysicalDeviceRobustness2FeaturesEXT* Robustness2Feature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceRobustness2FeaturesEXT);
 	VkPhysicalDeviceDescriptorIndexingFeaturesEXT* DescriptorIndexingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDescriptorIndexingFeaturesEXT);
 	VkPhysicalDeviceSynchronization2FeaturesKHR* Synchronization2Feature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceSynchronization2FeaturesKHR);
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR* DynamicRenderingFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceDynamicRenderingFeaturesKHR);
@@ -856,6 +858,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	VkPhysicalDeviceShaderDrawParametersFeatures* ShaderDrawParametersFeature = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceShaderDrawParametersFeatures);
 	VkPhysicalDeviceFeatures2KHR* Features = Arena_Push_Struct(GDI->Base.Arena, VkPhysicalDeviceFeatures2KHR);
     
+	Robustness2Feature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	DescriptorIndexingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
 	Synchronization2Feature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
 	DynamicRenderingFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
@@ -863,6 +866,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	ShaderDrawParametersFeature->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
 	Features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
     
+	ShaderDrawParametersFeature->pNext = Robustness2Feature;
 	TimelineSemaphoreFeature->pNext = ShaderDrawParametersFeature;
 	DescriptorIndexingFeature->pNext = TimelineSemaphoreFeature;
 	Synchronization2Feature->pNext = DescriptorIndexingFeature;
@@ -896,6 +900,11 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
     
 	if (!ShaderDrawParametersFeature->shaderDrawParameters) {
 		GDI_Log_Warning("Missing vulkan feature 'Shader Draw Parameters' for device '%s'", DeviceProperties.deviceName);
+		HasFeatures = false;
+	}
+
+	if(!Robustness2Feature->nullDescriptor) {
+		GDI_Log_Warning("Missing vulkan feature 'Null Descriptor' for device '%s'", DeviceProperties.deviceName);
 		HasFeatures = false;
 	}
     
@@ -3049,7 +3058,11 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
     
 	VkRect2D CurrentScissor = {{}, { (u32)VkRenderPass->Dim.x, (u32)VkRenderPass->Dim.y } };
 	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
-    
+
+	VkDeviceSize DefaultVtxBufferOffset = 0;
+	VkBuffer DefaultVtxBuffer = VK_NULL_HANDLE;
+	vkCmdBindVertexBuffers(VkRenderPass->CmdBuffer, 0, 1, &DefaultVtxBuffer, &DefaultVtxBufferOffset);
+
 	bstream_reader Reader = BStream_Reader_Begin(Make_Buffer(VkRenderPass->Base.Memory.BaseAddress, 
 															 VkRenderPass->Base.Offset));
     
