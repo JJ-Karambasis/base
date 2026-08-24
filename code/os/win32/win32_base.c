@@ -345,9 +345,6 @@ function void Win32_Get_All_Files_Recursive(allocator* Allocator, dynamic_string
     WIN32_FIND_DATAW FindData;
     wstring DirectoryW = WString_From_String((allocator*)Scratch, DirectoryWithWildcard);
     HANDLE Handle = FindFirstFileW(DirectoryW.Ptr, &FindData);
-    if (Handle == INVALID_HANDLE_VALUE) {
-        Win32_Log_Last_Error(String_Lit("FindFirstFileW"), Directory);
-    }
     while (Handle != INVALID_HANDLE_VALUE) {
         string FileOrDirectoryName = String_From_WString((allocator*)Scratch, WString_Null_Term(FindData.cFileName));
         if (!String_Equals(FileOrDirectoryName, String_Lit(".")) && !String_Equals(FileOrDirectoryName, String_Lit(".."))) {
