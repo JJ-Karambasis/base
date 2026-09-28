@@ -12,9 +12,10 @@ else
     exit 1
 fi
 
-base_path=$(dirname "$0")
-code_path="$base_path/code"
-bin_path="$base_path/bin"
+base_dir="$(cd "$(dirname "$0")" && pwd)"
+echo "$base_dir"
+code_path="$base_dir/code"
+bin_path="$base_dir/bin"
 
 tracy_path=""
 build_debug=0
