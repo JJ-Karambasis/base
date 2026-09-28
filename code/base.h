@@ -60,9 +60,9 @@ extern "C" {
 #endif
 #else
 #ifdef __cplusplus
-#define export_function extern "C"
+#define export_function extern "C" __attribute__((visibility("default")))
 #else
-#define export_function
+#define export_function __attribute__((visibility("default")))
 #endif
 #endif
     
@@ -113,6 +113,7 @@ extern "C" {
     
 #define Memory_Copy(dst, src, size) memcpy(dst, src, size)
 #define Memory_Clear(dst, size) memset(dst, 0, size)
+#define Memory_Equal(a, b, size) (memcmp((a), (b), (size)) == 0)
 #define Zero_Struct(dst) Memory_Clear(&(dst), sizeof(dst))
     
 #define Radians_Const 0.0174533f
@@ -309,6 +310,8 @@ export_function b32 Equal_Zero_Eps_Sq_F32(f32 SqValue);
 export_function b32 Equal_Approx_F32(f32 a, f32 b, f32 Epsilon);
 export_function b32 Equal_Approx_Eps_F32(f32 a, f32 b);
 export_function f32 Safe_Ratio(s32 x, s32 y);
+export_function f32 Safe_Ratio_F32(f32 Numerator, f32 Divisor);
+export_function f32 Lerp(f32 A, f32 T, f32 B);
 export_function f32 Sqrt_F32(f32 Value);
 export_function f32 Cos_F32(f32 Value);
 export_function f32 Sin_F32(f32 Value);
@@ -379,6 +382,7 @@ export_function v2 V2_Max(v2 A, v2 B);
 export_function v2 V2_Clamp(v2 Min, v2 V, v2 Max);
 export_function v2 V2_Saturate(v2 V);
 export_function size_t V2_Largest_Index(v2 v);
+export_function f32 V2_Largest(v2 V);
 export_function f32 V2_Dot(v2 A, v2 B);
 export_function f32 V2_Sq_Mag(v2 V);
 export_function f32 V2_Mag(v2 V);
@@ -435,6 +439,7 @@ export_function f32 V3_Largest(v3 v);
 export_function f32 V3_Sq_Mag(v3 v);
 export_function f32 V3_Mag(v3 v);
 export_function v3 V3_Norm(v3 v);
+export_function v3 V3_Norm_Or_Zero(v3 V);
 export_function v3 V3_Negate(v3 v);
 export_function v3 V3_Cross(v3 A, v3 B);
 export_function v3 V3_Lerp(v3 A, f32 t, v3 B);
@@ -496,6 +501,7 @@ export_function v4 V4_From_V3(v3 xyz, f32 w);
 export_function f32 V4_Dot(v4 a, v4 b);
 export_function v4 V4_Mul_V4(v4 A, v4 B);
 export_function v4 V4_Mul_S(v4 A, f32 B);
+export_function v4 V4_Lerp(v4 A, f32 T, v4 B);
 
 export_function v4 V4_Color_From_U32(u32 Color);
 export_function u32 U32_Color_From_V4(v4 Color);
@@ -653,6 +659,10 @@ export_function m4_affine M4_Affine_Inverse_No_Scale(const m4_affine* M);
 export_function m4_affine M4_Affine_Inverse_Transform_No_Scale(v3 T, const m3* M);
 export_function m4_affine M4_Affine_Inverse_Transform_Quat_No_Scale(v3 T, quat Q);
 export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target);
+export_function m4_affine M4_Affine_Scale(v3 S);
+export_function m4_affine M4_Affine_Translation(v3 T);
+export_function m3 M3_Cofactor(m3 M);
+export_function m4_affine M4_Affine_Normal(m4_affine Model);
 export_function m4 M4_From_M4_Affine(const m4_affine* M);
 
 typedef struct {
@@ -989,6 +999,8 @@ function inline s32 Random32_XOrShift_Range(random32_xor_shift* Random, s32 Min,
     s32 Result = Random32_XOrShift(Random) % (Max - Min + 1) + Min;
     return Result;
 }
+
+export_function f32 Random32_XOrShift_Range_F32(random32_xor_shift* Random, f32 Min, f32 Max);
 
 function inline u32 Random32() {
     random32_xor_shift* Random = &Thread_Context_Get()->Random32;

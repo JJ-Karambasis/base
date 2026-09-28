@@ -60,13 +60,16 @@ global string G_RequiredDeviceExtensions[] = {
 	String_Expand(VK_KHR_MAINTENANCE3_EXTENSION_NAME),
 	String_Expand(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME),
 	String_Expand(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME),
-	String_Expand(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME),
 	String_Expand(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME),
 	String_Expand(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME),
 	String_Expand(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
 #ifdef VK_USE_PLATFORM_METAL_EXT
 	String_Expand(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)
 #endif
+};
+
+global string G_OptionalDeviceExtensions[] = {
+	String_Expand(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME),
 };
 
 global gdi_log_func* G_LogFunc;
@@ -903,9 +906,9 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 		HasFeatures = false;
 	}
 
-	if(!Robustness2Feature->nullDescriptor) {
-		GDI_Log_Warning("Missing vulkan feature 'Null Descriptor' for device '%s'", DeviceProperties.deviceName);
-		HasFeatures = false;
+	GPU->HasNullDescriptor = Robustness2Feature->nullDescriptor;
+	if(!GPU->HasNullDescriptor) {
+		GDI_Log_Warning("Missing vulkan feature 'Null Descriptor' for device '%s'; binding dummy resources instead", DeviceProperties.deviceName);
 	}
     
 	arena* Scratch = Scratch_Get();
@@ -919,6 +922,7 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	GPU->Extensions = Dynamic_Char_Ptr_Array_Init((allocator*)GDI->Base.Arena);
     
 	b32 HasRequiredDeviceExtensions[Array_Count(G_RequiredDeviceExtensions)] = { 0 };
+	b32 HasOptionalDeviceExtensions[Array_Count(G_OptionalDeviceExtensions)] = { 0 };
 	for (u32 j = 0; j < DeviceExtensionCount; j++) {
 		string ExtensionName = String_Null_Term(DeviceExtensionProperties[j].extensionName);
 		for (size_t k = 0; k < Array_Count(G_RequiredDeviceExtensions); k++) {
@@ -927,6 +931,16 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 				Dynamic_Char_Ptr_Array_Add(&GPU->Extensions, (char*)G_RequiredDeviceExtensions[k].Ptr);
 			}
 		}
+		for (size_t k = 0; k < Array_Count(G_OptionalDeviceExtensions); k++) {
+			if (String_Equals(ExtensionName, G_OptionalDeviceExtensions[k])) {
+				HasOptionalDeviceExtensions[k] = true;
+				Dynamic_Char_Ptr_Array_Add(&GPU->Extensions, (char*)G_OptionalDeviceExtensions[k].Ptr);
+			}
+		}
+	}
+	GPU->HasDrawIndirectCount = HasOptionalDeviceExtensions[0];
+	if(!GPU->HasDrawIndirectCount) {
+		GDI_Log_Warning("Missing vulkan device extension '%.*s' for device '%s'", G_OptionalDeviceExtensions[0].Size, G_OptionalDeviceExtensions[0].Ptr, DeviceProperties.deviceName);
 	}
     
 	b32 HasExtensions = true;
@@ -1368,6 +1382,23 @@ function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context, 
 		Context->DescriptorLock = NULL;
 	}
     
+	if (Context->NullSampler != VK_NULL_HANDLE) {
+		vkDestroySampler(Context->Device, Context->NullSampler, VK_Get_Allocator());
+		Context->NullSampler = VK_NULL_HANDLE;
+	}
+	if (Context->NullImageView != VK_NULL_HANDLE) {
+		vkDestroyImageView(Context->Device, Context->NullImageView, VK_Get_Allocator());
+		Context->NullImageView = VK_NULL_HANDLE;
+	}
+	if (Context->NullImage != VK_NULL_HANDLE) {
+		vmaDestroyImage(Context->GPUAllocator, Context->NullImage, Context->NullImageAllocation);
+		Context->NullImage = VK_NULL_HANDLE;
+	}
+	if (Context->NullBuffer != VK_NULL_HANDLE) {
+		vmaDestroyBuffer(Context->GPUAllocator, Context->NullBuffer, Context->NullBufferAllocation);
+		Context->NullBuffer = VK_NULL_HANDLE;
+	}
+    
 	vmaDestroyAllocator(Context->GPUAllocator);
     
 	if (Context->Base.IMThreadLocalStorage) {
@@ -1388,6 +1419,80 @@ function void VK_Delete_Device_Context(vk_gdi* GDI, vk_device_context* Context, 
 	if (Context->Arena) {
 		Arena_Delete(Context->Arena);
 	}
+}
+
+typedef struct {
+	u32 Count;
+	u32 Indices[3];
+	VkSharingMode SharingMode;
+} vk_resource_queue_family_info;
+
+function vk_resource_queue_family_info VK_Get_Queue_Family_Info(vk_device_context* Context);
+
+function b32 VK_Create_Null_Descriptor_Overrides(vk_device_context* Context) {
+	vk_resource_queue_family_info QueueFamilyInfo = VK_Get_Queue_Family_Info(Context);
+	VmaAllocationCreateInfo AllocateInfo = {
+		.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+	};
+    
+	VkBufferCreateInfo BufferInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = 256,
+		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+		.sharingMode = QueueFamilyInfo.SharingMode,
+		.queueFamilyIndexCount = QueueFamilyInfo.Count,
+		.pQueueFamilyIndices = QueueFamilyInfo.Indices,
+	};
+	if (vmaCreateBuffer(Context->GPUAllocator, &BufferInfo, &AllocateInfo, &Context->NullBuffer, &Context->NullBufferAllocation, NULL) != VK_SUCCESS) {
+		GDI_Log_Error("Failed to create null descriptor buffer");
+		return false;
+	}
+	Context->NullBufferSize = BufferInfo.size;
+    
+	VkImageCreateInfo ImageInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = VK_FORMAT_R8G8B8A8_UNORM,
+		.extent = { 1, 1, 1 },
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+		.sharingMode = QueueFamilyInfo.SharingMode,
+		.queueFamilyIndexCount = QueueFamilyInfo.Count,
+		.pQueueFamilyIndices = QueueFamilyInfo.Indices,
+	};
+	if (vmaCreateImage(Context->GPUAllocator, &ImageInfo, &AllocateInfo, &Context->NullImage, &Context->NullImageAllocation, NULL) != VK_SUCCESS) {
+		GDI_Log_Error("Failed to create null descriptor image");
+		return false;
+	}
+    
+	VkImageViewCreateInfo ViewInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = Context->NullImage,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = VK_FORMAT_R8G8B8A8_UNORM,
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+	};
+	if (vkCreateImageView(Context->Device, &ViewInfo, VK_Get_Allocator(), &Context->NullImageView) != VK_SUCCESS) {
+		GDI_Log_Error("Failed to create null descriptor image view");
+		return false;
+	}
+    
+	VkSamplerCreateInfo SamplerInfo = {
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter = VK_FILTER_NEAREST,
+		.minFilter = VK_FILTER_NEAREST,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+	};
+	if (vkCreateSampler(Context->Device, &SamplerInfo, VK_Get_Allocator(), &Context->NullSampler) != VK_SUCCESS) {
+		GDI_Log_Error("Failed to create null descriptor sampler");
+		return false;
+	}
+	return true;
 }
 
 function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* Device) {
@@ -1451,6 +1556,8 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	Context->Base.Device = Device;
 	Context->Base.FrameArena = Arena_Create(String_Lit("GDI Frame"));
 	Context->Base.ConstantBufferAlignment = TargetGPU->Properties.limits.minUniformBufferOffsetAlignment;
+	Context->Base.HasDrawIndirectCount = TargetGPU->HasDrawIndirectCount;
+	Context->HasNullDescriptor = TargetGPU->HasNullDescriptor;
 	Context->Base.IMThreadLocalStorage = OS_TLS_Create();
 	Context->Arena = Arena;
 	Context->GPU = TargetGPU;
@@ -1462,7 +1569,9 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	Vk_Khr_Synchronization2_Funcs_Load(Context->Device);
 	Vk_Khr_Dynamic_Rendering_Funcs_Load(Context->Device);
 	Vk_Khr_Push_Descriptor_Funcs_Load(Context->Device);
-	Vk_Khr_Draw_Indirect_Count_Funcs_Load(Context->Device);
+	if (Context->Base.HasDrawIndirectCount) {
+		Vk_Khr_Draw_Indirect_Count_Funcs_Load(Context->Device);
+	}
     
 	//Create a vma allocator
 	VmaVulkanFunctions VmaFunctions = {
@@ -1616,6 +1725,9 @@ function vk_device_context* VK_Create_Device_Context(vk_gdi* GDI, gdi_device* De
 	}
 
 	Context->Base.TimestampPeriod = (f64)TargetGPU->Properties.limits.timestampPeriod;
+	if (!Context->HasNullDescriptor && !VK_Create_Null_Descriptor_Overrides(Context)) {
+		return NULL;
+	}
     
 	//Initialize the readback thread
 	Atomic_Store_B32(&Context->ReadbackIsInitialized, true);
@@ -1644,12 +1756,6 @@ function GDI_BACKEND_SET_DEVICE_CONTEXT_DEFINE(VK_Set_Device_Context) {
     
 	return true;
 }
-
-typedef struct {
-	u32 Count;
-	u32 Indices[3];
-	VkSharingMode SharingMode;
-} vk_resource_queue_family_info;
 
 function vk_resource_queue_family_info VK_Get_Queue_Family_Info(vk_device_context* Context) {
 	vk_gpu* GPU = Context->GPU;
@@ -2291,8 +2397,12 @@ function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 				VkDescriptorImageInfo* ImageInfos = Arena_Push_Array(Scratch, Write->Samplers.Count, VkDescriptorImageInfo);
 				for (size_t i = 0; i < Write->Samplers.Count; i++) {
 					vk_sampler* Sampler = VK_Sampler_Pool_Get(&Context->ResourcePool, Write->Samplers.Ptr[i]);
+					VkSampler Handle = Sampler ? Sampler->Sampler : VK_NULL_HANDLE;
+					if (Handle == VK_NULL_HANDLE && !Context->HasNullDescriptor) {
+						Handle = Context->NullSampler;
+					}
 					VkDescriptorImageInfo ImageInfo = {
-						.sampler = Sampler ? Sampler->Sampler : VK_NULL_HANDLE
+						.sampler = Handle
 					};
 					ImageInfos[DescriptorWrite.descriptorCount++] = ImageInfo;
 				}
@@ -2305,9 +2415,15 @@ function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 				VkDescriptorImageInfo* ImageInfos = Arena_Push_Array(Scratch, Write->TextureViews.Count, VkDescriptorImageInfo);
 				for (size_t i = 0; i < Write->TextureViews.Count; i++) {
 					vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Write->TextureViews.Ptr[i]);
+					VkImageView View = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
+					VkImageLayout Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					if (View == VK_NULL_HANDLE && !Context->HasNullDescriptor) {
+						View = Context->NullImageView;
+						Layout = VK_IMAGE_LAYOUT_GENERAL;
+					}
 					VkDescriptorImageInfo ImageInfo = {
-						.imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE,
-						.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+						.imageView = View,
+						.imageLayout = Layout
 					};
 					ImageInfos[DescriptorWrite.descriptorCount++] = ImageInfo;
 				}
@@ -2322,23 +2438,32 @@ function GDI_BACKEND_UPDATE_BIND_GROUPS_DEFINE(VK_Update_Bind_Groups) {
 					gdi_bind_group_buffer BindGroupBuffer = Write->Buffers.Ptr[i];
 					vk_buffer* Buffer = VK_Buffer_Pool_Get(&Context->ResourcePool, BindGroupBuffer.Buffer);
                     
-					size_t Offset = BindGroupBuffer.Offset;
-					if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
-						Offset += Buffer->Size * Frame->Index;
+					VkDescriptorBufferInfo BufferInfo = {};
+					if (!Buffer) {
+						if (Context->HasNullDescriptor) {
+							BufferInfo.buffer = VK_NULL_HANDLE;
+							BufferInfo.range = VK_WHOLE_SIZE;
+						} else {
+							BufferInfo.buffer = Context->NullBuffer;
+							BufferInfo.range = Context->NullBufferSize;
+						}
+					} else {
+						size_t Offset = BindGroupBuffer.Offset;
+						if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+							Offset += Buffer->Size * Frame->Index;
+						}
+                        
+						size_t Size = BindGroupBuffer.Size;
+						if (Size == 0) {
+							Size = Buffer->Size - BindGroupBuffer.Offset;
+						}
+                        
+						BufferInfo.buffer = Buffer->Buffer;
+						BufferInfo.offset = Offset;
+						BufferInfo.range = Size;
 					}
                     
-					size_t Size = BindGroupBuffer.Size;
-					if (Size == 0) {
-						Size = Buffer->Size - BindGroupBuffer.Offset;
-					}
-                    
-					VkDescriptorBufferInfo BufferInfo = {
-						.buffer = Buffer ? Buffer->Buffer : VK_NULL_HANDLE,
-						.offset = Offset,
-						.range = Size
-					};
-                    
-					if (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC) {
+					if (Buffer && (Buffer->Usage & GDI_BUFFER_USAGE_DYNAMIC)) {
 						vk_bind_group_dynamic_descriptor* DynamicDescriptor = Arena_Push_Struct(ThreadContext->TempArena, vk_bind_group_dynamic_descriptor);
 						DynamicDescriptor->Buffer = BindGroupBuffer.Buffer;
 						DynamicDescriptor->Index = DescriptorWrite.dstArrayElement+DescriptorWrite.descriptorCount;
@@ -3060,7 +3185,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 	vkCmdSetScissor(VkRenderPass->CmdBuffer, 0, 1, &CurrentScissor);
 
 	VkDeviceSize DefaultVtxBufferOffset = 0;
-	VkBuffer DefaultVtxBuffer = VK_NULL_HANDLE;
+	VkBuffer DefaultVtxBuffer = Context->HasNullDescriptor ? VK_NULL_HANDLE : Context->NullBuffer;
 	vkCmdBindVertexBuffers(VkRenderPass->CmdBuffer, 0, 1, &DefaultVtxBuffer, &DefaultVtxBufferOffset);
 
 	bstream_reader Reader = BStream_Reader_Begin(Make_Buffer(VkRenderPass->Base.Memory.BaseAddress, 
@@ -3224,6 +3349,7 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
 						} break;
                         
 						default: {
+							Assert(Context->Base.HasDrawIndirectCount);
 							Assert(CurrentIndirectCountBuffer && CurrentIndirectCountBuffer->Usage & GDI_BUFFER_USAGE_INDIRECT);
 							if(CurrentIndirectCountBuffer) {
 								VkDeviceSize CountOffset = CurrentFirstInstance;
@@ -4070,10 +4196,11 @@ function b32 VK_Render_Internal(vk_device_context* Context, const gdi_swapchain_
 												Assert(TextureIndex < ComputePass->TextureWrites.Count);
 												gdi_texture_view Handle = ComputePass->TextureWrites.Ptr[TextureIndex++];
 												vk_texture_view* TextureView = VK_Texture_View_Pool_Get(&Context->ResourcePool, Handle);
-												vk_texture* Texture = VK_Texture_Pool_Get(&Context->ResourcePool, TextureView->Texture);
-												
 												ImageInfo[i].imageView = TextureView ? TextureView->ImageView : VK_NULL_HANDLE;
 												ImageInfo[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+												if (ImageInfo[i].imageView == VK_NULL_HANDLE && !Context->HasNullDescriptor) {
+													ImageInfo[i].imageView = Context->NullImageView;
+												}
 											}
 											
 											WriteDescriptorSet.pImageInfo = ImageInfo;

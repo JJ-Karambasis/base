@@ -638,6 +638,7 @@ typedef struct {
     
     size_t ConstantBufferAlignment;
     f64    TimestampPeriod;
+    b32    HasDrawIndirectCount;
     
     os_tls*    IMThreadLocalStorage;
     atomic_ptr TopIM;

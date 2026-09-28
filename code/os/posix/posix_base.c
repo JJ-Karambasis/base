@@ -99,7 +99,7 @@ function OS_OPEN_FILE_DEFINE(Posix_Open_File) {
 	} else if (Attributes == OS_FILE_ATTRIBUTE_READ) {
         Flags = O_RDONLY; 
 	} else if (Attributes == OS_FILE_ATTRIBUTE_WRITE) {
-        Flags = O_WRONLY|O_CREAT;
+        Flags = O_WRONLY|O_CREAT|O_TRUNC;
         Permissions = 0666;
 	} else {
 		Assert(!"Invalid file attributes!");

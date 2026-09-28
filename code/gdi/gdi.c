@@ -618,6 +618,7 @@ export_function void Render_Draw_Idx_Indirect(gdi_render_pass* RenderPass, gdi_b
 }
 
 export_function void Render_Draw_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride) {
+	Assert(GDI_Get_Device_Context()->HasDrawIndirectCount);
 	if (!MaxDrawCount) {
 		return;
 	}
@@ -633,6 +634,7 @@ export_function void Render_Draw_Indirect_Count(gdi_render_pass* RenderPass, gdi
 }
 
 export_function void Render_Draw_Idx_Indirect_Count(gdi_render_pass* RenderPass, gdi_buffer IndirectBuffer, u64 IndirectOffset, gdi_buffer CountBuffer, u64 CountBufferOffset, u32 MaxDrawCount, u32 Stride) {
+	Assert(GDI_Get_Device_Context()->HasDrawIndirectCount);
 	if (!MaxDrawCount) {
 		return;
 	}

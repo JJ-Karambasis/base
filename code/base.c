@@ -183,6 +183,14 @@ export_function f32 Safe_Ratio(s32 x, s32 y) {
 	return (f32)x / (f32)y;
 }
 
+export_function f32 Safe_Ratio_F32(f32 Numerator, f32 Divisor) {
+	return (Divisor != 0.0f) ? (Numerator / Divisor) : 0.0f;
+}
+
+export_function f32 Lerp(f32 A, f32 T, f32 B) {
+	return A + (B - A) * T;
+}
+
 export_function f32 Sqrt_F32(f32 Value) {
 	return sqrtf(Value);
 }
@@ -432,6 +440,10 @@ export_function size_t V2_Largest_Index(v2 v) {
 	return Abs(v.Data[0]) > Abs(v.Data[1]) ? 0 : 1;
 }
 
+export_function f32 V2_Largest(v2 V) {
+	return V.Data[V2_Largest_Index(V)];
+}
+
 export_function f32 V2_Dot(v2 A, v2 B) {
 	f32 Result = A.x * B.x + A.y * B.y;
 	return Result;
@@ -622,6 +634,14 @@ export_function v3 V3_Norm(v3 v) {
 	return V3_Mul_S(v, InvLength);
 }
 
+export_function v3 V3_Norm_Or_Zero(v3 V) {
+	f32 LenSq = V3_Sq_Mag(V);
+	if(LenSq > 1.0e-12f) {
+		return V3_Mul_S(V, 1.0f / Sqrt_F32(LenSq));
+	}
+	return V3_Zero();
+}
+
 export_function v3 V3_Negate(v3 v) {
 	v3 Result = { -v.x, -v.y, -v.z };
 	return Result;
@@ -707,6 +727,15 @@ export_function v4 V4_Mul_V4(v4 A, v4 B) {
 export_function v4 V4_Mul_S(v4 A, f32 B) {
 	v4 Result = {A.x * B, A.y * B, A.z * B, A.w * B};
     return Result;
+}
+
+export_function v4 V4_Lerp(v4 A, f32 T, v4 B) {
+	return V4(
+		A.x + (B.x - A.x) * T,
+		A.y + (B.y - A.y) * T,
+		A.z + (B.z - A.z) * T,
+		A.w + (B.w - A.w) * T
+	);
 }
 
 export_function v4 V4_Color_From_U32(u32 Color) {
@@ -990,6 +1019,18 @@ export_function v3 M3_Diagonal(const m3* M) {
 	return Result;
 }
 
+export_function m3 M3_Cofactor(m3 M) {
+	v3 C0 = V3_Cross(M.y, M.z);
+	v3 C1 = V3_Cross(M.z, M.x);
+	v3 C2 = V3_Cross(M.x, M.y);
+	f32 Sign = (V3_Dot(M.x, C0) < 0.0f) ? -1.0f : 1.0f;
+	m3 Result;
+	Result.x = V3_Mul_S(C0, Sign);
+	Result.y = V3_Mul_S(C1, Sign);
+	Result.z = V3_Mul_S(C2, Sign);
+	return Result;
+}
+
 export_function m3 M3_Scale(v3 S) {
 	m3 Result = {
 		.Data = {
@@ -1201,7 +1242,7 @@ export_function m4 M4_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f) {
 	m4 Result = {
 		2/(r-l), 		0, 			0,  		  0, 
 		0, 				2/(t-b), 	0,  		  0, 
-		0, 				0, 			1/(n-f), 	  0,
+		0, 				0, 			1/(f-n), 	  0,
 		(l+r)/(l-r), (t+b)/(b-t), n/(n-f), 1
 	};
 	return Result;
@@ -1211,8 +1252,8 @@ export_function m4 M4_Inverse_Orthographic(f32 l, f32 r, f32 b, f32 t, f32 n, f3
 	m4 Result = {
         (r-l)/2,     0,           0,       0,
         0,           (t-b)/2,     0,       0,
-        0,           0,           n - f,   0,
-        (r+l)/2,     (t+b)/2,     -n,      1
+        0,           0,           f - n,   0,
+        (r+l)/2,     (t+b)/2,     n,       1
 	};
 	return Result;
 }
@@ -1517,6 +1558,30 @@ export_function m4_affine M4_Affine_Look_At(v3 Position, v3 Target) {
     
 	m3 M = M3_XYZ(X, Y, Direction);
 	return M4_Affine_Inverse_Transform_No_Scale(Position, &M);
+}
+
+export_function m4_affine M4_Affine_Scale(v3 S) {
+	m3 Identity = M3_Identity();
+	return M4_Affine_Transform(V3_Zero(), &Identity, S);
+}
+
+export_function m4_affine M4_Affine_Translation(v3 T) {
+	m3 Identity = M3_Identity();
+	return M4_Affine_Transform_No_Scale(T, &Identity);
+}
+
+export_function m4_affine M4_Affine_Normal(m4_affine Model) {
+	m3 Linear;
+	Linear.x = Model.x;
+	Linear.y = Model.y;
+	Linear.z = Model.z;
+	m3 Cofactor = M3_Cofactor(Linear);
+	m4_affine Result = M4_Affine_Identity();
+	Result.x = Cofactor.x;
+	Result.y = Cofactor.y;
+	Result.z = Cofactor.z;
+	Result.t = V3_Zero();
+	return Result;
 }
 
 export_function m4 M4_From_M4_Affine(const m4_affine* M) {
@@ -2234,6 +2299,10 @@ export_function u32 Random32_XOrShift(random32_xor_shift* Random) {
     Random->State = x;
     
     return x;
+}
+
+export_function f32 Random32_XOrShift_Range_F32(random32_xor_shift* Random, f32 Min, f32 Max) {
+	return Min + (Max - Min) * Random32_XOrShift_UNorm(Random);
 }
 
 Array_Implement(char, Char);
@@ -3775,7 +3844,10 @@ export_function pool_id Pool_Allocate(pool* Pool) {
             }
             
             size_t Iter = Index;
-            while (Iter*Pool_Entry_Size(Pool) < Pool->Reserve.CommitSize) {
+
+            size_t EntrySize = Pool_Entry_Size(Pool);
+            size_t CommitCount = Pool->Reserve.CommitSize / EntrySize;
+            while (Iter < CommitCount) {
                 pool_id* PoolID = Pool_Get_Internal_ID(Pool, Iter);
                 PoolID->Generation = 1;
                 PoolID->Index = INVALID_POOL_INDEX;

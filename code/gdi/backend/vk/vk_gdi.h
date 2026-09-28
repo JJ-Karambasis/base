@@ -340,6 +340,8 @@ typedef struct {
 	u32 							 ComputeQueueFamilyIndex;
 	dynamic_char_ptr_array 			 Extensions;
 	VkPhysicalDeviceFeatures2KHR* 	 Features;
+	b32 							 HasNullDescriptor;
+	b32 							 HasDrawIndirectCount;
 } vk_gpu;
 
 struct vk_device_context {
@@ -359,6 +361,13 @@ struct vk_device_context {
     
 	//Support device features
 	b32 HasNullDescriptor;
+	VkBuffer NullBuffer;
+	VmaAllocation NullBufferAllocation;
+	VkDeviceSize NullBufferSize;
+	VkImage NullImage;
+	VmaAllocation NullImageAllocation;
+	VkImageView NullImageView;
+	VkSampler NullSampler;
     
 	//Readback thread
 	atomic_b32 	  ReadbackIsInitialized;

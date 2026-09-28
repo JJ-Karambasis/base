@@ -113,6 +113,18 @@ function inline v4 operator*(v4 A, f32 B) {
 	return Result;
 }
 
+function inline v4 operator+(v4 A, v4 B) {
+    return V4(A.x + B.x, A.y + B.y, A.z + B.z, A.w + B.w);
+}
+
+function inline v4 operator-(v4 A, v4 B) {
+    return V4(A.x - B.x, A.y - B.y, A.z - B.z, A.w - B.w);
+}
+
+function inline v4 V4(v3 XYZ, f32 W) {
+    return V4_From_V3(XYZ, W);
+}
+
 function inline quat operator*(quat A, quat B) {
 	quat Result = Quat_Mul_Quat(A, B);
 	return Result;
@@ -141,6 +153,10 @@ function inline m4 operator*(const m4& A, const m4& B) {
 function inline v3 operator*(v4 A, const m4_affine& B) {
     v3 Result = V4_Mul_M4_Affine(A, &B);
     return Result;
+}
+
+function inline v3 operator*(v3 A, const m4_affine& B) {
+    return V4_From_V3(A, 1.0f) * B;
 }
 
 function inline m4_affine operator*(const m4_affine& A, const m4_affine& B) {

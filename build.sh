@@ -93,7 +93,7 @@ fi
 
 clang_compile_only="-c"
 clang_warnings="-Wall -Werror -Wno-missing-braces -Wno-switch -Wno-unused-function -Wno-nullability-completeness -Wno-undefined-internal -Wno-unused-variable -Wno-unused-private-field"
-clang_flags="-g -ferror-limit=100 $clang_optimized_flag"
+clang_flags="-g -fPIC -ferror-limit=100 $clang_optimized_flag"
 clang_out="-o"
 
 if [ $build_clang -eq 1 ]; then 
@@ -162,7 +162,11 @@ if [ $build_gdi -eq 1 ]; then
     popd
 fi
 
-obj_files="posix_base.o base.o rpmalloc.o"
+pushd "$bin_path"
+    $compiler_cpp $compile_flags $compile_warnings -Wno-deprecated -x c++ $compile_only $app_defines $app_includes -I"$code_path" "$code_path/geometry/geometry.c" $compile_out geometry.o
+popd
+
+obj_files="posix_base.o base.o rpmalloc.o geometry.o"
 
 if [ $build_gdi -eq 1 ]; then 
     obj_files="$obj_files gdi.o vk_vma_usage.o"
