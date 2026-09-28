@@ -1664,6 +1664,8 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
 	return TokenIter.Token;
 }
 
+function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* Token, meta_for_loop_context_stack* ForLoopStack, meta_token_list* NewTokens);
+
 function meta_token* Meta_Parse_Enum(meta_parser* Parser, meta_token* Token) {
 	Assert(Token->Type == META_TOKEN_TYPE_ENUM);
     
@@ -1757,6 +1759,29 @@ function meta_token* Meta_Parse_Enum(meta_parser* Parser, meta_token* Token) {
 				meta_token* EnumToken = Meta_Parse_Enum_Entry(Parser, Enum, TokenIter.Token, Scratch);
 				TokenIter = Meta_Begin_Simple_Token_Iter(EnumToken);
 				Scratch_Release();
+			} break;
+
+			case META_TOKEN_TYPE_FOR: {
+				meta_for_loop_context_stack ForLoopStack = { 0 };
+				meta_token_list NewTokens = { 0 };
+				meta_token_list ForEachTokens = { .First = TokenIter.Token };
+
+				ForEachTokens.Last = Meta_Parse_And_Expand_For(Parser, TokenIter.Token, &ForLoopStack, &NewTokens);
+				if (!ForEachTokens.Last) return NULL;
+
+				if (NewTokens.Count) {
+					Meta_Tokens_Replace(&ForEachTokens, &NewTokens);
+					Meta_Tokens_Free(Parser->Tokenizer, &ForEachTokens);
+					TokenIter = Meta_Begin_Simple_Token_Iter(NewTokens.First->Prev);
+				} else {
+					meta_token* PrevToken = ForEachTokens.First->Prev;
+					meta_token* NextToken = ForEachTokens.Last->Next;
+
+					PrevToken->Next = NextToken;
+					NextToken->Prev = PrevToken;
+
+					TokenIter = Meta_Begin_Simple_Token_Iter(PrevToken);
+				}
 			} break;
             
 			default: {
@@ -2549,6 +2574,29 @@ function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token
 			case META_TOKEN_TYPE_VARIABLE_ENTRY: {
 				meta_token* StructToken = Meta_Parse_Variable_Entry(Parser, Struct, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
+			} break;
+
+			case META_TOKEN_TYPE_FOR: {
+				meta_for_loop_context_stack ForLoopStack = { 0 };
+				meta_token_list NewTokens = { 0 };
+				meta_token_list ForEachTokens = { .First = TokenIter.Token };
+
+				ForEachTokens.Last = Meta_Parse_And_Expand_For(Parser, TokenIter.Token, &ForLoopStack, &NewTokens);
+				if (!ForEachTokens.Last) return NULL;
+
+				if (NewTokens.Count) {
+					Meta_Tokens_Replace(&ForEachTokens, &NewTokens);
+					Meta_Tokens_Free(Parser->Tokenizer, &ForEachTokens);
+					TokenIter = Meta_Begin_Simple_Token_Iter(NewTokens.First->Prev);
+				} else {
+					meta_token* PrevToken = ForEachTokens.First->Prev;
+					meta_token* NextToken = ForEachTokens.Last->Next;
+
+					PrevToken->Next = NextToken;
+					NextToken->Prev = PrevToken;
+
+					TokenIter = Meta_Begin_Simple_Token_Iter(PrevToken);
+				}
 			} break;
             
 			case META_TOKEN_TYPE_STRUCT: 

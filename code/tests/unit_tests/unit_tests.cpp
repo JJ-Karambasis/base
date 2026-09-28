@@ -1,7 +1,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-#include <base.h>
 #include <dxc/dxcapi.h>
+
+#include <base.h>
+#include <meta_program/meta_errors.c>
+#include <meta_program/meta_parser.h>
+#include <meta_program/meta_parser.c>
 
 #include <third_party/stb/stb_image_write.h>
 #include <gdi/gdi.h>
@@ -11,6 +15,7 @@
 #include "job_tests.cpp"
 #include "gdi_tests.cpp"
 #include "geometry_tests.cpp"
+#include "meta_tests.cpp"
 
 UTEST_STATE();
 int main(int ArgCount, const char** Args) {

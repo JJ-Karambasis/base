@@ -3,11 +3,6 @@ typedef struct {
 	f32 Radius;
 } sphere;
 
-typedef struct {
-	v3 Min;
-	v3 Max;
-} aabb;
-
 function sphere Make_Sphere(v3 CenterP, f32 Radius) {
 	sphere Result = {CenterP, Radius};
 	return Result;

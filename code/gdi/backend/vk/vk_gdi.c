@@ -907,9 +907,6 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 	}
 
 	GPU->HasNullDescriptor = Robustness2Feature->nullDescriptor;
-	if(!GPU->HasNullDescriptor) {
-		GDI_Log_Warning("Missing vulkan feature 'Null Descriptor' for device '%s'; binding dummy resources instead", DeviceProperties.deviceName);
-	}
     
 	arena* Scratch = Scratch_Get();
     
@@ -939,9 +936,6 @@ function b32 VK_Fill_GPU(vk_gdi* GDI, vk_gpu* GPU, VkPhysicalDevice PhysicalDevi
 		}
 	}
 	GPU->HasDrawIndirectCount = HasOptionalDeviceExtensions[0];
-	if(!GPU->HasDrawIndirectCount) {
-		GDI_Log_Warning("Missing vulkan device extension '%.*s' for device '%s'", G_OptionalDeviceExtensions[0].Size, G_OptionalDeviceExtensions[0].Ptr, DeviceProperties.deviceName);
-	}
     
 	b32 HasExtensions = true;
 	for (size_t j = 0; j < Array_Count(G_RequiredDeviceExtensions); j++) {
