@@ -734,7 +734,6 @@ function b32 GJK_Get_Closest_Point(gjk_simplex* Simplex, f32 PrevDistSq, v3* Out
 }
 
 export_function b32 GJK_Intersects(gjk_support* SupportA, gjk_support* SupportB, f32 Tolerance, v3* InOutV) {
-	Profile_Scope(GJK_Intersects);
 	f32 ToleranceSq = Sq(Tolerance);
     
 	gjk_simplex Simplex = { 0 };
@@ -805,7 +804,6 @@ export_function b32 GJK_Intersects(gjk_support* SupportA, gjk_support* SupportB,
 export_function closest_points GJK_Get_Closest_Points(gjk_support* SupportA, gjk_support* SupportB, 
                                                       f32 Tolerance, f32 MaxDistSq, v3* InOutV, 
                                                       gjk_simplex* OutSimplex) {
-	Profile_Scope(GJK_Get_Closest_Points);
 	f32 ToleranceSq = Sq(Tolerance);
     
 	gjk_simplex Simplex = { 0 };
@@ -889,7 +887,6 @@ export_function closest_points GJK_Get_Closest_Points(gjk_support* SupportA, gjk
 
 export_function ray_cast GJK_Cast(gjk_support* SupportA, f32 RadiusA, gjk_support* SupportB, f32 RadiusB, 
                                   const m4* Start, v3 Direction, f32 tDistance, f32 Tolerance, gjk_simplex* OutSimplex) {
-    Profile_Scope(GJK_Cast);
 	arena* Scratch = Scratch_Get();
     f32 ToleranceSq = Sq(Tolerance);
     
@@ -1026,7 +1023,6 @@ export_function ray_cast GJK_Cast(gjk_support* SupportA, f32 RadiusA, gjk_suppor
 export_function penetration_test GJK_Penetration_Test(gjk_support* SupportA, f32 RadiusA, gjk_support* SupportB, 
                                                       f32 RadiusB, f32 Tolerance, gjk_simplex* OutSimplex, 
                                                       f32* OutDistSq) {
-	Profile_Scope(GJK_Penetration_Test);
 	f32 Radius = RadiusA + RadiusB;
 	f32 RadiusSq = Sq(Radius);
     
@@ -1562,7 +1558,6 @@ function epa_triangle* EPA_Convex_Hull_Find_Facing_Triangle(epa_convex_hull* Con
 }
 
 export_function penetration_test EPA_Penetration_Test_With_Simplex(gjk_support* SupportA, gjk_support* SupportB, f32 Tolerance, gjk_simplex* Simplex) {
-	Profile_Scope(EPA_Penetration_Test_With_Simplex);
 	penetration_test Result = { 0 };
     
 	//Copy the simplex into the epa support points
@@ -1846,7 +1841,6 @@ export_function penetration_test EPA_Penetration_Test_With_Simplex(gjk_support* 
 
 export_function penetration_test EPA_Penetration_Test(gjk_support* SupportA, gjk_support* SupportB, 
                                                       f32 CollisionTolerance, f32 PenetrationTolerance) {
-	Profile_Scope(EPA_Penetration_Test);
 	gjk_simplex Simplex;
     
 	f32 OutDist;
@@ -1862,7 +1856,6 @@ export_function penetration_test EPA_Penetration_Test(gjk_support* SupportA, gjk
 export_function ray_cast Cast_Shape(gjk_support* SupportA, f32 RadiusA, gjk_support* SupportB, f32 RadiusB, 
                                     const m4* Start, v3 Direction, f32 tDistance, 
                                     f32 CollisionTolerance, f32 PenetrationTolerance) {
-    Profile_Scope(Cast_Shape);
     gjk_simplex Simplex;
     ray_cast Cast = GJK_Cast(SupportA, RadiusA, SupportB, RadiusB, Start, Direction, tDistance, CollisionTolerance, &Simplex);
     if(Cast.tHit == FLT_MAX) return Cast;

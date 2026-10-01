@@ -3,8 +3,8 @@
 export_function ray_hit Ray_Intersect_Triangle(const ray* Ray, v3 P0, v3 P1, v3 P2) {
     ray_hit Result = { false, 0.0f };
 
-    v3 Edge1 = P1 - P0;
-    v3 Edge2 = P2 - P0;
+    v3 Edge1 = V3_Sub_V3(P1, P0);
+    v3 Edge2 = V3_Sub_V3(P2, P0);
     v3 PVec = V3_Cross(Ray->Direction, Edge2);
     f32 Det = V3_Dot(Edge1, PVec);
 
@@ -12,7 +12,7 @@ export_function ray_hit Ray_Intersect_Triangle(const ray* Ray, v3 P0, v3 P1, v3 
     if(Abs(Det) < 1e-8f) return Result;
 
     f32 InvDet = 1.0f / Det;
-    v3 TVec = Ray->Origin - P0;
+    v3 TVec = V3_Sub_V3(Ray->Origin, P0);
     f32 U = V3_Dot(TVec, PVec) * InvDet;
     if(U < 0.0f || U > 1.0f) return Result;
 
@@ -32,12 +32,12 @@ export_function ray_hit Ray_Intersect_Cylinder_Segment(const ray* Ray, v3 SegA, 
 	ray_hit Result = { false, 0.0f };
 	v3 Origin = Ray->Origin;
 	v3 Dir = Ray->Direction;
-	v3 D = SegB - SegA;
+	v3 D = V3_Sub_V3(SegB, SegA);
 	f32 SegLen = V3_Mag(D);
 	if(SegLen <= 1e-6f) return Result;
 
-	v3 U = D / SegLen;
-	v3 W = Origin - SegA;
+	v3 U = V3_Div_S(D, SegLen);
+	v3 W = V3_Sub_V3(Origin, SegA);
 	f32 b = V3_Dot(Dir, U);
 	f32 d = V3_Dot(Dir, W);
 	f32 e = V3_Dot(U, W);
@@ -54,9 +54,9 @@ export_function ray_hit Ray_Intersect_Cylinder_Segment(const ray* Ray, v3 SegA, 
 	if(RayT < 0.0f) return Result;
 
 	f32 ClampedSegT = Clamp(0.0f, SegT, SegLen);
-	v3 P = Origin + Dir * RayT;
-	v3 Q = SegA + U * ClampedSegT;
-	f32 DistSq = V3_Sq_Mag(P - Q);
+	v3 P = V3_Add_V3(Origin, V3_Mul_S(Dir, RayT));
+	v3 Q = V3_Add_V3(SegA, V3_Mul_S(U, ClampedSegT));
+	f32 DistSq = V3_Sq_Mag(V3_Sub_V3(P, Q));
 	if(DistSq > PickRadius * PickRadius) return Result;
 
 	Result.Hit = true;
@@ -70,7 +70,7 @@ export_function ray_hit Ray_Intersect_Plane(const ray* Ray, v3 PlaneOrigin, v3 P
 	v3 Dir = Ray->Direction;
 	f32 Denom = V3_Dot(Dir, PlaneNormal);
 	if(Abs(Denom) < 1e-6f) return Result;
-	f32 T = V3_Dot(PlaneOrigin - Origin, PlaneNormal) / Denom;
+	f32 T = V3_Dot(V3_Sub_V3(PlaneOrigin, Origin), PlaneNormal) / Denom;
 	if(T < 0.0f) return Result;
 	Result.Hit = true;
 	Result.T = T;
@@ -81,8 +81,8 @@ export_function ray_hit Ray_Intersect_Ring(const ray* Ray, v3 Center, v3 Normal,
 	ray_hit Result = { false, 0.0f };
 	ray_hit PHit = Ray_Intersect_Plane(Ray, Center, Normal);
 	if(!PHit.Hit) return Result;
-	v3 Point = Ray->Origin + Ray->Direction * PHit.T;
-	v3 Local = Point - Center;
+	v3 Point = V3_Add_V3(Ray->Origin, V3_Mul_S(Ray->Direction, PHit.T));
+	v3 Local = V3_Sub_V3(Point, Center);
 	f32 DistFromCenter = V3_Mag(Local);
 	if(Abs(DistFromCenter - Radius) > PickRadius) return Result;
 	Result.Hit = true;
@@ -119,8 +119,8 @@ export_function ray_hit Ray_Intersect_AABB(const ray* Ray, v3 Min, v3 Max) {
 
 export_function ray_hit Ray_Intersect_AABB_Uniform(const ray* Ray, v3 Center, f32 Size) {
 	f32 H = Size * 0.5f;
-	v3 Min = Center - V3_All(H);
-	v3 Max = Center + V3_All(H);
+	v3 Min = V3_Sub_V3(Center, V3_All(H));
+	v3 Max = V3_Add_V3(Center, V3_All(H));
 	return Ray_Intersect_AABB(Ray, Min, Max);
 }
 
@@ -146,7 +146,7 @@ export_function ray_hit Ray_Intersect_OBB(const ray* Ray, const obb* Box) {
 export_function b32 Ray_Project_To_Axis(const ray* Ray, v3 LineOrigin, v3 Axis, f32* OutT) {
 	v3 Origin = Ray->Origin;
 	v3 Dir = Ray->Direction;
-	v3 W = Origin - LineOrigin;
+	v3 W = V3_Sub_V3(Origin, LineOrigin);
 	f32 b = V3_Dot(Dir, Axis);
 	f32 d = V3_Dot(Dir, W);
 	f32 e = V3_Dot(Axis, W);
@@ -155,3 +155,4 @@ export_function b32 Ray_Project_To_Axis(const ray* Ray, v3 LineOrigin, v3 Axis, 
 	*OutT = (e - b * d) / denom;
 	return true;
 }
+

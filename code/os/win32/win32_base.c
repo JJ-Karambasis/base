@@ -401,7 +401,9 @@ function OS_MAKE_DIRECTORY_DEFINE(Win32_Make_Directory) {
     wstring PathW = WString_From_String((allocator*)Scratch, Directory);
     BOOL Result = CreateDirectoryW(PathW.Ptr, NULL);
     if (!Result) {
-        Win32_Log_Last_Error(String_Lit("CreateDirectoryW"), Directory);
+        if(GetLastError() != ERROR_ALREADY_EXISTS) {
+            Win32_Log_Last_Error(String_Lit("CreateDirectoryW"), Directory);
+        }
     }
     Scratch_Release();
     return Result;

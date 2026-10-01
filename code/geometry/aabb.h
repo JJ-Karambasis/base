@@ -1,10 +1,10 @@
 #ifndef AABB_H
 #define AABB_H
 
-struct aabb {
+typedef struct {
     v3 Min;
     v3 Max;
-};
+} aabb;
 
 function inline aabb AABB_Inverted(void) {
     aabb Result;
