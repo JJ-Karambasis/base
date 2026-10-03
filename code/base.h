@@ -740,6 +740,19 @@ struct allocator {
     string 			  DebugName;
 };
 
+//In C++ allocator types inherit from allocator so their pointers implicitly convert.
+//In C they embed it as their first member. Keep allocator free of virtuals and
+//constructors so both forms share the same layout.
+#ifdef __cplusplus
+#define Allocator_Derive(name) struct name : allocator
+#define ALLOCATOR_BASE_FIELD
+#define Allocator_Base(ptr) static_cast<allocator*>(ptr)
+#else
+#define Allocator_Derive(name) struct name
+#define ALLOCATOR_BASE_FIELD allocator Base;
+#define Allocator_Base(ptr) (&(ptr)->Base)
+#endif
+
 export_function allocator* Default_Allocator_Get();
 
 #define Allocator_Allocate_Memory(allocator, size) (allocator)->VTable->AllocateMemoryFunc(allocator, size, CLEAR_FLAG_YES)
@@ -764,8 +777,8 @@ typedef enum {
 } arena_type;
 
 typedef struct arena arena;
-struct arena {
-    allocator  Base;
+Allocator_Derive(arena) {
+    ALLOCATOR_BASE_FIELD
     arena_type Type;
     union {
         struct {
@@ -809,6 +822,11 @@ export_function void Arena_Clear(arena* Arena);
 #define Arena_Push_Array_No_Clear(arena, count, type) (type *)Arena_Push_No_Clear(arena, sizeof(type)*(count))
 
 typedef struct heap heap;
+Allocator_Derive(heap) {
+    ALLOCATOR_BASE_FIELD
+    void* Heap;
+};
+
 export_function heap* Heap_Create();
 export_function void  Heap_Delete(heap* Heap);
 export_function void* Heap_Alloc_Aligned_No_Clear(heap* Heap, size_t Size, size_t Alignment);
@@ -821,12 +839,13 @@ export_function void  Heap_Clear(heap* Heap);
 #define Heap_Alloc_Struct(heap, type) (type*)Heap_Alloc(heap, sizeof(type))
 #define Heap_Alloc_Array(heap, count, type) (type*)Heap_Alloc(heap, sizeof(type)*(count))
 
-typedef struct {
-    allocator  Base;
+typedef struct cap_allocator cap_allocator;
+Allocator_Derive(cap_allocator) {
+    ALLOCATOR_BASE_FIELD
     allocator* InnerAllocator;
     u8*        Ptr;
     size_t     Capacity;
-} cap_allocator;
+};
 
 export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator);
 export_function void* Cap_Allocator_Allocate_No_Clear(cap_allocator* Allocator, size_t Size);
@@ -1542,7 +1561,11 @@ struct scratch : public allocator {
 
 function inline ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Scratch_Allocate_Memory) {
     scratch* Scratch = (scratch*)Allocator;
-    return Arena_Push(Scratch->Arena, Size);
+    void* Result = Arena_Push_No_Clear(Scratch->Arena, Size);
+    if (Result && ClearFlag == CLEAR_FLAG_YES) {
+        Memory_Clear(Result, Size);
+    }
+    return Result;
 }
 
 function inline ALLOCATOR_FREE_MEMORY_DEFINE(Scratch_Free_Memory) {

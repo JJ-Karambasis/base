@@ -1907,7 +1907,7 @@ export_function arena* Arena_Create_With_Size(string DebugName, size_t ReserveSi
 	Asan_Poison_Memory_Region(Arena, MemoryReserve.CommitSize);
 	Asan_Unpoison_Memory_Region(Arena, sizeof(arena));
 	
-	Arena->Base.VTable = Base->ArenaVTable;
+	Allocator_Base(Arena)->VTable = Base->ArenaVTable;
 	Arena->Type = ARENA_TYPE_VIRTUAL;
 	Arena->Reserve 	   = MemoryReserve;
 	Arena->Used        = sizeof(arena);
@@ -1927,7 +1927,7 @@ export_function arena* Arena_Create_With_Allocator(string DebugName, allocator* 
 	base* Base = Base_Get();
     
 	arena* Arena = Allocator_Allocate_Struct(Allocator, arena);
-	Arena->Base.VTable = Base->ArenaVTable;
+	Allocator_Base(Arena)->VTable = Base->ArenaVTable;
 	Arena->Type = ARENA_TYPE_ALLOCATOR;
 	Arena->Allocator = Allocator;
 	Allocator_Set_Name((allocator*)Arena, DebugName);
@@ -2127,27 +2127,22 @@ function ALLOCATOR_FREE_MEMORY_DEFINE(Arena_Free_Memory) {
 	//Noop
 }
 
-struct heap {
-	allocator 		 Base;
-	rpmalloc_heap_t* Heap;
-};
-
 export_function heap* Heap_Create() {
 	heap* Heap = Allocator_Allocate_Struct(Default_Allocator_Get(), heap);
-	Heap->Base.VTable = Base_Get()->HeapVTable;
+	Allocator_Base(Heap)->VTable = Base_Get()->HeapVTable;
 	Heap->Heap = rpmalloc_heap_acquire();
 	return Heap;
 }
 
 export_function void Heap_Delete(heap* Heap) {
-	rpmalloc_heap_free_all(Heap->Heap);
-	rpmalloc_heap_release(Heap->Heap);
+	rpmalloc_heap_free_all((rpmalloc_heap_t*)Heap->Heap);
+	rpmalloc_heap_release((rpmalloc_heap_t*)Heap->Heap);
 	Allocator_Free_Memory(Default_Allocator_Get(), Heap);
 }
 
 export_function void* Heap_Alloc_Aligned_No_Clear(heap* Heap, size_t Size, size_t Alignment) {
 	if (!Size) return NULL;
-	void* Result = rpmalloc_heap_aligned_alloc(Heap->Heap, Alignment, Size);
+	void* Result = rpmalloc_heap_aligned_alloc((rpmalloc_heap_t*)Heap->Heap, Alignment, Size);
 	return Result;
 }
 
@@ -2166,11 +2161,11 @@ export_function void* Heap_Alloc(heap* Heap, size_t Size) {
 }
 
 export_function void Heap_Free(heap* Heap, void* Memory) {
-	rpmalloc_heap_free(Heap->Heap, Memory);
+	rpmalloc_heap_free((rpmalloc_heap_t*)Heap->Heap, Memory);
 }
 
 export_function void Heap_Clear(heap* Heap) {
-	rpmalloc_heap_free_all(Heap->Heap);
+	rpmalloc_heap_free_all((rpmalloc_heap_t*)Heap->Heap);
 }
 
 function ALLOCATOR_ALLOCATE_MEMORY_DEFINE(Heap_Allocate_Memory) {
@@ -2189,7 +2184,7 @@ function ALLOCATOR_FREE_MEMORY_DEFINE(Heap_Free_Memory) {
 
 export_function cap_allocator* Cap_Allocator_Create(allocator* InnerAllocator) {
     cap_allocator* Result = Allocator_Allocate_Struct(InnerAllocator, cap_allocator);
-    Result->Base.VTable = Base_Get()->CapAllocatorVTable;
+    Allocator_Base(Result)->VTable = Base_Get()->CapAllocatorVTable;
     Result->InnerAllocator = InnerAllocator;
     return Result;
 }
