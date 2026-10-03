@@ -219,6 +219,14 @@ export_function f32 ACos_F32(f32 V) {
 	return acosf(V);
 }
 
+export_function f32 Exp_F32(f32 V) {
+	return expf(V);
+}
+
+export_function f32 Pow_F32(f32 Base, f32 Exponent) {
+	return powf(Base, Exponent);
+}
+
 export_function size_t Align(size_t Value, size_t Alignment) {
     size_t Remainder = Value % Alignment;
     return Remainder ? Value + (Alignment-Remainder) : Value;

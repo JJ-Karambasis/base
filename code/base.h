@@ -319,6 +319,8 @@ export_function f32 Tan_F32(f32 Value);
 export_function f32 ATan2_F32(f32 a, f32 b);
 export_function f32 ASin_F32(f32 V);
 export_function f32 ACos_F32(f32 V);
+export_function f32 Exp_F32(f32 V);
+export_function f32 Pow_F32(f32 Base, f32 Exponent);
 export_function size_t Align(size_t Value, size_t Alignment);
 export_function u32 Ceil_Pow2_U32(u32 V);
 export_function u64 Ceil_Pow2_U64(u64 V);
