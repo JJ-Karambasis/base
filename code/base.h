@@ -559,6 +559,7 @@ export_function m3 M3_From_M4(const m4* M);
 export_function m3 M3_Identity();
 export_function m3 M3_XYZ(v3 x, v3 y, v3 z);
 export_function m3 M3_From_Quat(quat q);
+export_function quat Quat_From_M3_No_Scale(const m3* M);
 export_function m3 M3_Axis_Angle(v3 Axis, f32 Angle);
 export_function m3 M3_Transpose(const m3* M);
 export_function m3 M3_Inverse(const m3* M);

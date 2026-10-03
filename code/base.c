@@ -875,7 +875,8 @@ export_function quat Quat_Norm(quat V) {
 }
 
 export_function quat Quat_Lerp(quat A, f32 t, quat B) {
-	quat Result = Quat_Norm(Quat_Add_Quat(Quat_Mul_S(A, 1.0f - t), Quat_Mul_S(B, t)));
+	f32 tB = Quat_Dot(A, B) < 0.0f ? -t : t;
+	quat Result = Quat_Norm(Quat_Add_Quat(Quat_Mul_S(A, 1.0f - t), Quat_Mul_S(B, tB)));
 	return Result;
 }
 
@@ -935,6 +936,38 @@ export_function m3 M3_From_Quat(quat q) {
 		.z = V3(2*(qxqz + qwqy),     2*(qyqz - qwqx),     1 - 2*(qxqx + qyqy))
 	};
 	return Result;
+}
+
+export_function quat Quat_From_M3_No_Scale(const m3* M) {
+	f32 Trace = M->m00 + M->m11 + M->m22;
+	quat Q;
+	if(Trace > 0.0f) {
+		f32 S = sqrtf(Trace + 1.0f);
+		Q.w = 0.5f * S;
+		S = 0.5f / S;
+		Q.x = (M->m12 - M->m21) * S;
+		Q.y = (M->m20 - M->m02) * S;
+		Q.z = (M->m01 - M->m10) * S;
+	} else if(M->m00 > M->m11 && M->m00 > M->m22) {
+		f32 S = sqrtf(1.0f + M->m00 - M->m11 - M->m22) * 2.0f;
+		Q.x = 0.25f * S;
+		Q.y = (M->m01 + M->m10) / S;
+		Q.z = (M->m02 + M->m20) / S;
+		Q.w = (M->m12 - M->m21) / S;
+	} else if(M->m11 > M->m22) {
+		f32 S = sqrtf(1.0f + M->m11 - M->m00 - M->m22) * 2.0f;
+		Q.x = (M->m01 + M->m10) / S;
+		Q.y = 0.25f * S;
+		Q.z = (M->m12 + M->m21) / S;
+		Q.w = (M->m20 - M->m02) / S;
+	} else {
+		f32 S = sqrtf(1.0f + M->m22 - M->m00 - M->m11) * 2.0f;
+		Q.x = (M->m02 + M->m20) / S;
+		Q.y = (M->m12 + M->m21) / S;
+		Q.z = 0.25f * S;
+		Q.w = (M->m01 - M->m10) / S;
+	}
+	return Quat_Norm(Q);
 }
 
 export_function m3 M3_Axis_Angle(v3 Axis, f32 Angle) {
