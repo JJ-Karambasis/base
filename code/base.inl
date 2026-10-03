@@ -175,6 +175,9 @@ template <typename type>
 struct array;
 
 template <typename type>
+struct static_array;
+
+template <typename type>
 struct span {
 	const type* Ptr = NULL;
 	size_t 		Count = 0;
@@ -188,11 +191,31 @@ struct span {
 	inline span(const type* _Ptr, size_t _Count) : Ptr(_Ptr), Count(_Count) {}
     
     inline span(const array<type>& Array);
-    
+    inline span(const static_array<type>& Array);
 	inline const type& operator[](size_t Index) const {
 		Assert(Index < Count);
 		return Ptr[Index];
 	}
+};
+
+template <typename type>
+struct static_array {
+    type* Ptr = NULL;
+    size_t Count = 0;
+    
+    static_array() = default;
+    inline static_array(type* Ptr, size_t Count) : Ptr(Ptr), Count(Count) {}
+    inline static_array(const array<type>& Array);
+
+    inline type& operator[](size_t Index) {
+        Assert(Index < Count);
+        return Ptr[Index];
+    }
+
+    inline const type& operator[](size_t Index) const {
+        Assert(Index < Count);
+        return Ptr[Index];
+    }
 };
 
 template <typename type>
@@ -232,6 +255,28 @@ template <typename type>
 function inline b32 Span_Find(span<type> Span, const type& Value) {
     for(size_t i = 0; i < Span.Count; i++) {
         if(Span[i] == Value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename type>
+inline static_array<type>::static_array(const array<type>& Array) : Ptr(Array.Ptr), Count(Array.Count) { }
+
+template <typename type>
+inline span<type>::span(const static_array<type>& Array) : Ptr(Array.Ptr), Count(Array.Count) { }
+
+template <typename type>
+function inline void Array_Init(static_array<type>* Array, type* Ptr, size_t Count) {
+    Array->Ptr = Ptr;
+    Array->Count = Count;
+}
+
+template <typename type>
+function inline b32 Array_Find(static_array<type> Array, const type& Value) {
+    for(size_t i = 0; i < Array.Count; i++) {
+        if(Array[i] == Value) {
             return true;
         }
     }
@@ -459,6 +504,11 @@ struct pool_handle {
 };
 
 template <typename type>
+function inline pool_handle<type> Null_Handle() {
+    return {};
+}
+
+template <typename type>
 function inline b32 Handle_Is_Null(pool_handle<type> Handle) {
     return Pool_ID_Null(Handle.ID);
 }
@@ -489,6 +539,68 @@ function inline void Pool_Free(pool_t<type>* Pool, pool_handle<type> Handle) {
 template<typename type>
 function inline type* Pool_Get(pool_t<type>* Pool, pool_handle<type> Handle) {
 	return (type*)Pool_Get((pool*)Pool, Handle.ID);
+}
+
+// Parallel items for an existing pool, addressed by that pool's handles.
+// Storage commits up to the source pool's high-water mark. A recycled source slot starts cleared.
+template<typename type, typename source_type>
+struct linked_pool_t {
+	pool_t<source_type>* Source;
+	memory_reserve Reserve;
+	u32 Capacity;
+
+	struct slot {
+		u32 Generation;
+		type Item;
+	};
+	slot* Slots;
+};
+
+template<typename type, typename source_type>
+function inline void Linked_Pool_Init(linked_pool_t<type, source_type>* Pool, pool_t<source_type>* Source) {
+	Memory_Clear(Pool, sizeof(*Pool));
+	Pool->Source = Source;
+	Pool->Reserve = Make_Memory_Reserve(GB(1));
+	Pool->Slots = (decltype(Pool->Slots))Pool->Reserve.BaseAddress;
+}
+
+template<typename type, typename source_type>
+function inline void Linked_Pool_Delete(linked_pool_t<type, source_type>* Pool) {
+	if (Pool && Pool->Reserve.BaseAddress) {
+		Delete_Memory_Reserve(&Pool->Reserve);
+		Memory_Clear(Pool, sizeof(*Pool));
+	}
+}
+
+template<typename type, typename source_type>
+function inline void Linked_Pool_Ensure(linked_pool_t<type, source_type>* Pool, u32 Count) {
+	if (Count <= Pool->Capacity) return;
+
+	size_t SlotSize = sizeof(*Pool->Slots);
+	if (!Commit_New_Size(&Pool->Reserve, (size_t)Count * SlotSize)) {
+		Debug_Log("Failed to commit more memory for the linked pool");
+		return;
+	}
+
+	Pool->Capacity = (u32)(Pool->Reserve.CommitSize / SlotSize);
+}
+
+template<typename type, typename source_type>
+function inline type* Linked_Pool_Get(linked_pool_t<type, source_type>* Pool, pool_handle<source_type> Handle) {
+	Assert(Pool->Source);
+	if (Pool_ID_Null(Handle.ID)) return NULL;
+	if (Handle.ID.Index >= Pool->Source->MaxUsed) return NULL;
+	if (!Pool_Is_Allocated(Pool->Source, Handle.ID)) return NULL;
+
+	Linked_Pool_Ensure(Pool, Pool->Source->MaxUsed);
+	if (Handle.ID.Index >= Pool->Capacity) return NULL;
+
+	auto* Slot = &Pool->Slots[Handle.ID.Index];
+	if (Slot->Generation != Handle.ID.Generation) {
+		Memory_Clear(&Slot->Item, sizeof(type));
+		Slot->Generation = Handle.ID.Generation;
+	}
+	return &Slot->Item;
 }
 
 function inline string String_Combine(allocator* Allocator, span<string> Strings) {
@@ -978,6 +1090,11 @@ template <typename type, size_t capacity>
 function inline void SPSC_Flush(spsc_queue<type, capacity>* Queue) {
     type Entry;
     while(SPSC_Pop(Queue, &Entry)) {}
+}
+
+template <typename type>
+function inline span<type> BStream_Reader_Array(bstream_reader* Reader, size_t Count) {
+    return span<type>((type*)BStream_Reader_Size(Reader, Count * sizeof(type)), Count);
 }
 
 #endif
