@@ -501,6 +501,10 @@ inline array<type>::array(allocator* Allocator, size_t Count) {
 template <typename type>
 struct pool_handle {
 	pool_id ID;
+
+    inline b32 operator==(const pool_handle<type>& Other) const {
+        return Pool_ID_Equal(ID, Other.ID);
+    }
 };
 
 template <typename type>
