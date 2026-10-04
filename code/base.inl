@@ -755,6 +755,85 @@ struct kvp {
 	value Value;
 };
 
+template <typename key, typename value>
+struct hashmap_kvp {
+	const key* Key;
+	value* Value;
+};
+
+// Hashmap_Remove swaps the last item into the removed index, so removing while iterating skips that item.
+template <typename key, typename value>
+struct hashmap_kvp_iterator {
+	const key* Keys;
+	value* Values;
+	u32 Index;
+
+	inline hashmap_kvp<key, value> operator*() const {
+		return {Keys + Index, Values + Index};
+	}
+
+	inline hashmap_kvp_iterator& operator++() {
+		Index++;
+		return *this;
+	}
+
+	inline b32 operator!=(const hashmap_kvp_iterator& Other) const {
+		return Index != Other.Index;
+	}
+};
+
+template <typename key>
+struct hashmap_key_iterator {
+	const key* Keys;
+	u32 Index;
+
+	inline const key* operator*() const {
+		return Keys + Index;
+	}
+
+	inline hashmap_key_iterator& operator++() {
+		Index++;
+		return *this;
+	}
+
+	inline b32 operator!=(const hashmap_key_iterator& Other) const {
+		return Index != Other.Index;
+	}
+};
+
+template <typename value>
+struct hashmap_value_iterator {
+	value* Values;
+	u32 Index;
+
+	inline value* operator*() const {
+		return Values + Index;
+	}
+
+	inline hashmap_value_iterator& operator++() {
+		Index++;
+		return *this;
+	}
+
+	inline b32 operator!=(const hashmap_value_iterator& Other) const {
+		return Index != Other.Index;
+	}
+};
+
+template <typename iterator>
+struct hashmap_range {
+	iterator Begin;
+	iterator End;
+
+	inline iterator begin() const {
+		return Begin;
+	}
+
+	inline iterator end() const {
+		return End;
+	}
+};
+
 template <typename key, typename value, typename hasher = hasher<key>, typename comparer = comparer<key>>
 struct hashmap_t {
     static const u32 INVALID = HASH_INVALID_SLOT;
@@ -772,6 +851,14 @@ struct hashmap_t {
     inline hashmap_t(allocator* _Allocator) : Allocator(_Allocator) {}
     
 	value& operator[](const key& Key);
+
+	inline hashmap_kvp_iterator<key, value> begin() {
+		return {Keys, Values, 0};
+	}
+
+	inline hashmap_kvp_iterator<key, value> end() {
+		return {Keys, Values, Count};
+	}
 };
 
 function inline u32 Expand_Slots(allocator* Allocator, hash_slot** Slots, u32 SlotCapacity, u32* ItemSlots) {
@@ -982,6 +1069,21 @@ inline value& hashmap_t<key, value, hasher, comparer>::operator[](const key& Key
 	value* Value = Hashmap_Find(this, Key);
 	Assert(Value);
 	return *Value;
+}
+
+template<typename key, typename value, typename hasher, typename comparer>
+function inline hashmap_range<hashmap_kvp_iterator<key, value>> Hashmap_KVPs(hashmap_t<key, value, hasher, comparer>* Hashmap) {
+	return {Hashmap->begin(), Hashmap->end()};
+}
+
+template<typename key, typename value, typename hasher, typename comparer>
+function inline hashmap_range<hashmap_key_iterator<key>> Hashmap_Keys(hashmap_t<key, value, hasher, comparer>* Hashmap) {
+	return {{Hashmap->Keys, 0}, {Hashmap->Keys, Hashmap->Count}};
+}
+
+template<typename key, typename value, typename hasher, typename comparer>
+function inline hashmap_range<hashmap_value_iterator<value>> Hashmap_Values(hashmap_t<key, value, hasher, comparer>* Hashmap) {
+	return {{Hashmap->Values, 0}, {Hashmap->Values, Hashmap->Count}};
 }
 
 template <typename type>
