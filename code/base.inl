@@ -519,7 +519,30 @@ function inline b32 Handle_Is_Null(pool_handle<type> Handle) {
 
 template<typename type>
 struct pool_t : public pool {
-	
+	struct iterator {
+		pool_iter Iter;
+
+		inline type* operator*() const {
+			return (type*)Iter.Data;
+		}
+
+		inline iterator& operator++() {
+			Pool_Iter_Next(&Iter);
+			return *this;
+		}
+
+		inline b32 operator!=(const iterator& Other) const {
+			return Iter.IsValid != Other.Iter.IsValid;
+		}
+	};
+
+	inline iterator begin() {
+		return {Pool_Begin_Iter(this)};
+	}
+
+	inline iterator end() {
+		return {};
+	}
 };
 
 template<typename type>
