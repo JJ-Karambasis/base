@@ -391,6 +391,8 @@ export_function f32 V2_Mag(v2 V);
 export_function v2 V2_Norm(v2 V);
 export_function v2 V2_Inverse(v2 V);
 export_function v2 V2_From_V2i(v2i V);
+export_function f32 V2_Signed_Angle(v2 From, v2 To);
+export_function v2 V2_Rotate(v2 V, f32 Angle);
 export_function v2 Circle_To_Square_Mapping(v2 Circle);
 export_function v2 Square_To_Circle_Mapping(v2 Square);
 export_function v2i V2i(s32 x, s32 y);

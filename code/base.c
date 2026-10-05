@@ -488,6 +488,18 @@ export_function v2 V2_From_V2i(v2i V) {
 	return Result;
 }
 
+export_function f32 V2_Signed_Angle(v2 From, v2 To) {
+	f32 Cross = From.x * To.y - From.y * To.x;
+	f32 Dot = V2_Dot(From, To);
+	return ATan2_F32(Cross, Dot);
+}
+
+export_function v2 V2_Rotate(v2 V, f32 Angle) {
+	f32 C = Cos_F32(Angle);
+	f32 S = Sin_F32(Angle);
+	return V2(V.x * C - V.y * S, V.x * S + V.y * C);
+}
+
 export_function v2 Circle_To_Square_Mapping(v2 Circle) {
 	f32 u = Circle.x;
 	f32 v = Circle.y;
