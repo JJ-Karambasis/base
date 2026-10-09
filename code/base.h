@@ -538,6 +538,7 @@ export_function f32 Quat_Sq_Mag(quat V);
 export_function f32 Quat_Mag(quat V);
 export_function quat Quat_Norm(quat V);
 export_function quat Quat_Lerp(quat A, f32 t, quat B);
+export_function f32 Quat_Angle_Between(quat A, quat B);
 export_function b32 Quat_Is_Nan(quat Q);
 export_function v3 Quat_Rotate(v3 V, quat Q);
 

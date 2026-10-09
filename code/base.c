@@ -900,6 +900,12 @@ export_function quat Quat_Lerp(quat A, f32 t, quat B) {
 	return Result;
 }
 
+//Angle of the shortest rotation from A to B, so Q and -Q count as the same rotation
+export_function f32 Quat_Angle_Between(quat A, quat B) {
+	f32 Dot = Min(Abs(Quat_Dot(A, B)), 1.0f);
+	return 2.0f * ACos_F32(Dot);
+}
+
 export_function b32 Quat_Is_Nan(quat Q) {
 	return Is_Nan(Q.x) || Is_Nan(Q.y) || Is_Nan(Q.z) || Is_Nan(Q.w);
 }
