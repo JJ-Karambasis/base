@@ -6,7 +6,7 @@ META_MACRO(VK_INSTANCE_FUNCS, name, funcs) {
 	META_GLOBALS(${name}) ${funcs}
     
 	META_FUNCTION(${name:pascal}_Funcs_Load, VkInstance Instance) -> void {
-		META_FOR(${name}) {
+		META_FOR(${name}, flags: NoBraces) {
 			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetInstanceProcAddr(Instance, "${META_ENTRY_NAME}");
 		}
 	}
@@ -17,7 +17,7 @@ META_MACRO(VK_DEVICE_FUNCS, name, funcs) {
 	META_GLOBALS(${name}) ${funcs}
     
 	META_FUNCTION(${name:pascal}_Funcs_Load, VkDevice Device) -> void {
-		META_FOR(${name}) {
+		META_FOR(${name}, flags: NoBraces) {
 			${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetDeviceProcAddr(Device, "${META_ENTRY_NAME}");
 		}
 	}
@@ -167,13 +167,13 @@ VK_DEVICE_FUNCS(VK_KHR_draw_indirect_count, {
 });
 
 META_FUNCTION(VK_Load_Library_Funcs, os_library* Library) -> void {
-	META_FOR(vk_library_func) {
+	META_FOR(vk_library_func, flags: NoBraces) {
 		${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})OS_Library_Get_Function(Library, "${META_ENTRY_NAME}");
 	}
 }
 
 META_FUNCTION(VK_Load_Global_Funcs) -> void {
-	META_FOR(vk_global_func) {
+	META_FOR(vk_global_func, flags: NoBraces) {
 		${META_ENTRY_NAME} = (PFN_${META_ENTRY_NAME})vkGetInstanceProcAddr(NULL, "${META_ENTRY_NAME}");
 	}
 }
@@ -261,20 +261,20 @@ META_STRUCT(vk_resource_pool) {
 }
 
 META_FUNCTION(VK_Resource_Pool_Init, vk_resource_pool* Pool, arena* Arena) -> void {
-	META_FOR(vk_resource_pool) {
+	META_FOR(vk_resource_pool, flags: NoBraces) {
 		VK_${META_GET_TAG_VALUE(name):pascal}_Pool_Init(&Pool->${META_ENTRY_NAME}, Arena);
 	}
 }
 
 META_FUNCTION(VK_Resource_Pool_Free_All, vk_device_context* Context, vk_resource_pool* Pool)->void {
-	META_FOR(vk_resource_pool) {
+	META_FOR(vk_resource_pool, flags: NoBraces) {
 		VK_${META_GET_TAG_VALUE(name):pascal}_Pool_Free_All(Context, &Pool->${META_ENTRY_NAME});
 	}
 }
 
 META_FUNCTION(VK_Get_GDI_Format, VkFormat Format) -> gdi_format {
 	switch (Format) {
-		META_FOR(gdi_format, flags: NoBraces) {
+		META_FOR(gdi_format, flags: NoBraces|NewLine) {
 			case ${META_GET_TAG_VALUE(vk):upper}: return ${META_ENTRY_NAME};
 		}
 		Invalid_Default_Case;
@@ -285,7 +285,7 @@ META_FUNCTION(VK_Get_GDI_Format, VkFormat Format) -> gdi_format {
 
 META_FUNCTION(VK_Get_Physical_Device_Type, VkPhysicalDeviceType Type) -> gdi_device_type {
 	switch(Type) {
-		META_FOR(gdi_device_type, flags: NoBraces) {
+		META_FOR(gdi_device_type, flags: NoBraces|NewLine) {
 			case ${META_GET_TAG_VALUE(vk):upper}: return ${META_ENTRY_NAME};
 		}
 	}
@@ -295,7 +295,7 @@ META_FUNCTION(VK_Get_Physical_Device_Type, VkPhysicalDeviceType Type) -> gdi_dev
 
 META_FUNCTION(VK_Get_Filter, gdi_filter Filter) -> VkFilter {
 	static const VkFilter Filters[] = {
-		META_FOR(gdi_filter, flags: NoBraces) {
+		META_FOR(gdi_filter, flags: NoBraces|NewLine) {
 			VK_FILTER_${META_ENTRY_SHORT_NAME:upper},
 		}
 	};
@@ -305,7 +305,7 @@ META_FUNCTION(VK_Get_Filter, gdi_filter Filter) -> VkFilter {
 
 META_FUNCTION(VK_Get_Mipmap_Mode, gdi_filter Filter) -> VkSamplerMipmapMode  {
 	static const VkSamplerMipmapMode MipmapMode[] = {
-		META_FOR(gdi_filter, flags: NoBraces) {
+		META_FOR(gdi_filter, flags: NoBraces|NewLine) {
 			VK_SAMPLER_MIPMAP_MODE_${META_ENTRY_SHORT_NAME:upper},
 		}
 	};
@@ -316,7 +316,7 @@ META_FUNCTION(VK_Get_Mipmap_Mode, gdi_filter Filter) -> VkSamplerMipmapMode  {
 META_MACRO(VK_Enum_Mapper, name, type, mapped_type) {
 	META_FUNCTION(VK_Get_${name}, ${type} Entry) -> ${mapped_type} {
 		static const ${mapped_type} Entries[] = {
-			META_FOR(${type}, flags: NoBraces) {
+			META_FOR(${type}, flags: NoBraces|NewLine) {
 				META_IF(META_CONTAINS_TAG(vk)) {
 					(${mapped_type})${META_GET_TAG_VALUE(vk):upper},
 				}
@@ -340,7 +340,7 @@ VK_Enum_Mapper(Cull_Mode, gdi_cull_mode, VkCullModeFlags);
 
 META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_frame_thread_context* ThreadContext) -> void {
 	vk_delete_queue* DeleteQueue = &ThreadContext->DeleteQueue;
-	META_FOR(vk_delete_queue) {
+	META_FOR(vk_delete_queue, flags: NoBraces) {
 		META_IF(META_NOT_CONTAINS_TAG(NoIteration)) {
 			for(${META_ENTRY_TYPE}_entry* QueueEntry = DeleteQueue->${META_ENTRY_NAME}.First; QueueEntry; QueueEntry = QueueEntry->Next) {
 				VK_Delete_${META_GET_TAG_VALUE(name):pascal}_Resources(Context, &QueueEntry->Entry);
@@ -352,7 +352,7 @@ META_FUNCTION(VK_Delete_Queued_Thread_Resources, vk_device_context* Context, vk_
 
 META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlags2KHR {
 	const VkPipelineStageFlags2KHR Entries[] = {
-		META_FOR(vk_resource_state, flags: NoBraces) {
+		META_FOR(vk_resource_state, flags: NoBraces|NewLine) {
 			${META_GET_TAG_VALUE(stage):upper},
 		}
 	};
@@ -362,7 +362,7 @@ META_FUNCTION(VK_Get_Stage_Mask, vk_resource_state State) -> VkPipelineStageFlag
 
 META_FUNCTION(VK_Get_Access_Mask, vk_resource_state State) -> VkAccessFlags2KHR {
 	const VkAccessFlags2KHR Entries[] = {
-		META_FOR(vk_resource_state, flags: NoBraces) {
+		META_FOR(vk_resource_state, flags: NoBraces|NewLine) {
 			${META_GET_TAG_VALUE(access):upper},
 		}
 	};
@@ -372,7 +372,7 @@ META_FUNCTION(VK_Get_Access_Mask, vk_resource_state State) -> VkAccessFlags2KHR 
 
 META_FUNCTION(VK_Get_Image_Layout, vk_resource_state State) -> VkImageLayout {
 	static const VkImageLayout Entries[] = {
-		META_FOR(vk_resource_state, flags: NoBraces) {
+		META_FOR(vk_resource_state, flags: NoBraces|NewLine) {
 			${META_GET_TAG_VALUE(layout):upper},
 		}
 	};

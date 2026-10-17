@@ -1,6 +1,6 @@
 META_FUNCTION(GDI_Get_SRGB_Format, gdi_format Format) -> gdi_format {
 	static const gdi_format Formats[] = {
-		META_FOR(gdi_format, flags: NoBraces) {
+		META_FOR(gdi_format, flags: NoBraces|NewLine) {
 			META_IF(META_CONTAINS_TAG(HasSRGB)) {
 				GDI_FORMAT_${META_ENTRY_SHORT_NAME_SUBSTR_CHAR(_)}_SRGB,
 			} META_ELSE {
@@ -14,7 +14,7 @@ META_FUNCTION(GDI_Get_SRGB_Format, gdi_format Format) -> gdi_format {
 
 META_FUNCTION(GDI_Is_Depth_Format, gdi_format Format) -> b32 {
 	static const b32 IsDepthFormat[] = {
-		META_FOR(gdi_format, flags: NoBraces) {
+		META_FOR(gdi_format, flags: NoBraces|NewLine) {
 			META_IF(META_CONTAINS_TAG(HasDepth)) {
 				true,
 			} META_ELSE {
@@ -28,7 +28,7 @@ META_FUNCTION(GDI_Is_Depth_Format, gdi_format Format) -> b32 {
 
 META_FUNCTION(GDI_Get_Format_Size, gdi_format Format) -> size_t {
 	static const size_t Sizes[] = {
-		META_FOR(gdi_format, flags: NoBraces) {
+		META_FOR(gdi_format, flags: NoBraces|NewLine) {
 			${META_GET_TAG_VALUE(size)},
 		}
 	};
@@ -38,7 +38,7 @@ META_FUNCTION(GDI_Get_Format_Size, gdi_format Format) -> size_t {
 
 META_FUNCTION(GDI_Is_Bind_Group_Type_Writable, gdi_bind_group_type Type) -> b32 {
 	static const b32 IsWritable[] = {
-		META_FOR(gdi_bind_group_type, flags: NoBraces) {
+		META_FOR(gdi_bind_group_type, flags: NoBraces|NewLine) {
 			META_IF(META_CONTAINS_TAG(writable)) {
 				true,
 			} META_ELSE {
@@ -52,7 +52,7 @@ META_FUNCTION(GDI_Is_Bind_Group_Type_Writable, gdi_bind_group_type Type) -> b32 
 
 META_FUNCTION(GDI_Get_Log_Type_Str, gdi_log_type Type) -> string {
 	switch (Type) {
-		META_FOR(gdi_log_type) {
+		META_FOR(gdi_log_type, flags: NoBraces|NewLine) {
 			case $ { META_ENTRY_NAME }: {
 				return String_Lit("${META_ENTRY_SHORT_NAME}");
 			} break;
@@ -63,7 +63,7 @@ META_FUNCTION(GDI_Get_Log_Type_Str, gdi_log_type Type) -> string {
 
 META_FUNCTION(GDI_Is_Bind_Group_Type_Texture, gdi_bind_group_type Type)->b32 {
 	static const b32 IsTexture[] = {
-		META_FOR(gdi_bind_group_type, flags: NoBraces) {
+		META_FOR(gdi_bind_group_type, flags: NoBraces|NewLine) {
 			META_IF(META_CONTAINS_TAG(texture)) {
 				true,
 			} META_ELSE {
@@ -77,7 +77,7 @@ META_FUNCTION(GDI_Is_Bind_Group_Type_Texture, gdi_bind_group_type Type)->b32 {
 
 META_FUNCTION(GDI_Is_Bind_Group_Type_Buffer, gdi_bind_group_type Type)->b32 {
 	static const b32 IsBuffer[] = {
-		META_FOR(gdi_bind_group_type, flags: NoBraces) {
+		META_FOR(gdi_bind_group_type, flags: NoBraces|NewLine) {
 			META_IF(META_CONTAINS_TAG(buffer)) {
 				true,
 			} META_ELSE {

@@ -1,3 +1,39 @@
+function b32 Meta_Generator_Whitespace_Has_Newline(string Whitespace) {
+	for (size_t i = 0; i < Whitespace.Size; i++) {
+		if (Whitespace.Ptr[i] == '\n') return true;
+	}
+	return false;
+}
+
+function void Meta_Generator_Emit_Tabs(sstream_writer* Writer, int TabCount) {
+	for (int i = 0; i < TabCount; i++) {
+		SStream_Writer_Add(Writer, String_Lit("\t"));
+	}
+}
+
+// Preserve same-line spacing as written. For newline breaks, keep blank lines
+// from the source whitespace but rebase indent to the current scope depth.
+function void Meta_Generator_Emit_Leading_Whitespace(sstream_writer* Writer, string Whitespace, int TabCount) {
+	if (String_Is_Empty(Whitespace)) return;
+
+	if (!Meta_Generator_Whitespace_Has_Newline(Whitespace)) {
+		SStream_Writer_Add(Writer, Whitespace);
+		return;
+	}
+
+	for (size_t i = 0; i < Whitespace.Size; i++) {
+		if (Whitespace.Ptr[i] == '\n') {
+			SStream_Writer_Add(Writer, String_Lit("\n"));
+		}
+	}
+	Meta_Generator_Emit_Tabs(Writer, TabCount);
+}
+
+function void Meta_Generator_Emit_Newline_At_Scope(sstream_writer* Writer, int TabCount) {
+	SStream_Writer_Add(Writer, String_Lit("\n"));
+	Meta_Generator_Emit_Tabs(Writer, TabCount);
+}
+
 function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* Parser) {
 	arena* Scratch = Scratch_Get();
 
@@ -80,73 +116,44 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 										  Parameter->Name.Size, Parameter->Name.Ptr);
 			}
 		}
-		SStream_Writer_Add(&SourceWriter, String_Lit(") {\n"));
-					
-		int  TabCount = 0;
-		char Tabs[64];
-		Tabs[TabCount++] = '\t';
+		SStream_Writer_Add(&SourceWriter, String_Lit(") {"));
 
+		int TabCount = 1;
 		meta_token_list CodeTokenList = Function->CodeTokens;
-
 		size_t CodeTokenIndex = 0;
-		b32 IsNewline = true;
 		for (meta_token* CodeToken = CodeTokenList.First; CodeToken && CodeTokenIndex < CodeTokenList.Count; CodeToken = CodeToken->Next, CodeTokenIndex++) {
+			if (CodeToken->Type == '\n') {
+				Meta_Generator_Emit_Newline_At_Scope(&SourceWriter, TabCount);
+				continue;
+			}
+
+			if (CodeToken->Type == '}') {
+				Assert(TabCount > 0);
+				TabCount--;
+			}
+
 			if (CodeToken->Type == META_TOKEN_TYPE_PREPROCESSOR) {
+				Meta_Generator_Emit_Leading_Whitespace(&SourceWriter, CodeToken->LeadingWhitespace, TabCount);
 				SStream_Writer_Add_Format(&SourceWriter, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
-				
+
 				//todo: Fix this. Its some ugly hacky shit. I don't like the
 				//preprocessor token type either. So probably remove that
 				if (!String_Equals(CodeToken->Identifier, String_Lit("#endif"))) {
 					CodeToken = CodeToken->Next;
 					CodeTokenIndex++;
-					SStream_Writer_Add_Format(&SourceWriter, " %.*s\n", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
-				} else {
-					SStream_Writer_Add_Format(&SourceWriter, "\n", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
+					SStream_Writer_Add_Format(&SourceWriter, " %.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
 				}
-
 			} else {
-				if (CodeToken->Type == '}') {
-					Assert(TabCount > 0);
-					TabCount--;
-				}
-						
-				if (IsNewline) {
-					if (TabCount) {
-						SStream_Writer_Add_Format(&SourceWriter, "%.*s", TabCount, Tabs);
-						IsNewline = false;
-					}
-				}
+				Meta_Generator_Emit_Leading_Whitespace(&SourceWriter, CodeToken->LeadingWhitespace, TabCount);
 				SStream_Writer_Add_Format(&SourceWriter, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
+			}
 
-				if (CodeToken->Type == META_TOKEN_TYPE_IDENTIFIER && CodeToken->Next && CodeToken->Next->Type == META_TOKEN_TYPE_IDENTIFIER) {
-					SStream_Writer_Add(&SourceWriter, String_Lit(" "));
-				}
-
-				if (CodeToken->Type == ';') {
-					SStream_Writer_Add(&SourceWriter, String_Lit("\n"));
-					IsNewline = true;
-				}
-
-				if (CodeToken->Type == '{') {
-					SStream_Writer_Add(&SourceWriter, String_Lit("\n"));
-					Assert(TabCount < (int)Array_Count(Tabs));
-					Tabs[TabCount++] = '\t';
-					IsNewline = true;
-				}
-
-				if (CodeToken->Type == '}') {
-					SStream_Writer_Add(&SourceWriter, String_Lit("\n"));
-					IsNewline = true;
-				}
-
-				if (CodeToken->Type == '\n') {
-					IsNewline = true;
-				}
+			if (CodeToken->Type == '{') {
+				TabCount++;
 			}
 		}
-		//Assert(TabCount == 1);
 
-		SStream_Writer_Add(&SourceWriter, String_Lit("}\n"));
+		SStream_Writer_Add(&SourceWriter, String_Lit("\n}\n"));
 	}
 
 	string Header = SStream_Writer_Join(&HeaderWriter, (allocator*)SourceArena, String_Empty());

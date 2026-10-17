@@ -1,11 +1,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
+#include <base.h>
 #include <dxc/dxcapi.h>
 
-#include <base.h>
 #include <meta_program/meta_errors.c>
 #include <meta_program/meta_parser.h>
 #include <meta_program/meta_parser.c>
+#include <meta_program/meta_generator.h>
+#include <meta_program/meta_generator.c>
 
 #include <third_party/stb/stb_image_write.h>
 #include <gdi/gdi.h>

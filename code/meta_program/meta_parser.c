@@ -70,11 +70,13 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	//For loop flags
 	string ForLoopFlagsStr[] = {
 		String_Lit("NoBraces"),
-		String_Lit("NoParent")
+		String_Lit("NoParent"),
+		String_Lit("NewLine")
 	};
 	meta_for_loop_flags_metadata ForLoopFlagsMetadata[] = {
 		{ META_FOR_LOOP_NO_BRACE_FLAG, META_FOR_LOOP_SUPPORT_ALL },
-		{ META_FOR_LOOP_NO_PARENT_FLAG, META_FOR_LOOP_SUPPORT_STRUCT }
+		{ META_FOR_LOOP_NO_PARENT_FLAG, META_FOR_LOOP_SUPPORT_STRUCT },
+		{ META_FOR_LOOP_NEW_LINE_FLAG, META_FOR_LOOP_SUPPORT_ALL }
 	};
 	Static_Assert(Array_Count(ForLoopFlagsMetadata) == Array_Count(ForLoopFlagsStr));
 	for (size_t i = 0; i < Array_Count(ForLoopFlagsMetadata); i++) {
@@ -363,10 +365,64 @@ function meta_token* Meta_Allocate_Token(meta_tokenizer* Tokenizer, u32 Type) {
 function void Meta_Add_Token(meta_tokenizer* Tokenizer, meta_token_type Type, size_t c0, size_t c1, size_t LineNumber) {
 	meta_token* Token = Meta_Allocate_Token(Tokenizer, Type);
 	Token->Identifier = String_Copy((allocator*)Tokenizer->Arena, String_Substr(Tokenizer->Content, c0, c1));
+	Token->LeadingWhitespace = Tokenizer->PendingLeadingWhitespace;
+	Tokenizer->PendingLeadingWhitespace = String_Empty();
 	Token->c0 = c0;
 	Token->LineNumber = LineNumber;
 	DLL_Push_Back(Tokenizer->Tokens.First, Tokenizer->Tokens.Last, Token);
 	Tokenizer->Tokens.Count++;
+}
+
+function void Meta_Tokenizer_Capture_Whitespace(meta_tokenizer* Tokenizer) {
+	sstream_reader* Stream = &Tokenizer->Stream;
+	size_t StartIndex = SStream_Reader_Get_Index(Stream);
+	SStream_Reader_Eat_Whitespace(Stream);
+	size_t EndIndex = SStream_Reader_Get_Index(Stream);
+	if (EndIndex > StartIndex) {
+		string Captured = String_Copy((allocator*)Tokenizer->Arena, String_Substr(Tokenizer->Content, StartIndex, EndIndex));
+		if (String_Is_Empty(Tokenizer->PendingLeadingWhitespace)) {
+			Tokenizer->PendingLeadingWhitespace = Captured;
+		} else {
+			Tokenizer->PendingLeadingWhitespace = String_Concat((allocator*)Tokenizer->Arena, Tokenizer->PendingLeadingWhitespace, Captured);
+		}
+	}
+}
+
+function void Meta_Copy_Token_Fields(meta_token* Dst, meta_token* Src) {
+	Dst->LineNumber = Src->LineNumber;
+	Dst->Identifier = Src->Identifier;
+	Dst->LeadingWhitespace = Src->LeadingWhitespace;
+	Dst->Flags = Src->Flags;
+	Dst->Parameters = Src->Parameters;
+	Dst->StackUpwardOffset = Src->StackUpwardOffset;
+	Dst->c0 = Src->c0;
+}
+
+function string Meta_Strip_Leading_Newlines(string Whitespace) {
+	size_t Index = 0;
+	while (Index < Whitespace.Size && (Whitespace.Ptr[Index] == '\n' || Whitespace.Ptr[Index] == '\r')) {
+		Index++;
+	}
+	// Also drop indent that belonged to the stripped newline break; keep only
+	// horizontal spacing that was meant for same-line layout (none after newlines).
+	while (Index < Whitespace.Size && (Whitespace.Ptr[Index] == ' ' || Whitespace.Ptr[Index] == '\t')) {
+		Index++;
+	}
+	return String_Substr(Whitespace, Index, Whitespace.Size);
+}
+
+function void Meta_Tokens_Append_List(meta_token_list* Dst, meta_token_list* Src) {
+	if (!Src->Count) return;
+	if (!Dst->Count) {
+		Dst->First = Src->First;
+		Dst->Last = Src->Last;
+		Dst->Count = Src->Count;
+		return;
+	}
+	Dst->Last->Next = Src->First;
+	Src->First->Prev = Dst->Last;
+	Dst->Last = Src->Last;
+	Dst->Count += Src->Count;
 }
 
 function inline void Meta_Add_Token_Char(meta_tokenizer* Tokenizer, sstream_char Char) {
@@ -429,6 +485,7 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 	Assert(Token->Type == '$' && Token->Next->Type == '{');
 	meta_token* ReplacementToken = Meta_Allocate_Token(Tokenizer, META_TOKEN_TYPE_REPLACEMENT);
 	ReplacementToken->LineNumber = Token->LineNumber;
+	ReplacementToken->LeadingWhitespace = Token->LeadingWhitespace;
 	
 	//Check if the character before the replacement token is apart of the same 
 	//string 
@@ -615,6 +672,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 			case '=':
 			case '-':
 			case '>':
+			case '|':
 			{
 				Meta_Tokenizer_End_Identifier(Tokenizer);
 				Meta_Add_Token_Char(Tokenizer, SStream_Reader_Consume_Char(Stream));
@@ -628,9 +686,12 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 				if (SStream_Reader_Is_Valid(Stream)) {
 					sstream_char NextChar = SStream_Reader_Peek_Char(Stream);
 					if (NextChar.Char == '/' && NextChar.LineIndex == Char.LineIndex) {
-						//Single line comment
+						//Single line comment. Drop whitespace that belonged to the
+						//comment line and keep a newline for the following token.
 						IsComment = true;
+						Tokenizer->PendingLeadingWhitespace = String_Lit("\n");
 						SStream_Reader_Skip_Line(Stream);
+						Meta_Tokenizer_Capture_Whitespace(Tokenizer);
 					}
                     
 					if (NextChar.Char == '*') {
@@ -653,6 +714,9 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 							Report_Error(Tokenizer->FilePath, Char.LineIndex, "Unexpected end of multi line comment");
 							return false;
 						}
+
+						Tokenizer->PendingLeadingWhitespace = String_Empty();
+						Meta_Tokenizer_Capture_Whitespace(Tokenizer);
 					}
 				}
                 
@@ -665,7 +729,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 			default: {
 				if (Is_Whitespace(Char.Char)) {
 					Meta_Tokenizer_End_Identifier(Tokenizer);
-					SStream_Reader_Eat_Whitespace(Stream);
+					Meta_Tokenizer_Capture_Whitespace(Tokenizer);
 				} else {
 					Meta_Tokenizer_Begin_Identifier(Tokenizer);
 				}
@@ -690,6 +754,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 			if (Token->Next && Token->Next->Type == '>') {
 				meta_token* ReplacementToken = Meta_Allocate_Token(Tokenizer, META_TOKEN_TYPE_RETURN_ARROW);
 				ReplacementToken->Identifier = String_Lit("->");
+				ReplacementToken->LeadingWhitespace = Token->LeadingWhitespace;
 				ReplacementToken->LineNumber = Token->LineNumber;
 				ReplacementToken->c0 = Token->c0;
                 
@@ -1163,6 +1228,7 @@ function b32 Meta_Replace_Next_For_Token(meta_parser* Parser, meta_token_iter* T
 			meta_token* FirstNewToken = Meta_Allocate_Token(Tokenizer, META_TOKEN_TYPE_IDENTIFIER);
 			FirstNewToken->LineNumber = TokenIter->Token->LineNumber;
 			FirstNewToken->Identifier = ReplacementValue;
+			FirstNewToken->LeadingWhitespace = TokenIter->Token->LeadingWhitespace;
 			FirstNewToken->Flags = TokenIter->Token->Flags;
             
 			DLL_Push_Back(NewTokens->First, NewTokens->Last, FirstNewToken);
@@ -1182,9 +1248,7 @@ function b32 Meta_Replace_Next_For_Token(meta_parser* Parser, meta_token_iter* T
 		}
 	} else {
 		meta_token* NewToken = Meta_Allocate_Token(Tokenizer, TokenIter->Token->Type);
-		NewToken->LineNumber = TokenIter->Token->LineNumber;
-		NewToken->Identifier = TokenIter->Token->Identifier;
-		NewToken->Flags = TokenIter->Token->Flags;
+		Meta_Copy_Token_Fields(NewToken, TokenIter->Token);
         
 		DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 		NewTokens->Count++;
@@ -1302,6 +1366,10 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 					meta_token* FirstNewToken = Meta_Allocate_Token(Tokenizer, ReplacementTokens.First->Type);
 					FirstNewToken->LineNumber = ReplacementTokens.First->LineNumber;
 					FirstNewToken->Identifier = FirstReplacementIdentifier;
+					FirstNewToken->LeadingWhitespace = MacroTokenIter.Token->LeadingWhitespace;
+					if (String_Is_Empty(FirstNewToken->LeadingWhitespace)) {
+						FirstNewToken->LeadingWhitespace = ReplacementTokens.First->LeadingWhitespace;
+					}
 					FirstNewToken->Flags = ReplacementTokens.First->Flags;
                     
 					DLL_Push_Back(NewTokens->First, NewTokens->Last, FirstNewToken);
@@ -1315,6 +1383,7 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
 					meta_token* DstToken = Meta_Allocate_Token(Tokenizer, SrcToken->Type);
 					DstToken->LineNumber = SrcToken->LineNumber;
 					DstToken->Identifier = Meta_Get_Replacement_Identifier(Parser->Arena, MacroTokenIter.Token->Flags, SrcToken->Identifier);
+					DstToken->LeadingWhitespace = SrcToken->LeadingWhitespace;
 					DstToken->Flags = SrcToken->Flags;
 					DLL_Push_Back(NewTokens->First, NewTokens->Last, DstToken);
 					NewTokens->Count++;
@@ -1339,11 +1408,7 @@ function meta_token* Meta_Parse_And_Expand_Macro(meta_parser* Parser, meta_macro
                 
 			} else {
 				meta_token* NewToken = Meta_Allocate_Token(Tokenizer, MacroTokenIter.Token->Type);
-				NewToken->LineNumber = MacroTokenIter.Token->LineNumber;
-				NewToken->Identifier = MacroTokenIter.Token->Identifier;
-				NewToken->Flags = MacroTokenIter.Token->Flags;
-				NewToken->Parameters = MacroTokenIter.Token->Parameters;
-				NewToken->StackUpwardOffset = MacroTokenIter.Token->StackUpwardOffset;
+				Meta_Copy_Token_Fields(NewToken, MacroTokenIter.Token);
                 
 				DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
 				NewTokens->Count++;
@@ -1856,8 +1921,9 @@ function meta_token* Meta_Parse_For_Loop_Flags(meta_parser* Parser, meta_for_loo
 					continue;
 				}
                 
-				if (!Meta_Check_Token(TokenIter.Token, ',')) {
-					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+				// Flags combine with '|' or ',' (e.g. NoBraces|NewLine)
+				if (!Meta_Check_Token(TokenIter.Token, '|') && !Meta_Check_Token(TokenIter.Token, ',')) {
+					Report_Error(Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected '|' or ',' after '%.*s'", FlagStr.Size, FlagStr.Ptr);
 					return NULL;
 				}
                 
@@ -2267,19 +2333,39 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
 		
 		ForLoopStack->CurrentContext->CurrentEntry = Entry;
 		TokenIter = Meta_Begin_Token_Iter(&CodeTokens);
-        
-		if (!(ForLoopFlags & META_FOR_LOOP_NO_BRACE_FLAG)) {
-			meta_token* NewToken = Meta_Allocate_Token(Tokenizer, '{');
-			DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
-		}
-        
-		if (!Meta_Replace_For_Tokens(Parser, &TokenIter, ForLoopStack, &IfStateStack, NewTokens)) {
+
+		meta_token_list IterationTokens = { 0 };
+		if (!Meta_Replace_For_Tokens(Parser, &TokenIter, ForLoopStack, &IfStateStack, &IterationTokens)) {
 			return NULL;
 		}
-		
+
+		// Skip empty iterations entirely (no synthetic braces either)
+		if (!IterationTokens.Count) continue;
+
+		if (ForLoopFlags & META_FOR_LOOP_NEW_LINE_FLAG) {
+			// Generator owns indent; NewLine supplies the break between iterations.
+			IterationTokens.First->LeadingWhitespace = Meta_Strip_Leading_Newlines(IterationTokens.First->LeadingWhitespace);
+			meta_token* NewlineToken = Meta_Allocate_Token(Tokenizer, '\n');
+			DLL_Push_Back(NewTokens->First, NewTokens->Last, NewlineToken);
+			NewTokens->Count++;
+		}
+
 		if (!(ForLoopFlags & META_FOR_LOOP_NO_BRACE_FLAG)) {
-			meta_token* NewToken = Meta_Allocate_Token(Tokenizer, '}');
-			DLL_Push_Back(NewTokens->First, NewTokens->Last, NewToken);
+			meta_token* OpenBrace = Meta_Allocate_Token(Tokenizer, '{');
+			if (!(ForLoopFlags & META_FOR_LOOP_NEW_LINE_FLAG)) {
+				OpenBrace->LeadingWhitespace = String_Lit("\n");
+			}
+			DLL_Push_Back(NewTokens->First, NewTokens->Last, OpenBrace);
+			NewTokens->Count++;
+
+			Meta_Tokens_Append_List(NewTokens, &IterationTokens);
+
+			meta_token* CloseBrace = Meta_Allocate_Token(Tokenizer, '}');
+			CloseBrace->LeadingWhitespace = String_Lit("\n");
+			DLL_Push_Back(NewTokens->First, NewTokens->Last, CloseBrace);
+			NewTokens->Count++;
+		} else {
+			Meta_Tokens_Append_List(NewTokens, &IterationTokens);
 		}
 	}
     

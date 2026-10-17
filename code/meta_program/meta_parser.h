@@ -63,6 +63,7 @@ typedef u32 meta_routine;
 struct meta_token {
 	meta_token_type Type;
 	string 	   		Identifier;
+	string 			LeadingWhitespace;
 	meta_token_flag Flags;
 	size_t 	   		c0;
 	size_t 			LineNumber;
@@ -87,6 +88,7 @@ typedef struct {
 	meta_token* 	FreeTokens;
 	b32 		    BeginIdentifier;
 	sstream_char    StartIdentifierChar;
+	string 			PendingLeadingWhitespace;
 } meta_tokenizer;
 
 typedef struct meta_parameter meta_parameter;
@@ -203,7 +205,8 @@ typedef u32 meta_for_loop_support_flags;
 enum {
 	META_FOR_LOOP_FLAG_NONE,
 	META_FOR_LOOP_NO_BRACE_FLAG = (1 << 0),
-	META_FOR_LOOP_NO_PARENT_FLAG = (1 << 1)
+	META_FOR_LOOP_NO_PARENT_FLAG = (1 << 1),
+	META_FOR_LOOP_NEW_LINE_FLAG = (1 << 2)
 };
 typedef u32 meta_for_loop_flags;
 
