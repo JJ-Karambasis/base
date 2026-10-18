@@ -40,7 +40,12 @@ int main(int ArgCount, const char** Args) {
 				}
                 
 				b8 Value = true;
-				string DirectoryPath = String_Directory_Concat((allocator*)Arena, Parameter, String_Empty());
+
+				arena* Scratch = Scratch_Get();
+				string DirectoryPath = OS_Sanitize_Path((allocator*)Arena, 
+					String_Directory_Concat((allocator*)Scratch, Parameter, String_Empty()));
+				Scratch_Release();
+
 				Hashmap_Add(&DirectoriesToExclude, &DirectoryPath, &Value);
 				i++;
 			}
@@ -88,7 +93,10 @@ int main(int ArgCount, const char** Args) {
 					return 1;
 				}
                 
-				string DirectoryPath = String_Directory_Concat((allocator*)Arena, Parameter, String_Empty());
+				arena* Scratch = Scratch_Get();
+				string DirectoryPath = OS_Sanitize_Path((allocator*)Arena, 
+					String_Directory_Concat((allocator*)Scratch, Parameter, String_Empty()));
+				Scratch_Release();
                 
 				dynamic_string_array FileStack = Dynamic_String_Array_Init((allocator*)Arena);
 				Dynamic_String_Array_Add(&FileStack, DirectoryPath);
@@ -175,33 +183,39 @@ int main(int ArgCount, const char** Args) {
                 
 				for (size_t i = 0; i < Parser.StructMap.ItemCount; i++) {
 					string StructName;
-					source_struct_type* Struct;
-					Hashmap_Get_Key_Value(&Parser.StructMap, i, &StructName, &Struct);
-                    
+					Hashmap_Get_Key(&Parser.StructMap, i, &StructName);
+
+					meta_struct_type* Struct;
 					if (Hashmap_Find(&StructTypeMap, &StructName, &Struct)) {
-						Report_Error(File, Struct->Token->LineNumber, "Duplicate struct '%.*s' for meta parser", Struct->Struct->Name.Size, Struct->Struct->Name.Ptr);
+						source_struct_type* SourceStruct;
+						Hashmap_Find(&Parser.StructMap, &StructName, &SourceStruct);
+						Report_Error(File, SourceStruct->Token->LineNumber, "Duplicate struct '%.*s' for meta parser", Struct->Name.Size, Struct->Name.Ptr);
 						AddStructs = false;
 					}
 				}
                 
 				for (size_t i = 0; i < Parser.UnionMap.ItemCount; i++) {
 					string UnionName;
-					source_struct_type* Union;
-					Hashmap_Get_Key_Value(&Parser.UnionMap, i, &UnionName, &Union);
-                    
+					Hashmap_Get_Key(&Parser.UnionMap, i, &UnionName);
+
+					meta_struct_type* Union;
 					if (Hashmap_Find(&UnionTypeMap, &UnionName, &Union)) {
-						Report_Error(File, Union->Token->LineNumber, "Duplicate union '%.*s' for meta parser", Union->Struct->Name.Size, Union->Struct->Name.Ptr);
+						source_struct_type* SourceUnion;
+						Hashmap_Find(&Parser.UnionMap, &UnionName, &SourceUnion);
+						Report_Error(File, SourceUnion->Token->LineNumber, "Duplicate union '%.*s' for meta parser", Union->Name.Size, Union->Name.Ptr);
 						AddUnions = false;
 					}
 				}
                 
 				for (size_t i = 0; i < Parser.EnumMap.ItemCount; i++) {
 					string EnumName;
-					source_enum_type* Enum;
-					Hashmap_Get_Key_Value(&Parser.EnumMap, i, &EnumName, &Enum);
-                    
+					Hashmap_Get_Key(&Parser.EnumMap, i, &EnumName);
+
+					meta_enum_type* Enum;
 					if (Hashmap_Find(&EnumTypeMap, &EnumName, &Enum)) {
-						Report_Error(File, Enum->Token->LineNumber, "Duplicate enum '%.*s' for meta parser", Enum->Enum->Name.Size, Enum->Enum->Name.Ptr);
+						source_enum_type* SourceEnum;
+						Hashmap_Find(&Parser.EnumMap, &EnumName, &SourceEnum);
+						Report_Error(File, SourceEnum->Token->LineNumber, "Duplicate enum '%.*s' for meta parser", Enum->Name.Size, Enum->Name.Ptr);
 						AddEnums = false;
 					}
 				}
@@ -253,6 +267,7 @@ int main(int ArgCount, const char** Args) {
 		meta_struct_type* ParentStruct = NULL;
 		if (Hashmap_Find(&StructTypeMap, &SourceStruct->ParentStructName, &ParentStruct)) {
 			meta_struct_type* Struct = SourceStruct->Struct;
+			Struct->ParentStruct = ParentStruct;
 
 			meta_variable_entry* FirstEntry = NULL;
 			meta_variable_entry* LastEntry = NULL;

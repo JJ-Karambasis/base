@@ -93,7 +93,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_ENTRY_SHORT_NAME"),
 		String_Lit("META_ENTRY_SHORT_NAME_SUBSTR_CHAR"),
 		String_Lit("META_GET_TAG_VALUE"),
-		String_Lit("META_ENTRY_VARIABLE_TYPE")
+		String_Lit("META_ENTRY_VARIABLE_TYPE"),
+		String_Lit("META_ENTRY_TYPE_SUBSTR_AFTER_CHAR")
 	};
 	meta_for_loop_replacement_metadata ForLoopReplacementsMetadata[] = {
 		{ META_FOR_LOOP_REPLACEMENT_ENTRY_NAME, META_FOR_LOOP_SUPPORT_ALL },
@@ -101,7 +102,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		{ META_FOR_LOOP_REPLACEMENT_SHORT_ENTRY_NAME, META_FOR_LOOP_SUPPORT_ENUM },
 		{ META_FOR_LOOP_REPLACEMENT_SHORT_NAME_SUBSTR_CHAR, META_FOR_LOOP_SUPPORT_ENUM },
 		{ META_FOR_LOOP_REPLACEMENT_GET_TAG_VALUE, META_FOR_LOOP_SUPPORT_ALL },
-		{ META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE, META_FOR_LOOP_SUPPORT_STRUCT }
+		{ META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE, META_FOR_LOOP_SUPPORT_STRUCT },
+		{ META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR, META_FOR_LOOP_SUPPORT_STRUCT }
 	};
 	Static_Assert(Array_Count(ForLoopReplacementsMetadata) == Array_Count(ForLoopReplacementsStr));
 	for (size_t i = 0; i < Array_Count(ForLoopReplacementsMetadata); i++) {
@@ -112,10 +114,14 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
     
 	//For loop routines
 	string RoutinesStr[] = {
-		String_Lit("META_GET_FUNCTIONS_WITH_TAG")
+		String_Lit("META_GET_FUNCTIONS_WITH_TAG"),
+		String_Lit("META_GET_STRUCTS_WITH_TAG"),
+		String_Lit("META_GET_STRUCTS_WITH_PARENT"),
 	};
 	meta_routine Routines[] = {
-		META_GET_FUNCTIONS_WITH_TAG
+		META_GET_FUNCTIONS_WITH_TAG,
+		META_GET_STRUCTS_WITH_TAG,
+		META_GET_STRUCTS_WITH_PARENT
 	};
 	Static_Assert(Array_Count(Routines) == Array_Count(RoutinesStr));
 	Static_Assert(Array_Count(Routines) == META_ROUTINE_COUNT);
@@ -199,10 +205,10 @@ function inline b32 Meta_Parser_Is_Enum(meta_parser* Parser, string EnumName, me
 }
 
 function string Meta_Get_Enum_Value_Short_Name(arena* Arena, meta_enum_type* Enum, meta_enum_entry* Entry) {
-	string Name = Enum->Name;
+	string Name = Entry->Name;
 	if (Enum->IsTrueName) {
 		size_t StartIndex = Enum->Name.Size;
-		if (Entry->Name.Ptr[StartIndex] == '_') {
+		if (StartIndex < Entry->Name.Size && Entry->Name.Ptr[StartIndex] == '_') {
 			StartIndex++;
 		}
 		Name = String_Substr(Entry->Name, StartIndex, Entry->Name.Size);
@@ -671,6 +677,7 @@ function b32 Meta_Parser_Generate_Tokens(meta_tokenizer* Tokenizer, arena* Arena
 			case '$':
 			case '=':
 			case '-':
+			case '<':
 			case '>':
 			case '|':
 			{
@@ -964,6 +971,7 @@ function meta_token* Meta_Get_Macro_Parameter_Values(meta_parser* Parser, meta_m
 		//comma, or until we see a closing parenthesis that matches the first parenthesis.
 		size_t ParenStack = 0;
 		size_t BracketStackIndex = 0;
+		size_t AngleStackIndex = 0;
         
 		meta_token_list ValueTokens = { 0 };
         
@@ -986,9 +994,21 @@ function meta_token* Meta_Get_Macro_Parameter_Values(meta_parser* Parser, meta_m
 				}
 				ParenStack--;
 			}
+
+			if (TokenIter.Token->Type == '<') {
+				AngleStackIndex++;
+			}
+
+			if (TokenIter.Token->Type == '>') {
+				if (AngleStackIndex == 0) {
+					Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected '>' in macro parameter");
+					return NULL;
+				}
+				AngleStackIndex--;
+			}
             
 			if (TokenIter.Token->Type == ',') {
-				if (ParenStack == 0 && BracketStackIndex == 0) {
+				if (ParenStack == 0 && BracketStackIndex == 0 && AngleStackIndex == 0) {
 					break;
 				}
 			}
@@ -1147,6 +1167,29 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
             
 			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
 										   String_Substr(Entry->ShortName, 0, CharEntry));
+		} break;
+
+		case META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR: {
+			if (Token->Parameters.Count != 1) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_ENTRY_SHORT_NAME_SUBSTR_CHAR. Expected '1', got '%d'", Token->Parameters.Count);
+				return false;
+			}
+            
+			string Parameter = Token->Parameters.First->String;
+			if (Parameter.Size != 1) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid parameter entry for META_ENTRY_SHORT_NAME_SUBSTR_CHAR. Expected char, got a string '%.*s' instead", Parameter.Size, Parameter.Size);
+				return false;
+			}
+            
+			string Type = Entry->Type;
+			size_t CharEntry = String_Find_First_Char(Type, Parameter.Ptr[0]);
+			if (CharEntry == STRING_INVALID_INDEX) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Could not find '_' in type entry '%.*s'", Parameter.Ptr[0], Type.Size, Type.Ptr);
+				return false;
+			}
+            
+			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
+										   String_Substr(Type, CharEntry+1, Type.Size));
 		} break;
         
 		case META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE: {
@@ -1493,6 +1536,8 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
 				sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
                 
 				size_t ParamStackIndex = 0;
+				size_t AngleStackIndex = 0;
+				meta_token* PrevValueToken = NULL;
 				Meta_Token_Iter_Move_Next(&TokenIter);
                 
 				if (!TokenIter.Token || TokenIter.Token->Type != META_TOKEN_TYPE_IDENTIFIER) {
@@ -1506,25 +1551,46 @@ function meta_token* Meta_Parse_Tags(meta_parser* Parser, meta_token* Token, met
 					}
                     
 					if (TokenIter.Token->Type == ')') {
-						if (ParamStackIndex == 0) {
+						if (ParamStackIndex == 0 && AngleStackIndex == 0) {
 							break;
 						}
+						if (ParamStackIndex == 0) {
+							Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected ')' in tag value");
+							return NULL;
+						}
 						ParamStackIndex--;
+					}
+
+					if (TokenIter.Token->Type == '<') {
+						AngleStackIndex++;
+					}
+
+					if (TokenIter.Token->Type == '>') {
+						if (AngleStackIndex == 0) {
+							Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected '>' in tag value");
+							return NULL;
+						}
+						AngleStackIndex--;
 					}
                     
 					if (TokenIter.Token->Type == ',') {
-						if (ParamStackIndex == 0) {
+						if (ParamStackIndex == 0 && AngleStackIndex == 0) {
 							break;
 						}
-						ParamStackIndex--;
 					}
-                    
+
+					if (PrevValueToken &&
+						PrevValueToken->Type == META_TOKEN_TYPE_IDENTIFIER &&
+						TokenIter.Token->Type == META_TOKEN_TYPE_IDENTIFIER) {
+						SStream_Writer_Add(&ValueWriter, String_Lit(" "));
+					}
 					SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
+					PrevValueToken = TokenIter.Token;
 					Meta_Token_Iter_Move_Next(&TokenIter);
 				}
 
 				meta_tag_value* Value = Arena_Push_Struct(Parser->Arena, meta_tag_value);
-				Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
+				Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Empty());
 				SLL_Push_Back(Tag->Values.First, Tag->Values.Last, Value);
 				Tag->Values.Count++;                
 			}
@@ -1662,22 +1728,85 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
 	}
     
 	Meta_Token_Iter_Move_Next(&TokenIter);
-	meta_token* TypeToken = TokenIter.Token;
-	if (!Meta_Check_Token(TypeToken, META_TOKEN_TYPE_IDENTIFIER)) {
+	if (!TokenIter.Token) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing variable type identifier after '('");
 		return NULL;
 	}
-    
-	Meta_Token_Iter_Move_Next(&TokenIter);
-	if (!Meta_Check_Token(TokenIter.Token, ',')) {
-		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after '%.*s'", TypeToken->Identifier.Size, TypeToken->Identifier.Ptr);
+
+	arena* Scratch = Scratch_Get();
+	sstream_writer TypeWriter = SStream_Writer_Begin((allocator*)Scratch);
+	size_t AngleStackIndex = 0;
+	size_t ParenStackIndex = 0;
+	meta_token* PrevTypeToken = NULL;
+	b32 GotTypeToken = false;
+
+	while (TokenIter.Token) {
+		if (TokenIter.Token->Type == ',' && AngleStackIndex == 0 && ParenStackIndex == 0) {
+			break;
+		}
+
+		if (TokenIter.Token->Type == ')' && AngleStackIndex == 0 && ParenStackIndex == 0) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after variable type");
+			Scratch_Release();
+			return NULL;
+		}
+
+		if (TokenIter.Token->Type == '<') {
+			AngleStackIndex++;
+		} else if (TokenIter.Token->Type == '>') {
+			if (AngleStackIndex == 0) {
+				Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected '>' in variable type");
+				Scratch_Release();
+				return NULL;
+			}
+			AngleStackIndex--;
+		} else if (TokenIter.Token->Type == '(') {
+			ParenStackIndex++;
+		} else if (TokenIter.Token->Type == ')') {
+			if (ParenStackIndex == 0) {
+				Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected ')' in variable type");
+				Scratch_Release();
+				return NULL;
+			}
+			ParenStackIndex--;
+		}
+
+		if (PrevTypeToken &&
+			PrevTypeToken->Type == META_TOKEN_TYPE_IDENTIFIER &&
+			TokenIter.Token->Type == META_TOKEN_TYPE_IDENTIFIER) {
+			SStream_Writer_Add(&TypeWriter, String_Lit(" "));
+		}
+		SStream_Writer_Add(&TypeWriter, TokenIter.Token->Identifier);
+		PrevTypeToken = TokenIter.Token;
+		GotTypeToken = true;
+		Meta_Token_Iter_Move_Next(&TokenIter);
+	}
+
+	if (!GotTypeToken) {
+		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing variable type identifier after '('");
+		Scratch_Release();
 		return NULL;
 	}
+
+	if (AngleStackIndex || ParenStackIndex) {
+		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unmatched template or parenthesis in variable type");
+		Scratch_Release();
+		return NULL;
+	}
+
+	if (!Meta_Check_Token(TokenIter.Token, ',')) {
+		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ',' after variable type");
+		Scratch_Release();
+		return NULL;
+	}
+
+	string Type = SStream_Writer_Join(&TypeWriter, (allocator*)Scratch, String_Empty());
     
 	Meta_Token_Iter_Move_Next(&TokenIter);
 	meta_token* NameToken = TokenIter.Token;
 	if (!Meta_Check_Token(NameToken, META_TOKEN_TYPE_IDENTIFIER)) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Missing variable name identifier after ','");
+		Scratch_Release();
 		return NULL;
 	}
     
@@ -1687,6 +1816,7 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
     
 	if (!Meta_Check_Token(TokenIter.Token, ')')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected ')' after '%.*s'", TokenIter.PrevToken->Identifier.Size, TokenIter.PrevToken->Identifier.Ptr);
+		Scratch_Release();
 		return NULL;
 	}
     
@@ -1694,11 +1824,13 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		if (!Meta_Check_Token(TokenIter.Token, META_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected token after variable entry. Expected 'Tags()' or ';'");
+			Scratch_Release();
 			return NULL;
 		}
         
 		if (!String_Equals(TokenIter.Token->Identifier, String_Lit("Tags"))) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected identifier '%.*s' after variable entry. Expected 'Tags()' or ';'", TokenIter.Token->Identifier.Size, TokenIter.Token->Identifier.Ptr);
+			Scratch_Release();
 			return NULL;
 		}
         
@@ -1707,6 +1839,7 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
 		Scratch_Release();
         
 		if (!NextToken) {
+			Scratch_Release();
 			return NULL;
 		}
         
@@ -1715,13 +1848,15 @@ function meta_token* Meta_Parse_Variable_Entry(meta_parser* Parser, meta_struct_
     
 	if (!Meta_Check_Token(TokenIter.Token, ';')) {
 		Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of variable declaration. Expected ';' after ')'");
+		Scratch_Release();
 		return NULL;
 	}
     
 	meta_variable_entry* Entry = Arena_Push_Struct(Parser->Arena, meta_variable_entry);
-	Entry->Type = String_Copy((allocator*)Parser->Arena, TypeToken->Identifier);
+	Entry->Type = String_Copy((allocator*)Parser->Arena, Type);
 	Entry->Name = String_Copy((allocator*)Parser->Arena, NameToken->Identifier);
 	Entry->Tags = Tags;
+	Scratch_Release();
     
 	SLL_Push_Back(Struct->FirstEntry, Struct->LastEntry, Entry);
 	Struct->EntryCount++;
@@ -1961,7 +2096,7 @@ function meta_for_loop_entries Meta_Get_Enum_Entries(arena* Arena, meta_enum_typ
 	meta_for_loop_entries Result = { 0 };
 	for(meta_enum_entry* EnumEntry = Enum->FirstEntry; EnumEntry; EnumEntry = EnumEntry->Next) {
 		meta_for_loop_entry* Entry = Arena_Push_Struct(Arena, meta_for_loop_entry);
-		Entry->Name = EnumEntry->Name;
+		Entry->Name = Meta_Get_Enum_Value_Name(Arena, Enum, EnumEntry);
 		Entry->ShortName = Meta_Get_Enum_Value_Short_Name(Arena, Enum, EnumEntry);
 		Entry->Tags = EnumEntry->Tags;
 		SLL_Push_Back(Result.First, Result.Last, Entry);
@@ -1976,6 +2111,34 @@ function meta_for_loop_entries Meta_Get_Functions_With_Tag_Routine(arena* Arena,
 			meta_for_loop_entry* Entry = Arena_Push_Struct(Arena, meta_for_loop_entry);
 			Entry->Name = Functions[i]->Name;
 			Entry->Tags = Functions[i]->Tags;
+			SLL_Push_Back(Result.First, Result.Last, Entry);
+		}
+	}
+	return Result;
+}
+
+function meta_for_loop_entries Meta_Get_Structs_With_Tag_Routine(arena* Arena, meta_struct_type** Structs, size_t StructCount, string Tag) {
+	meta_for_loop_entries Result = { 0 };
+	for (size_t i = 0; i < StructCount; i++) {
+		if (Meta_Contains_Tag(&Structs[i]->Tags, Tag)) {
+			meta_for_loop_entry* Entry = Arena_Push_Struct(Arena, meta_for_loop_entry);
+			Entry->Name = Structs[i]->Name;
+			Entry->Type = Structs[i]->Name;
+			Entry->Tags = Structs[i]->Tags;
+			SLL_Push_Back(Result.First, Result.Last, Entry);
+		}
+	}
+	return Result;
+}
+
+function meta_for_loop_entries Meta_Get_Structs_With_Parent_Routine(arena* Arena, meta_struct_type** Structs, size_t StructCount, string Parent) {
+	meta_for_loop_entries Result = { 0 };
+	for (size_t i = 0; i < StructCount; i++) {
+		if (Structs[i]->ParentStruct && String_Equals(Structs[i]->ParentStruct->Name, Parent)) {
+			meta_for_loop_entry* Entry = Arena_Push_Struct(Arena, meta_for_loop_entry);
+			Entry->Name = Structs[i]->Name;
+			Entry->Type = Structs[i]->Name;
+			Entry->Tags = Structs[i]->Tags;
 			SLL_Push_Back(Result.First, Result.Last, Entry);
 		}
 	}
@@ -2046,7 +2209,28 @@ function meta_token* Meta_Evaluate_Routine(meta_parser* Parser, meta_for_loop_co
 			Context->TypeStr = String_Lit("function");
 			Context->Entries = Meta_Get_Functions_With_Tag_Routine(Parser->Arena, (meta_function_type* *)Parser->FunctionMap.Values, Parser->FunctionMap.ItemCount, Parameters.First->String);
 		} break;
+
+		case META_GET_STRUCTS_WITH_TAG: {
+			if (Parameters.Count != 1) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_GET_STRUCTS_WITH_TAG. Expected '1', got '%d'", Parameters.Count);
+				return NULL;
+			}
+            
+			Context->SupportFlag = META_FOR_LOOP_SUPPORT_STRUCT;
+			Context->TypeStr = String_Lit("struct");
+			Context->Entries = Meta_Get_Structs_With_Tag_Routine(Parser->Arena, (meta_struct_type* *)Parser->StructInfoMap.Values, Parser->StructInfoMap.ItemCount, Parameters.First->String);
+		} break;
         
+		case META_GET_STRUCTS_WITH_PARENT: {
+			if (Parameters.Count != 1) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_GET_STRUCTS_WITH_PARENT. Expected '1', got '%d'", Parameters.Count);
+				return NULL;
+			}
+
+			Context->SupportFlag = META_FOR_LOOP_SUPPORT_STRUCT;
+			Context->TypeStr = String_Lit("struct");
+			Context->Entries = Meta_Get_Structs_With_Parent_Routine(Parser->Arena, (meta_struct_type**)Parser->StructInfoMap.Values, Parser->StructInfoMap.ItemCount, Parameters.First->String);
+		} break;
 		Invalid_Default_Case;
 	}
     

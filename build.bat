@@ -30,6 +30,7 @@ if /i "%~1"=="-tracy_path" (
 
 if /i "%~1"=="-debug" (
 	set build_debug=1
+	echo Building in debug mode
 )
 
 if /i "%~1"=="-clang" (

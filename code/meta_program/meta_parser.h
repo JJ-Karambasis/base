@@ -56,6 +56,8 @@ typedef u32 meta_predicate;
 
 enum {
 	META_GET_FUNCTIONS_WITH_TAG,
+	META_GET_STRUCTS_WITH_TAG,
+	META_GET_STRUCTS_WITH_PARENT,
 	META_ROUTINE_COUNT
 };
 typedef u32 meta_routine;
@@ -145,6 +147,8 @@ struct meta_variable_entry {
 
 struct meta_struct_type {
 	string 		    	 Name;
+	meta_struct_type* 	 ParentStruct;
+	meta_tag_list 		 Tags;
 	meta_variable_entry* FirstEntry;
 	meta_variable_entry* LastEntry;
 	size_t 		    	 EntryCount;
@@ -162,6 +166,7 @@ struct meta_enum_type {
 	string 			 Name;
 	string 			 Type;
 	b32 			 IsTrueName;
+	meta_tag_list 	 Tags;
 	meta_enum_entry* FirstEntry;
 	meta_enum_entry* LastEntry;
 	size_t 			 EntryCount;
@@ -221,7 +226,8 @@ typedef enum {
 	META_FOR_LOOP_REPLACEMENT_SHORT_ENTRY_NAME,
 	META_FOR_LOOP_REPLACEMENT_SHORT_NAME_SUBSTR_CHAR,
 	META_FOR_LOOP_REPLACEMENT_GET_TAG_VALUE,
-	META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE
+	META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE,
+	META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR
 } meta_for_loop_replacement;
 
 typedef struct {

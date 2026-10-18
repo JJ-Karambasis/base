@@ -517,6 +517,25 @@ function inline b32 Handle_Is_Null(pool_handle<type> Handle) {
     return Pool_ID_Null(Handle.ID);
 }
 
+template <typename type>
+struct fixed_handle {
+	pool_id ID;
+
+	inline b32 operator==(const fixed_handle<type>& Other) const {
+		return Pool_ID_Equal(ID, Other.ID);
+	}
+};
+
+template <typename type>
+function inline fixed_handle<type> Null_Fixed_Handle() {
+	return {};
+}
+
+template <typename type>
+function inline b32 Handle_Is_Null(fixed_handle<type> Handle) {
+	return Pool_ID_Null(Handle.ID);
+}
+
 template<typename type>
 struct pool_t : public pool {
 	struct iterator {
@@ -566,6 +585,159 @@ function inline void Pool_Free(pool_t<type>* Pool, pool_handle<type> Handle) {
 template<typename type>
 function inline type* Pool_Get(pool_t<type>* Pool, pool_handle<type> Handle) {
 	return (type*)Pool_Get((pool*)Pool, Handle.ID);
+}
+
+// Fixed-capacity pool. Same allocate/free/handle semantics as pool_t, but storage is
+// an embedded array of Capacity entries (no virtual reserve / growth).
+template<typename type, u32 Capacity>
+struct fixed_pool {
+	struct entry {
+		pool_id ID;
+		type Item;
+	};
+
+	u32 MaxUsed;
+	u32 Count;
+	u32 FirstFreeIndex;
+	entry Entries[Capacity];
+
+	struct iterator {
+		fixed_pool* Pool;
+		u32 Index;
+		b32 IsValid;
+
+		inline type* operator*() const {
+			return &Pool->Entries[Index].Item;
+		}
+
+		inline iterator& operator++() {
+			IsValid = false;
+			for (u32 EntryIndex = Index + 1; EntryIndex < Pool->MaxUsed; EntryIndex++) {
+				pool_id* PoolID = &Pool->Entries[EntryIndex].ID;
+				if (EntryIndex == PoolID->Index) {
+					Index = EntryIndex;
+					IsValid = true;
+					return *this;
+				}
+			}
+			return *this;
+		}
+
+		inline b32 operator!=(const iterator& Other) const {
+			return IsValid != Other.IsValid;
+		}
+	};
+
+	inline iterator begin() {
+		iterator Result = {
+			.Pool = this,
+		};
+		for (u32 EntryIndex = 0; EntryIndex < MaxUsed; EntryIndex++) {
+			pool_id* PoolID = &Entries[EntryIndex].ID;
+			if (EntryIndex == PoolID->Index) {
+				Result.Index = EntryIndex;
+				Result.IsValid = true;
+				return Result;
+			}
+		}
+		return Result;
+	}
+
+	inline iterator end() {
+		return {};
+	}
+};
+
+template<typename type, u32 Capacity>
+function inline void Pool_Init(fixed_pool<type, Capacity>* Pool) {
+	Memory_Clear(Pool, sizeof(*Pool));
+	Pool->FirstFreeIndex = INVALID_POOL_INDEX;
+	for (u32 EntryIndex = 0; EntryIndex < Capacity; EntryIndex++) {
+		Pool->Entries[EntryIndex].ID.Generation = 1;
+		Pool->Entries[EntryIndex].ID.Index = INVALID_POOL_INDEX;
+	}
+}
+
+template<typename type, u32 Capacity>
+function inline void Pool_Clear(fixed_pool<type, Capacity>* Pool) {
+	for (u32 EntryIndex = 0; EntryIndex < Pool->MaxUsed; EntryIndex++) {
+		pool_id* PoolID = &Pool->Entries[EntryIndex].ID;
+		PoolID->Generation++;
+		PoolID->Index = INVALID_POOL_INDEX;
+	}
+	Pool->Count = 0;
+	Pool->MaxUsed = 0;
+	Pool->FirstFreeIndex = INVALID_POOL_INDEX;
+}
+
+template<typename type, u32 Capacity>
+function inline fixed_handle<type> Pool_Allocate(fixed_pool<type, Capacity>* Pool) {
+	u32 Index;
+	if (Pool->FirstFreeIndex != INVALID_POOL_INDEX) {
+		Index = Pool->FirstFreeIndex;
+		Pool->FirstFreeIndex = Pool->Entries[Index].ID.NextIndex;
+	} else {
+		if (Pool->MaxUsed >= Capacity) {
+			return Null_Fixed_Handle<type>();
+		}
+		Index = Pool->MaxUsed++;
+	}
+
+	pool_id* PoolID = &Pool->Entries[Index].ID;
+	PoolID->Index = Index;
+	Pool->Count++;
+
+	return { .ID = *PoolID };
+}
+
+template<typename type, u32 Capacity>
+function inline void Pool_Free(fixed_pool<type, Capacity>* Pool, fixed_handle<type> Handle) {
+	if (Pool_ID_Null(Handle.ID)) return;
+	if (Handle.ID.Index >= Capacity) return;
+
+	pool_id* PoolID = &Pool->Entries[Handle.ID.Index].ID;
+	if (!Pool_ID_Equal(Handle.ID, *PoolID)) return;
+
+	PoolID->Generation++;
+	PoolID->NextIndex = Pool->FirstFreeIndex;
+	Pool->FirstFreeIndex = Handle.ID.Index;
+	Pool->Count--;
+	Memory_Clear(&Pool->Entries[Handle.ID.Index].Item, sizeof(type));
+}
+
+template<typename type, u32 Capacity>
+function inline type* Pool_Get(fixed_pool<type, Capacity>* Pool, fixed_handle<type> Handle) {
+	if (Pool_ID_Null(Handle.ID)) return nullptr;
+	if (Handle.ID.Index >= Capacity) return nullptr;
+
+	pool_id* PoolID = &Pool->Entries[Handle.ID.Index].ID;
+	if (!Pool_ID_Equal(Handle.ID, *PoolID)) return nullptr;
+	return &Pool->Entries[Handle.ID.Index].Item;
+}
+
+template<typename type, u32 Capacity>
+function inline b32 Pool_Is_Allocated(fixed_pool<type, Capacity>* Pool, fixed_handle<type> Handle) {
+	if (Pool_ID_Null(Handle.ID)) return false;
+	if (Handle.ID.Index >= Capacity) return false;
+
+	pool_id* PoolID = &Pool->Entries[Handle.ID.Index].ID;
+	return Pool_ID_Equal(Handle.ID, *PoolID);
+}
+
+template<typename type, u32 Capacity>
+function inline fixed_handle<type> Pool_Get_ID(fixed_pool<type, Capacity>* Pool, type* Data) {
+	using entry_t = typename fixed_pool<type, Capacity>::entry;
+	entry_t* Entry = (entry_t*)((u8*)Data - Offset_Of(entry_t, Item));
+	Assert(Entry >= Pool->Entries && Entry < Pool->Entries + Pool->MaxUsed);
+	return { .ID = Entry->ID };
+}
+
+template<typename type, u32 Capacity>
+function inline fixed_handle<type> Pool_Get_ID_By_Index(fixed_pool<type, Capacity>* Pool, u32 Index) {
+	Assert(Index < Pool->MaxUsed);
+	pool_id* PoolID = &Pool->Entries[Index].ID;
+	if (PoolID->Index != Index) return Null_Fixed_Handle<type>();
+	return { .ID = *PoolID };
 }
 
 // Parallel items for an existing pool, addressed by that pool's handles.

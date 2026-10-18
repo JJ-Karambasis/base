@@ -95,6 +95,8 @@ function b32 Source_Parser_Generate_Tokens(source_tokenizer* Tokenizer, arena* A
 			case ':':
 			case '[':
 			case ']':
+			case '<':
+			case '>':
 			{
 				Source_Tokenizer_End_Identifier(Tokenizer);
 				Source_Add_Token_Char(Tokenizer, SStream_Reader_Consume_Char(Stream));
@@ -202,6 +204,8 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 					sstream_writer ValueWriter = SStream_Writer_Begin((allocator*)Scratch);
 					size_t ParamStackIndex = 0;
 					size_t BracketStackIndex = 0;
+					size_t AngleStackIndex = 0;
+					source_token* PrevValueToken = NULL;
 
 					while(TokenIter.Token) {
 						if (TokenIter.Token->Type == '(') {
@@ -209,7 +213,7 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 						}
 						
 						if (TokenIter.Token->Type == ')') {
-							if (!BracketStackIndex && !ParamStackIndex) {
+							if (!BracketStackIndex && !ParamStackIndex && !AngleStackIndex) {
 								break;
 							} else if(!ParamStackIndex) {
 								Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
@@ -224,7 +228,7 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 						}
 						
 						if(TokenIter.Token->Type == '}') {
-							if (!BracketStackIndex && !ParamStackIndex) {
+							if (!BracketStackIndex && !ParamStackIndex && !AngleStackIndex) {
 								break;
 							} else if(!BracketStackIndex) {
 								Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of tag value");
@@ -234,9 +238,21 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 							BracketStackIndex--;
 						}
 
+						if (TokenIter.Token->Type == '<') {
+							AngleStackIndex++;
+						}
+
+						if (TokenIter.Token->Type == '>') {
+							if (AngleStackIndex == 0) {
+								Report_Error(Parser->Tokenizer->FilePath, TokenIter.Token->LineNumber, "Unexpected '>' in tag value: %.*s", Tag->Name.Size, Tag->Name.Ptr);
+								return NULL;
+							}
+							AngleStackIndex--;
+						}
+
 						if(TokenIter.Token->Type == ']') {
 							if(IsArray) {
-								if(!BracketStackIndex && !ParamStackIndex) {
+								if(!BracketStackIndex && !ParamStackIndex && !AngleStackIndex) {
 									break;
 								} else {
 									Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Unexpected end of array for tag value: %.*s", Tag->Name.Size, Tag->Name.Ptr);
@@ -249,17 +265,23 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 						}
 						
 						if (TokenIter.Token->Type == ',') {
-							if (!ParamStackIndex && !BracketStackIndex) {
+							if (!ParamStackIndex && !BracketStackIndex && !AngleStackIndex) {
 								break;
 							}                         
 						}
-						
+
+						if (PrevValueToken &&
+							PrevValueToken->Type == SOURCE_TOKEN_TYPE_IDENTIFIER &&
+							TokenIter.Token->Type == SOURCE_TOKEN_TYPE_IDENTIFIER) {
+							SStream_Writer_Add(&ValueWriter, String_Lit(" "));
+						}
 						SStream_Writer_Add(&ValueWriter, TokenIter.Token->Identifier);
+						PrevValueToken = TokenIter.Token;
 						Source_Token_Iter_Move_Next(&TokenIter);
 					}
 
 					meta_tag_value* Value = Arena_Push_Struct(Parser->Arena, meta_tag_value);
-					Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Lit(" "));
+					Value->Value = SStream_Writer_Join(&ValueWriter, (allocator*)Parser->Arena, String_Empty());
 					SLL_Push_Back(Tag->Values.First, Tag->Values.Last, Value);
 					Tag->Values.Count++;
 
@@ -310,7 +332,7 @@ function source_token* Source_Parse_Tags(source_parser* Parser, source_token* To
 	return Token;
 }
 
-function source_token* Source_Parse_Enum(source_parser* Parser, source_token* Token) {
+function source_token* Source_Parse_Enum(source_parser* Parser, source_token* Token, source_enum_type** OutEnumType) {
 	Assert(Token && Token->Type == SOURCE_TOKEN_TYPE_ENUM);
     
 	source_token* EnumToken = Token;
@@ -448,6 +470,8 @@ function source_token* Source_Parse_Enum(source_parser* Parser, source_token* To
 	Enum->Enum->Name = String_Copy((allocator*)Parser->Arena, EnumName);
     
 	Hashmap_Add(&Parser->EnumMap, &Enum->Enum->Name, &Enum);
+
+	if (OutEnumType) *OutEnumType = Enum;
 	
 	return TokenIter.Token;
 }
@@ -488,12 +512,20 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
     if(Source_Check_Token(TokenIter.Token, ':')) {
 		//We will require public inheritance only for now.
 		Source_Token_Iter_Move_Next(&TokenIter);
-		if (!Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER) || !String_Equals(TokenIter.Token->Identifier, String_Lit("public"))) {
-			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected public after ':' when inheriting from a parent");
+		if (!Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER)) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected identifier after ':' when inheriting");
 			return NULL;
 		}
 
-		Source_Token_Iter_Move_Next(&TokenIter);
+		if(String_Equals(TokenIter.Token->Identifier, String_Lit("private")) || String_Equals(TokenIter.Token->Identifier, String_Lit("protected"))) {
+			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Private or protected inheritance is not supported");
+			return NULL;
+		}
+
+		if (String_Equals(TokenIter.Token->Identifier, String_Lit("public"))) {
+			Source_Token_Iter_Move_Next(&TokenIter);
+		}
+
 		if (!Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER)) {
 			Report_Error(Parser->Tokenizer->FilePath, TokenIter.PrevToken->LineNumber, "Expected an identifier after 'public'");
 			return NULL;
@@ -638,11 +670,18 @@ function source_token* Source_Parse_Struct(source_parser* Parser, source_token* 
 				}
                 
 				sstream_writer TypeWriter = SStream_Writer_Begin((allocator*)Scratch);
+				source_token* NextTypeToken = NULL;
 				while (StructEntryTokenIter.Token != StartEntryToken) {
 					Source_Token_Iter_Move_Prev(&StructEntryTokenIter);
+					if (NextTypeToken &&
+						StructEntryTokenIter.Token->Type == SOURCE_TOKEN_TYPE_IDENTIFIER &&
+						NextTypeToken->Type == SOURCE_TOKEN_TYPE_IDENTIFIER) {
+						SStream_Writer_Add_Front(&TypeWriter, String_Lit(" "));
+					}
 					SStream_Writer_Add_Front(&TypeWriter, StructEntryTokenIter.Token->Identifier);
+					NextTypeToken = StructEntryTokenIter.Token;
 				}
-				string Type = SStream_Writer_Join(&TypeWriter, (allocator*)Scratch, String_Lit(" "));
+				string Type = SStream_Writer_Join(&TypeWriter, (allocator*)Scratch, String_Empty());
 				Assert(StructEntryTokenIter.Token == StartEntryToken);
                 
 				meta_variable_entry* VariableEntry = Arena_Push_Struct(Parser->Arena, meta_variable_entry);
@@ -714,23 +753,41 @@ function b32 Source_Parser_Evaluate(source_parser* Parser) {
 				}
 				
 				Source_Token_Iter_Move_Next(&TokenIter);
+
+				meta_tag_list Tags = { 0 };
+				if (Source_Check_Token(TokenIter.Token, SOURCE_TOKEN_TYPE_IDENTIFIER) &&
+					String_Equals(TokenIter.Token->Identifier, String_Lit("Tags"))) {
+					arena* Scratch = Scratch_Get();
+					source_token* Token = Source_Parse_Tags(Parser, TokenIter.Token, &Tags, Scratch);
+					Scratch_Release();
+					if (!Token) return false;
+					TokenIter = Source_Begin_Token_Iter(Token);
+				}
 				
 				b32 Done = false;
 				while (TokenIter.Token && !Done) {
 					switch (TokenIter.Token->Type) {
 						case SOURCE_TOKEN_TYPE_STRUCT: {
 							arena* Scratch = Scratch_Get();
-							source_token* Token = Source_Parse_Struct(Parser, TokenIter.Token, Scratch, NULL);
+							source_struct_type* StructType = NULL;
+							source_token* Token = Source_Parse_Struct(Parser, TokenIter.Token, Scratch, &StructType);
 							Scratch_Release();
                             
 							if (!Token) return false;
+							if (StructType) {
+								StructType->Struct->Tags = Tags;
+							}
 							TokenIter = Source_Begin_Token_Iter(Token);
 							Done = true;
 						} break;
                         
 						case SOURCE_TOKEN_TYPE_ENUM: {
-							source_token* Token = Source_Parse_Enum(Parser, TokenIter.Token);
+							source_enum_type* EnumType = NULL;
+							source_token* Token = Source_Parse_Enum(Parser, TokenIter.Token, &EnumType);
 							if (!Token) return false;
+							if (EnumType) {
+								EnumType->Enum->Tags = Tags;
+							}
 							TokenIter = Source_Begin_Token_Iter(Token);
 							Done = true;
 						} break;

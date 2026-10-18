@@ -4,7 +4,9 @@
 #include <dxc/dxcapi.h>
 
 #include <meta_program/meta_errors.c>
+#include <meta_program/source_parser.h>
 #include <meta_program/meta_parser.h>
+#include <meta_program/source_parser.c>
 #include <meta_program/meta_parser.c>
 #include <meta_program/meta_generator.h>
 #include <meta_program/meta_generator.c>

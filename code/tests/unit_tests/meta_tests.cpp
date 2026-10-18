@@ -128,7 +128,7 @@ UTEST(Meta_Parser, ForLoopCopiesPreviousEnumEntries) {
 		"}\n"
 		"META_ENUM(copy) {\n"
 		"    META_FOR(color, flags: NoBraces) {\n"
-		"        META_ENUM_ENTRY(${META_ENTRY_NAME});\n"
+		"        META_ENUM_ENTRY(${META_ENTRY_SHORT_NAME});\n"
 		"    }\n"
 		"    META_ENUM_ENTRY(Blue);\n"
 		"}\n"
@@ -183,7 +183,7 @@ UTEST(Meta_Parser, ForLoopCopiesSourceEnumEntries) {
 	string Content = String_Lit(
 		"META_ENUM(copy) {\n"
 		"    META_FOR(color, flags: NoBraces) {\n"
-		"        META_ENUM_ENTRY(${META_ENTRY_NAME});\n"
+		"        META_ENUM_ENTRY(${META_ENTRY_SHORT_NAME});\n"
 		"    }\n"
 		"}\n"
 	);
@@ -369,6 +369,200 @@ UTEST(Meta_Parser, NoBracesNewLineEmitsArrayRows) {
 	ASSERT_TRUE(String_Contains(Source.Source, String_Lit("\t\tA,")));
 	ASSERT_TRUE(String_Contains(Source.Source, String_Lit("\t\tB,")));
 	ASSERT_FALSE(String_Contains(Source.Source, String_Lit("A,B")));
+
+	Arena_Delete(Arena);
+}
+
+UTEST(Meta_Parser, TemplateVariableTypes) {
+	arena* Arena = Arena_Create(String_Lit("Meta Test"));
+
+	meta_struct_type Attachment = { 0 };
+	Attachment.Name = String_Lit("attachment");
+
+	meta_struct_type AttachmentMesh = { 0 };
+	AttachmentMesh.Name = String_Lit("attachment_mesh");
+	AttachmentMesh.ParentStruct = &Attachment;
+
+	meta_struct_type* Structs[] = { &Attachment, &AttachmentMesh };
+	meta_parser_process_info Info = { 0 };
+	Info.Structs = Structs;
+	Info.StructCount = 2;
+
+	string Content = String_Lit(
+		"META_STRUCT(attachment_manager) {\n"
+		"    META_FOR(META_GET_STRUCTS_WITH_PARENT(attachment), flags: NoBraces) {\n"
+		"        META_VARIABLE(entity_pool<${META_ENTRY_TYPE}>, ${META_ENTRY_TYPE:pascal}Pool);\n"
+		"    }\n"
+		"    META_VARIABLE(hashmap<string, u32>, Map);\n"
+		"    META_VARIABLE(entity_pool<hashmap<string, u32>>, NestedPool);\n"
+		"}\n"
+	);
+
+	meta_parser Parser = { 0 };
+	ASSERT_TRUE(Meta_Test_Parse(Arena, Content, &Info, &Parser));
+
+	meta_struct_type* Manager = Meta_Test_Find_Struct(&Parser, String_Lit("attachment_manager"));
+	ASSERT_TRUE(Manager != NULL);
+	ASSERT_EQ(Manager->EntryCount, (size_t)3);
+
+	meta_variable_entry* Entry = Manager->FirstEntry;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("entity_pool<attachment_mesh>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("Attachment_MeshPool")));
+
+	Entry = Entry->Next;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("hashmap<string,u32>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("Map")));
+
+	Entry = Entry->Next;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("entity_pool<hashmap<string,u32>>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("NestedPool")));
+	ASSERT_TRUE(Entry->Next == NULL);
+
+	Arena_Delete(Arena);
+}
+
+UTEST(Meta_Parser, MacroTemplateTypeArgument) {
+	arena* Arena = Arena_Create(String_Lit("Meta Test"));
+
+	string Content = String_Lit(
+		"META_MACRO(MAKE_POOL, type, name) {\n"
+		"    META_VARIABLE(${type}, ${name});\n"
+		"}\n"
+		"META_STRUCT(holder) {\n"
+		"    MAKE_POOL(hashmap<string, u32>, Map);\n"
+		"}\n"
+	);
+
+	meta_parser Parser = { 0 };
+	ASSERT_TRUE(Meta_Test_Parse(Arena, Content, NULL, &Parser));
+
+	meta_struct_type* Holder = Meta_Test_Find_Struct(&Parser, String_Lit("holder"));
+	ASSERT_TRUE(Holder != NULL);
+	ASSERT_EQ(Holder->EntryCount, (size_t)1);
+
+	meta_variable_entry* Entry = Holder->FirstEntry;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("hashmap<string,u32>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("Map")));
+
+	Arena_Delete(Arena);
+}
+
+function b32 Source_Test_Parse(arena* Arena, string Content, source_parser* Parser) {
+	Source_Parser_Init_Globals(Arena);
+	G_ErrorStream = SStream_Writer_Begin((allocator*)Arena);
+	Memory_Clear(Parser, sizeof(source_parser));
+
+	b32 Result = Source_Parser_Parse(Parser, String_Lit("test.h"), Content, Arena);
+	if (!Result) {
+		string ErrorText = SStream_Writer_Join(&G_ErrorStream, (allocator*)Arena, String_Lit("\n"));
+		printf("%.*s\n", (int)ErrorText.Size, ErrorText.Ptr);
+		return false;
+	}
+	return true;
+}
+
+UTEST(Source_Parser, TemplateFieldTypes) {
+	arena* Arena = Arena_Create(String_Lit("Source Test"));
+
+	string Content = String_Lit(
+		"Meta()\n"
+		"struct template_fields {\n"
+		"    array<material> Materials;\n"
+		"    hashmap<string, u32> Map;\n"
+		"    entity_pool<hashmap<string, u32>> NestedPool;\n"
+		"};\n"
+	);
+
+	source_parser Parser = { 0 };
+	ASSERT_TRUE(Source_Test_Parse(Arena, Content, &Parser));
+
+	string StructName = String_Lit("template_fields");
+	source_struct_type* Struct = NULL;
+	ASSERT_TRUE(Hashmap_Find(&Parser.StructMap, &StructName, &Struct));
+	ASSERT_TRUE(Struct != NULL);
+	ASSERT_TRUE(Struct->Struct != NULL);
+	ASSERT_EQ(Struct->Struct->EntryCount, (size_t)3);
+
+	meta_variable_entry* Entry = Struct->Struct->FirstEntry;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("array<material>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("Materials")));
+
+	Entry = Entry->Next;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("hashmap<string,u32>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("Map")));
+
+	Entry = Entry->Next;
+	ASSERT_TRUE(Entry != NULL);
+	ASSERT_TRUE(String_Equals(Entry->Type, String_Lit("entity_pool<hashmap<string,u32>>")));
+	ASSERT_TRUE(String_Equals(Entry->Name, String_Lit("NestedPool")));
+	ASSERT_TRUE(Entry->Next == NULL);
+
+	Arena_Delete(Arena);
+}
+
+UTEST(Source_Parser, StructAndEnumTags) {
+	arena* Arena = Arena_Create(String_Lit("Source Test"));
+
+	string Content = String_Lit(
+		"Meta()\n"
+		"Tags(count: 5, tagName)\n"
+		"struct tagged_struct {\n"
+		"    s32 Value;\n"
+		"};\n"
+		"Meta()\n"
+		"Tags(serialize, kind: mesh)\n"
+		"enum tagged_enum {\n"
+		"    TAGGED_ENUM_A,\n"
+		"    TAGGED_ENUM_B,\n"
+		"};\n"
+	);
+
+	source_parser Parser = { 0 };
+	ASSERT_TRUE(Source_Test_Parse(Arena, Content, &Parser));
+
+	string StructName = String_Lit("tagged_struct");
+	source_struct_type* Struct = NULL;
+	ASSERT_TRUE(Hashmap_Find(&Parser.StructMap, &StructName, &Struct));
+	ASSERT_TRUE(Struct != NULL);
+	ASSERT_TRUE(Struct->Struct != NULL);
+	ASSERT_EQ(Struct->Struct->Tags.Count, (size_t)2);
+
+	meta_tag* Tag = Struct->Struct->Tags.First;
+	ASSERT_TRUE(Tag != NULL);
+	ASSERT_TRUE(String_Equals(Tag->Name, String_Lit("count")));
+	ASSERT_EQ(Tag->Values.Count, (size_t)1);
+	ASSERT_TRUE(String_Equals(Tag->Values.First->Value, String_Lit("5")));
+
+	Tag = Tag->Next;
+	ASSERT_TRUE(Tag != NULL);
+	ASSERT_TRUE(String_Equals(Tag->Name, String_Lit("tagName")));
+	ASSERT_EQ(Tag->Values.Count, (size_t)0);
+	ASSERT_TRUE(Tag->Next == NULL);
+
+	string EnumName = String_Lit("tagged_enum");
+	source_enum_type* Enum = NULL;
+	ASSERT_TRUE(Hashmap_Find(&Parser.EnumMap, &EnumName, &Enum));
+	ASSERT_TRUE(Enum != NULL);
+	ASSERT_TRUE(Enum->Enum != NULL);
+	ASSERT_EQ(Enum->Enum->Tags.Count, (size_t)2);
+
+	Tag = Enum->Enum->Tags.First;
+	ASSERT_TRUE(Tag != NULL);
+	ASSERT_TRUE(String_Equals(Tag->Name, String_Lit("serialize")));
+	ASSERT_EQ(Tag->Values.Count, (size_t)0);
+
+	Tag = Tag->Next;
+	ASSERT_TRUE(Tag != NULL);
+	ASSERT_TRUE(String_Equals(Tag->Name, String_Lit("kind")));
+	ASSERT_EQ(Tag->Values.Count, (size_t)1);
+	ASSERT_TRUE(String_Equals(Tag->Values.First->Value, String_Lit("mesh")));
+	ASSERT_TRUE(Tag->Next == NULL);
 
 	Arena_Delete(Arena);
 }
