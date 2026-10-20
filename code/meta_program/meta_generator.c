@@ -34,6 +34,73 @@ function void Meta_Generator_Emit_Newline_At_Scope(sstream_writer* Writer, int T
 	Meta_Generator_Emit_Tabs(Writer, TabCount);
 }
 
+function void Meta_Generator_Emit_Function_Signature(sstream_writer* Writer, meta_function_type* Function) {
+	Assert(!(Function->IsExport && Function->IsInline));
+
+	string Linkage;
+	if (Function->IsExport) {
+		Linkage = String_Lit("export_function");
+	} else if (Function->IsInline) {
+		Linkage = String_Lit("function inline");
+	} else {
+		Linkage = String_Lit("function");
+	}
+
+	SStream_Writer_Add(Writer, Linkage);
+	SStream_Writer_Add_Format(Writer, " %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
+	for (meta_parameter* Parameter = Function->FirstParameter; Parameter; Parameter = Parameter->Next) {
+		if (Parameter == Function->LastParameter) {
+			SStream_Writer_Add_Format(Writer, "%.*s %.*s", Parameter->Type.Size, Parameter->Type.Ptr,
+									  Parameter->Name.Size, Parameter->Name.Ptr);
+		} else {
+			SStream_Writer_Add_Format(Writer, "%.*s %.*s, ", Parameter->Type.Size, Parameter->Type.Ptr,
+									  Parameter->Name.Size, Parameter->Name.Ptr);
+		}
+	}
+	SStream_Writer_Add(Writer, String_Lit(")"));
+}
+
+function void Meta_Generator_Emit_Function_Body(sstream_writer* Writer, meta_function_type* Function) {
+	SStream_Writer_Add(Writer, String_Lit(" {"));
+
+	int TabCount = 1;
+	meta_token_list CodeTokenList = Function->CodeTokens;
+	size_t CodeTokenIndex = 0;
+	for (meta_token* CodeToken = CodeTokenList.First; CodeToken && CodeTokenIndex < CodeTokenList.Count; CodeToken = CodeToken->Next, CodeTokenIndex++) {
+		if (CodeToken->Type == '\n') {
+			Meta_Generator_Emit_Newline_At_Scope(Writer, TabCount);
+			continue;
+		}
+
+		if (CodeToken->Type == '}') {
+			Assert(TabCount > 0);
+			TabCount--;
+		}
+
+		if (CodeToken->Type == META_TOKEN_TYPE_PREPROCESSOR) {
+			Meta_Generator_Emit_Leading_Whitespace(Writer, CodeToken->LeadingWhitespace, TabCount);
+			SStream_Writer_Add_Format(Writer, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
+
+			//todo: Fix this. Its some ugly hacky shit. I don't like the
+			//preprocessor token type either. So probably remove that
+			if (!String_Equals(CodeToken->Identifier, String_Lit("#endif"))) {
+				CodeToken = CodeToken->Next;
+				CodeTokenIndex++;
+				SStream_Writer_Add_Format(Writer, " %.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
+			}
+		} else {
+			Meta_Generator_Emit_Leading_Whitespace(Writer, CodeToken->LeadingWhitespace, TabCount);
+			SStream_Writer_Add_Format(Writer, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
+		}
+
+		if (CodeToken->Type == '{') {
+			TabCount++;
+		}
+	}
+
+	SStream_Writer_Add(Writer, String_Lit("\n}\n"));
+}
+
 function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* Parser) {
 	arena* Scratch = Scratch_Get();
 
@@ -86,18 +153,12 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 		meta_function_type* Function;
 		Hashmap_Get_Value(&Parser->FunctionMap, i, &Function);
 
-		SStream_Writer_Add(&HeaderWriter, Function->IsExport ? String_Lit("export_function") : String_Lit("function"));
-		SStream_Writer_Add_Format(&HeaderWriter, " %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
-		for (meta_parameter* Parameter = Function->FirstParameter; Parameter; Parameter = Parameter->Next) {
-			if (Parameter == Function->LastParameter) {
-				SStream_Writer_Add_Format(&HeaderWriter, "%.*s %.*s", Parameter->Type.Size, Parameter->Type.Ptr,
-										  Parameter->Name.Size, Parameter->Name.Ptr);
-			} else {
-				SStream_Writer_Add_Format(&HeaderWriter, "%.*s %.*s, ", Parameter->Type.Size, Parameter->Type.Ptr,
-										  Parameter->Name.Size, Parameter->Name.Ptr);
-			}
+		Meta_Generator_Emit_Function_Signature(&HeaderWriter, Function);
+		if (Function->IsInline) {
+			Meta_Generator_Emit_Function_Body(&HeaderWriter, Function);
+		} else {
+			SStream_Writer_Add(&HeaderWriter, String_Lit(";\n"));
 		}
-		SStream_Writer_Add(&HeaderWriter, String_Lit(");\n"));
 	}
 
 	sstream_writer SourceWriter = SStream_Writer_Begin((allocator*)Scratch);
@@ -105,55 +166,12 @@ function meta_file_source Meta_Generate_Source(arena* SourceArena, meta_parser* 
 		meta_function_type* Function;
 		Hashmap_Get_Value(&Parser->FunctionMap, i, &Function);
 
-		SStream_Writer_Add(&SourceWriter, Function->IsExport ? String_Lit("export_function") : String_Lit("function"));
-		SStream_Writer_Add_Format(&SourceWriter, " %.*s %.*s(", Function->ReturnType.Size, Function->ReturnType.Ptr, Function->Name.Size, Function->Name.Ptr);
-		for (meta_parameter* Parameter = Function->FirstParameter; Parameter; Parameter = Parameter->Next) {
-			if (Parameter == Function->LastParameter) {
-				SStream_Writer_Add_Format(&SourceWriter, "%.*s %.*s", Parameter->Type.Size, Parameter->Type.Ptr,
-										  Parameter->Name.Size, Parameter->Name.Ptr);
-			} else {
-				SStream_Writer_Add_Format(&SourceWriter, "%.*s %.*s, ", Parameter->Type.Size, Parameter->Type.Ptr,
-										  Parameter->Name.Size, Parameter->Name.Ptr);
-			}
-		}
-		SStream_Writer_Add(&SourceWriter, String_Lit(") {"));
-
-		int TabCount = 1;
-		meta_token_list CodeTokenList = Function->CodeTokens;
-		size_t CodeTokenIndex = 0;
-		for (meta_token* CodeToken = CodeTokenList.First; CodeToken && CodeTokenIndex < CodeTokenList.Count; CodeToken = CodeToken->Next, CodeTokenIndex++) {
-			if (CodeToken->Type == '\n') {
-				Meta_Generator_Emit_Newline_At_Scope(&SourceWriter, TabCount);
-				continue;
-			}
-
-			if (CodeToken->Type == '}') {
-				Assert(TabCount > 0);
-				TabCount--;
-			}
-
-			if (CodeToken->Type == META_TOKEN_TYPE_PREPROCESSOR) {
-				Meta_Generator_Emit_Leading_Whitespace(&SourceWriter, CodeToken->LeadingWhitespace, TabCount);
-				SStream_Writer_Add_Format(&SourceWriter, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
-
-				//todo: Fix this. Its some ugly hacky shit. I don't like the
-				//preprocessor token type either. So probably remove that
-				if (!String_Equals(CodeToken->Identifier, String_Lit("#endif"))) {
-					CodeToken = CodeToken->Next;
-					CodeTokenIndex++;
-					SStream_Writer_Add_Format(&SourceWriter, " %.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
-				}
-			} else {
-				Meta_Generator_Emit_Leading_Whitespace(&SourceWriter, CodeToken->LeadingWhitespace, TabCount);
-				SStream_Writer_Add_Format(&SourceWriter, "%.*s", CodeToken->Identifier.Size, CodeToken->Identifier.Ptr);
-			}
-
-			if (CodeToken->Type == '{') {
-				TabCount++;
-			}
+		if (Function->IsInline) {
+			continue;
 		}
 
-		SStream_Writer_Add(&SourceWriter, String_Lit("\n}\n"));
+		Meta_Generator_Emit_Function_Signature(&SourceWriter, Function);
+		Meta_Generator_Emit_Function_Body(&SourceWriter, Function);
 	}
 
 	string Header = SStream_Writer_Join(&HeaderWriter, (allocator*)SourceArena, String_Empty());

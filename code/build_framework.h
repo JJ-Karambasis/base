@@ -94,7 +94,7 @@
 
   Or fill a build_target and call Build_Target().
 
-  Rebuild skipping uses mtimes unless Ctx->Force is set.
+  Compile, archive, and link always run.
 
 --------------------------------------------------------------------------------
   Shelling out
@@ -1337,11 +1337,6 @@ static void Build__Push_Compile_Flags(build_context* Ctx, build_cmd* Cmd, build_
 }
 
 build_b32 Build_Compile(build_context* Ctx, build_compile_opts* Opts, build_string SrcPath, build_string ObjPath) {
-    build_string Inputs[] = {SrcPath};
-    if (!Build_Needs_Rebuild(Ctx, ObjPath, Inputs, 1)) {
-        Build_Log("skip compile %.*s", (int)ObjPath.Size, ObjPath.Ptr);
-        return 1;
-    }
     build_string ObjDir = Build__Arena_Str(Ctx, ObjPath.Ptr, ObjPath.Size);
     for (size_t Index = ObjDir.Size; Index > 0; Index--) {
         if (ObjDir.Ptr[Index - 1] == '\\' || ObjDir.Ptr[Index - 1] == '/') {
@@ -1382,13 +1377,8 @@ build_b32 Build_Compile_Many(build_context* Ctx, build_compile_opts* Opts, build
         build_string Stem = Build__Stem(Ctx, Src);
         build_string Obj = Build_Obj_Path(Ctx, &Opts->Toolchain, ObjDir, Stem);
         Build_Str_List_Push(Ctx, OutObjs, Obj);
-        build_string Inputs[] = {Src};
-        if (Build_Needs_Rebuild(Ctx, Obj, Inputs, 1)) {
-            Build_Str_List_Push(Ctx, &DirtySrcs, Src);
-            Build_Str_List_Push(Ctx, &DirtyObjs, Obj);
-        } else {
-            Build_Log("skip compile %.*s", (int)Obj.Size, Obj.Ptr);
-        }
+        Build_Str_List_Push(Ctx, &DirtySrcs, Src);
+        Build_Str_List_Push(Ctx, &DirtyObjs, Obj);
     }
     if (DirtySrcs.Count == 0) return 1;
 
@@ -1442,10 +1432,6 @@ build_b32 Build_Compile_Many(build_context* Ctx, build_compile_opts* Opts, build
 }
 
 build_b32 Build_Archive(build_context* Ctx, const build_toolchain* Tc, build_str_list* Objs, build_string LibPath) {
-    if (!Build_Needs_Rebuild_List(Ctx, LibPath, Objs)) {
-        Build_Log("skip archive %.*s", (int)LibPath.Size, LibPath.Ptr);
-        return 1;
-    }
     build_cmd Cmd = {0};
     if (Tc->Compiler == BUILD_COMPILER_MSVC || (Build_Os() == BUILD_OS_WIN32 && Build_Str_Eq_Lit(Tc->AR, "lib"))) {
         Build_Cmd_Push(Ctx, &Cmd, Tc->AR);
@@ -1466,19 +1452,6 @@ build_b32 Build_Archive(build_context* Ctx, const build_toolchain* Tc, build_str
 }
 
 build_b32 Build_Link(build_context* Ctx, build_link_opts* Opts) {
-    if (!Ctx->Force && !Build_Needs_Rebuild_List(Ctx, Opts->OutPath, &Opts->Objects)) {
-        build_b32 Needs = 0;
-        uint64_t OutTime = Build_File_Mtime(Opts->OutPath);
-        if (OutTime == 0) Needs = 1;
-        for (int LibIndex = 0; LibIndex < Opts->Libs.Count && !Needs; LibIndex++) {
-            build_string Lib = Opts->Libs.Items[LibIndex];
-            if (Build_Is_File(Lib) && Build_File_Mtime(Lib) > OutTime) Needs = 1;
-        }
-        if (!Needs) {
-            Build_Log("skip link %.*s", (int)Opts->OutPath.Size, Opts->OutPath.Ptr);
-            return 1;
-        }
-    }
     build_toolchain* Tc = &Opts->Toolchain;
     build_string Driver = Opts->Cpp ? Tc->CXX : Tc->CC;
     build_cmd Cmd = {0};
@@ -1534,14 +1507,6 @@ build_b32 Build_Link(build_context* Ctx, build_link_opts* Opts) {
 }
 
 build_b32 Build_Compile_And_Link(build_context* Ctx, build_compile_opts* CompileOpts, build_link_opts* LinkOpts, build_string SrcPath) {
-    build_str_list Inputs = {0};
-    Build_Str_List_Push(Ctx, &Inputs, SrcPath);
-    for (int LibIndex = 0; LibIndex < LinkOpts->Libs.Count; LibIndex++) Build_Str_List_Push(Ctx, &Inputs, LinkOpts->Libs.Items[LibIndex]);
-    if (!Build_Needs_Rebuild_List(Ctx, LinkOpts->OutPath, &Inputs) && !Ctx->Force) {
-        Build_Log("skip compile+link %.*s", (int)LinkOpts->OutPath.Size, LinkOpts->OutPath.Ptr);
-        return 1;
-    }
-
     /* Keep intermediates next to /out (not process CWD — often the repo root). */
     build_string OutDir = Build_Str_Lit(".");
     for (size_t Index = LinkOpts->OutPath.Size; Index > 0; Index--) {

@@ -360,6 +360,10 @@ export_function gdi_shader Render_Get_Shader(gdi_render_pass* RenderPass) {
 }
 
 export_function void Render_Set_Shader(gdi_render_pass* RenderPass, gdi_shader Shader) {
+	// Push constants belong to the shader that set them. A later draw must not inherit them.
+	if (!GDI_Is_Equal(RenderPass->CurrentState.Shader, Shader)) {
+		RenderPass->CurrentState.PushConstantCount = 0;
+	}
 	RenderPass->CurrentState.Shader = Shader;
 }
 

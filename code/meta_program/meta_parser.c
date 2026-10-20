@@ -20,6 +20,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_VARIABLE"),
 		String_Lit("META_FUNCTION"),
 		String_Lit("META_EXPORT_FUNCTION"),
+		String_Lit("META_INLINE_FUNCTION"),
 		String_Lit("->"),
 		String_Lit("META_FOR"),
 		String_Lit("META_ENTRY_NAME"),
@@ -36,6 +37,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_TOKEN_TYPE_VARIABLE_ENTRY,
 		META_TOKEN_TYPE_FUNCTION,
 		META_TOKEN_TYPE_EXPORT_FUNCTION,
+		META_TOKEN_TYPE_INLINE_FUNCTION,
 		META_TOKEN_TYPE_RETURN_ARROW,
 		META_TOKEN_TYPE_FOR,
 		META_TOKEN_TYPE_VARIABLE_ENTRY_NAME,
@@ -55,12 +57,14 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 	string ReplacementAttributes[] = {
 		String_Lit("pascal"),
 		String_Lit("upper"),
-		String_Lit("lower")
+		String_Lit("lower"),
+		String_Lit("no_separator")
 	};
 	meta_token_flag ReplacementFlags[] = {
 		META_TOKEN_FLAG_PASCAL,
 		META_TOKEN_FLAG_UPPER,
-		META_TOKEN_FLAG_LOWER
+		META_TOKEN_FLAG_LOWER,
+		META_TOKEN_FLAG_NO_SEPARATOR
 	};
 	Static_Assert(Array_Count(ReplacementAttributes) == Array_Count(ReplacementFlags));
 	for (size_t i = 0; i < Array_Count(ReplacementAttributes); i++) {
@@ -94,6 +98,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_ENTRY_SHORT_NAME_SUBSTR_CHAR"),
 		String_Lit("META_GET_TAG_VALUE"),
 		String_Lit("META_ENTRY_VARIABLE_TYPE"),
+		String_Lit("META_ENTRY_TYPE_SUBSTR_CHAR"),
+		String_Lit("META_ENTRY_TYPE_SUBSTR_LAST_CHAR"),
 		String_Lit("META_ENTRY_TYPE_SUBSTR_AFTER_CHAR")
 	};
 	meta_for_loop_replacement_metadata ForLoopReplacementsMetadata[] = {
@@ -103,6 +109,8 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		{ META_FOR_LOOP_REPLACEMENT_SHORT_NAME_SUBSTR_CHAR, META_FOR_LOOP_SUPPORT_ENUM },
 		{ META_FOR_LOOP_REPLACEMENT_GET_TAG_VALUE, META_FOR_LOOP_SUPPORT_ALL },
 		{ META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE, META_FOR_LOOP_SUPPORT_STRUCT },
+		{ META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_CHAR, META_FOR_LOOP_SUPPORT_STRUCT },
+		{ META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_LAST_CHAR, META_FOR_LOOP_SUPPORT_STRUCT },
 		{ META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR, META_FOR_LOOP_SUPPORT_STRUCT }
 	};
 	Static_Assert(Array_Count(ForLoopReplacementsMetadata) == Array_Count(ForLoopReplacementsStr));
@@ -137,6 +145,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		String_Lit("META_IS_UNION"),
 		String_Lit("META_IS_ENUM"),
 		String_Lit("META_IS_ARRAY"),
+		String_Lit("META_IS_TEMPLATE"),
 		String_Lit("META_IS_TYPE"),
 		String_Lit("META_IS_NOT_TYPE"),
 		String_Lit("META_IS_NAME"),
@@ -155,6 +164,7 @@ function void Meta_Parser_Init_Globals(arena* Arena) {
 		META_IS_UNION_PREDICATE,
 		META_IS_ENUM_PREDICATE,
 		META_IS_ARRAY_PREDICATE,
+		META_IS_TEMPLATE_PREDICATE,
 		META_IS_TYPE_PREDICATE,
 		META_IS_NOT_TYPE_PREDICATE,
 		META_IS_NAME_PREDICATE,
@@ -270,6 +280,23 @@ function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Array_Predicate) {
 	return Entry->IsArray;
 }
 
+function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Template_Predicate) {
+	if(Parameters.Count != 1) {
+		Report_Error(Parser->Tokenizer->FilePath, LineNumber, "META_IS_TEMPLATE expected 1 parameter");
+		return false;
+	}
+
+	string TemplateName = Parameters.First->String;
+	string Type = Entry->Type;
+	if(!String_Starts_With(Type, TemplateName)) {
+		return false;
+	}
+	if(Type.Size <= TemplateName.Size) {
+		return false;
+	}
+	return Type.Ptr[TemplateName.Size] == '<';
+}
+
 function META_PARSER_PREDICATE_DEFINE(Meta_Parser_Contains_Is_Type_Predicate) {
 	return String_Equals(Parameters.First->String, Entry->Type);
 }
@@ -339,6 +366,7 @@ function meta_parser_predicate_func* Meta_Parser_Get_Predicate(string PredicateN
 		Meta_Parser_Contains_Is_Union_Predicate,
 		Meta_Parser_Contains_Is_Enum_Predicate,
 		Meta_Parser_Contains_Is_Array_Predicate,
+		Meta_Parser_Contains_Is_Template_Predicate,
 		Meta_Parser_Contains_Is_Type_Predicate,
 		Meta_Parser_Contains_Is_Not_Type_Predicate,
 		Meta_Parser_Contains_Is_Name_Predicate,
@@ -562,7 +590,7 @@ function meta_token* Meta_Add_Replacement_Token(meta_tokenizer* Tokenizer, meta_
 			} break;
             
 			case ':': {
-				if (!StartedIdentifier || GotAttributes) {
+				if (!StartedIdentifier) {
 					Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid replacement token");
 					return NULL;
 				}
@@ -1063,6 +1091,10 @@ function string Meta_Get_Replacement_Identifier(arena* Arena, meta_token_flag Fl
 		Identifier = String_Pascal_Case((allocator*)Arena, Identifier);
 	}
     
+	if (Flags & META_TOKEN_FLAG_NO_SEPARATOR) {
+		Identifier = String_Replace((allocator*)Arena, Identifier, String_Lit("_"), String_Empty());
+	}
+    
 	if (Flags & META_TOKEN_FLAG_UPPER) {
 		Identifier = String_Upper_Case((allocator*)Arena, Identifier);
 	}
@@ -1169,6 +1201,8 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 										   String_Substr(Entry->ShortName, 0, CharEntry));
 		} break;
 
+		case META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_CHAR: 
+		case META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_LAST_CHAR:
 		case META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR: {
 			if (Token->Parameters.Count != 1) {
 				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Invalid amount of parameters for META_ENTRY_SHORT_NAME_SUBSTR_CHAR. Expected '1', got '%d'", Token->Parameters.Count);
@@ -1182,15 +1216,22 @@ function b32 Meta_Get_Replacement_Value(meta_parser* Parser, meta_token* Token, 
 			}
             
 			string Type = Entry->Type;
-			size_t CharEntry = String_Find_First_Char(Type, Parameter.Ptr[0]);
-			if (CharEntry == STRING_INVALID_INDEX) {
-				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Could not find '_' in type entry '%.*s'", Parameter.Ptr[0], Type.Size, Type.Ptr);
+			size_t CharIndex = Replacement == META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_LAST_CHAR ? 
+				String_Find_Last_Char(Type, Parameter.Ptr[0]) : String_Find_First_Char(Type, Parameter.Ptr[0]);
+			if (CharIndex == STRING_INVALID_INDEX) {
+				Report_Error(Tokenizer->FilePath, Token->LineNumber, "Could not find '_' in type entry '%.*s'", Type.Size, Type.Ptr);
 				return false;
 			}
             
-			ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
-										   String_Substr(Type, CharEntry+1, Type.Size));
+			if(Replacement == META_FOR_LOOP_REPLACEMENT_TYPE_SUBSTR_AFTER_CHAR) {
+				ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
+											String_Substr(Type, CharIndex+1, Type.Size));
+			} else {
+				ReplacementValue = String_Copy((allocator*)Tokenizer->Arena, 
+										   String_Substr(Type, 0, CharIndex));
+			}
 		} break;
+
         
 		case META_FOR_LOOP_REPLACEMENT_VARIABLE_TYPE: {
 			if (Token->Parameters.Count != 1) {
@@ -2560,7 +2601,9 @@ function meta_token* Meta_Parse_And_Expand_For(meta_parser* Parser, meta_token* 
 }
 
 function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token) {
-	Assert(Token->Type == META_TOKEN_TYPE_FUNCTION || Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION);
+	Assert(Token->Type == META_TOKEN_TYPE_FUNCTION ||
+		   Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION ||
+		   Token->Type == META_TOKEN_TYPE_INLINE_FUNCTION);
     
 	meta_token_iter TokenIter = Meta_Begin_Simple_Token_Iter(Token->Next);
 	if (!Meta_Check_Token(TokenIter.Token, '(')) {
@@ -2586,6 +2629,7 @@ function meta_token* Meta_Parse_Function(meta_parser* Parser, meta_token* Token)
 	Function = Arena_Push_Struct(Parser->Arena, meta_function_type);
 	Function->Name = String_Copy((allocator*)Parser->Arena, FunctionName);
 	Function->IsExport = Token->Type == META_TOKEN_TYPE_EXPORT_FUNCTION;
+	Function->IsInline = Token->Type == META_TOKEN_TYPE_INLINE_FUNCTION;
 	
 	Meta_Token_Iter_Move_Next(&TokenIter);
     if(!Meta_Check_Token(TokenIter.Token, ')')) {
@@ -2883,7 +2927,8 @@ function meta_token* Meta_Parse_Struct_Or_Global(meta_parser* Parser, meta_token
 			} break;
             
 			case META_TOKEN_TYPE_FUNCTION: 
-			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
+			case META_TOKEN_TYPE_EXPORT_FUNCTION:
+			case META_TOKEN_TYPE_INLINE_FUNCTION: {
 				meta_token* StructToken = Meta_Parse_Function(Parser, TokenIter.Token);
 				TokenIter = Meta_Begin_Simple_Token_Iter(StructToken);
 			} break;
@@ -2938,7 +2983,8 @@ function b32 Meta_Parser_Evaluate(meta_parser* Parser) {
 			} break;
             
 			case META_TOKEN_TYPE_FUNCTION:
-			case META_TOKEN_TYPE_EXPORT_FUNCTION: {
+			case META_TOKEN_TYPE_EXPORT_FUNCTION:
+			case META_TOKEN_TYPE_INLINE_FUNCTION: {
 				Token = Meta_Parse_Function(Parser, Token);
 			} break;
             

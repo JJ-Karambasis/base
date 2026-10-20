@@ -228,9 +228,10 @@ function void ImGui_ImplGDI_SetupRenderState(gdi_render_pass* RenderPass, ImDraw
     Render_Set_Idx_Buffer(RenderPass, RenderBuffers->IdxBuffer, sizeof(ImDrawIdx) == 2 ? GDI_IDX_FORMAT_16_BIT : GDI_IDX_FORMAT_32_BIT);
     
     struct { v2 Scale; v2 Translate; } PushConstants;
-    PushConstants.Scale = V2(2.0f / DrawData->DisplaySize.x, 2.0f / DrawData->DisplaySize.y);
+    // Clip +Y is up. ImGui y grows down the screen, so the Y scale is negative.
+    PushConstants.Scale = V2(2.0f / DrawData->DisplaySize.x, -2.0f / DrawData->DisplaySize.y);
     PushConstants.Translate = V2(-1.0f - DrawData->DisplayPos.x * PushConstants.Scale.x,
-                                 -1.0f - DrawData->DisplayPos.y * PushConstants.Scale.y);
+                                 1.0f - DrawData->DisplayPos.y * PushConstants.Scale.y);
     Render_Set_Push_Constants(RenderPass, &PushConstants, sizeof(PushConstants));
 }
 

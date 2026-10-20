@@ -3153,9 +3153,12 @@ function GDI_BACKEND_END_RENDER_PASS_DEFINE(VK_End_Render_Pass) {
     
 	vkBeginCommandBuffer(VkRenderPass->CmdBuffer, &BeginInfo);
     
+	// Negative height puts clip +Y at the top, matching D3D12 and Metal. Vulkan 1.1.
+	f32 ViewportHeight = (f32)VkRenderPass->Dim.y;
 	VkViewport Viewport = {
+		.y = ViewportHeight,
 		.width = (f32)VkRenderPass->Dim.x,
-		.height = (f32)VkRenderPass->Dim.y,
+		.height = -ViewportHeight,
 		.maxDepth = 1.0f
 	};
     

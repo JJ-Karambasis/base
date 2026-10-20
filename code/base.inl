@@ -196,6 +196,14 @@ struct span {
 		Assert(Index < Count);
 		return Ptr[Index];
 	}
+
+    inline const type* begin() const {
+        return Ptr;
+    }
+
+    inline const type* end() const {
+        return Ptr + Count;
+    }
 };
 
 template <typename type>
@@ -271,6 +279,19 @@ template <typename type>
 function inline void Array_Init(static_array<type>* Array, type* Ptr, size_t Count) {
     Array->Ptr = Ptr;
     Array->Count = Count;
+}
+
+template <typename type>
+function inline void Array_Alloc(static_array<type>* Array, allocator* Allocator, size_t Count) {
+    type* Ptr = Allocator_Allocate_Array(Allocator, Count, type);
+    Array_Init(Array, Ptr, Count);
+}
+
+template <typename type>
+function inline void Array_Free(allocator* Allocator, static_array<type>* Array) {
+    Allocator_Free_Memory(Allocator, Array->Ptr);
+    Array->Ptr = NULL;
+    Array->Count = 0;
 }
 
 template <typename type>
@@ -647,6 +668,146 @@ struct fixed_pool {
 		return {};
 	}
 };
+
+// Type-erased view of a fixed_pool. Bind once per type, then walk slots linearly.
+struct typed_pool_ref {
+	u32 MaxUsed;
+	u32 Count;
+	u8* Entries;
+	u32 EntryStride;
+	u32 ItemOffset;
+};
+
+function inline b32 Typed_Pool_Slot_Allocated(typed_pool_ref Pool, u32 Index) {
+	pool_id* ID = (pool_id*)(Pool.Entries + (size_t)Index * Pool.EntryStride);
+	return ID->Index == Index;
+}
+
+function inline void* Typed_Pool_Slot_Item(typed_pool_ref Pool, u32 Index) {
+	return Pool.Entries + (size_t)Index * Pool.EntryStride + Pool.ItemOffset;
+}
+
+template<typename type, u32 Capacity>
+function inline typed_pool_ref Typed_Pool_Ref(fixed_pool<type, Capacity>* Pool) {
+	using entry_t = typename fixed_pool<type, Capacity>::entry;
+	return {
+		.MaxUsed = Pool->MaxUsed,
+		.Count = Pool->Count,
+		.Entries = (u8*)Pool->Entries,
+		.EntryStride = (u32)sizeof(entry_t),
+		.ItemOffset = (u32)Offset_Of(entry_t, Item),
+	};
+}
+
+// Pools to visit are gathered once into Pools[]; the cursor just walks that array.
+// MaxPools is the matching *_TYPE_COUNT enum value.
+template<typename item_t, u32 MaxPools>
+struct typed_pool_iter {
+	typed_pool_ref Pools[MaxPools];
+	u32 PoolCount;
+
+	struct cursor {
+		typed_pool_iter* Iter;
+		u32 PoolIndex;
+		u32 EntryIndex;
+		b32 IsValid;
+
+		inline void Find_Next() {
+			for(;;) {
+				typed_pool_ref Pool = Iter->Pools[PoolIndex];
+				while(EntryIndex < Pool.MaxUsed) {
+					if(Typed_Pool_Slot_Allocated(Pool, EntryIndex)) {
+						IsValid = true;
+						return;
+					}
+					EntryIndex++;
+				}
+
+				PoolIndex++;
+				EntryIndex = 0;
+				if(PoolIndex >= Iter->PoolCount) {
+					IsValid = false;
+					return;
+				}
+			}
+		}
+
+		inline item_t* operator*() const {
+			return (item_t*)Typed_Pool_Slot_Item(Iter->Pools[PoolIndex], EntryIndex);
+		}
+
+		inline cursor& operator++() {
+			EntryIndex++;
+			Find_Next();
+			return *this;
+		}
+
+		inline b32 operator!=(const cursor& Other) const {
+			return IsValid != Other.IsValid;
+		}
+	};
+
+	inline cursor begin() {
+		if(PoolCount == 0) {
+			return {};
+		}
+		cursor Result = { .Iter = this };
+		Result.Find_Next();
+		return Result;
+	}
+
+	inline cursor end() {
+		return {};
+	}
+};
+
+template<typename item_t, u32 TypeCount, typename type_t, typename manager_t>
+function inline void Typed_Pool_Iter_Gather_Include(
+	typed_pool_iter<item_t, TypeCount>* Iter, manager_t* Manager,
+	typed_pool_ref (*GetPoolRef)(manager_t* Manager, type_t Type),
+	span<type_t> IncludeTypes
+) {
+	Iter->PoolCount = 0;
+	if(IncludeTypes.Count == 0) {
+		for(u32 TypeIndex = 0; TypeIndex < TypeCount; TypeIndex++) {
+			Iter->Pools[Iter->PoolCount++] = GetPoolRef(Manager, (type_t)TypeIndex);
+		}
+	} else {
+		Assert(IncludeTypes.Count <= TypeCount);
+		for(size_t IncludeIndex = 0; IncludeIndex < IncludeTypes.Count; IncludeIndex++) {
+			Iter->Pools[Iter->PoolCount++] = GetPoolRef(Manager, IncludeTypes[IncludeIndex]);
+		}
+	}
+}
+
+template<typename item_t, u32 TypeCount, typename type_t, typename manager_t>
+function inline void Typed_Pool_Iter_Gather_Exclude(
+	typed_pool_iter<item_t, TypeCount>* Iter, manager_t* Manager,
+	typed_pool_ref (*GetPoolRef)(manager_t* Manager, type_t Type),
+	span<type_t> ExcludeTypes
+) {
+	u8 Excluded[TypeCount] = {};
+	for(size_t ExcludeIndex = 0; ExcludeIndex < ExcludeTypes.Count; ExcludeIndex++) {
+		Assert(ExcludeTypes[ExcludeIndex] < TypeCount);
+		Excluded[ExcludeTypes[ExcludeIndex]] = true;
+	}
+
+	Iter->PoolCount = 0;
+	for(u32 TypeIndex = 0; TypeIndex < TypeCount; TypeIndex++) {
+		if(!Excluded[TypeIndex]) {
+			Iter->Pools[Iter->PoolCount++] = GetPoolRef(Manager, (type_t)TypeIndex);
+		}
+	}
+}
+
+template<typename item_t, u32 MaxPools>
+function inline u32 Typed_Pool_Iter_Count(const typed_pool_iter<item_t, MaxPools>* Iter) {
+	u32 Count = 0;
+	for(u32 PoolIndex = 0; PoolIndex < Iter->PoolCount; PoolIndex++) {
+		Count += Iter->Pools[PoolIndex].Count;
+	}
+	return Count;
+}
 
 template<typename type, u32 Capacity>
 function inline void Pool_Init(fixed_pool<type, Capacity>* Pool) {
